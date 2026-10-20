@@ -1,0 +1,11 @@
+{
+  "name": "KEMPO PRo",
+  "description": "WhatsApp-inspired messaging experience crafted with dynamic red accents, full mobile PWA support, interactive chats, stories, calls, and Kempo AI.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
