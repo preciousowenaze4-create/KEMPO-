@@ -25,6 +25,7 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { PhoneMissed, MessageCircle } from 'lucide-react';
 import { AuthScreen } from './components/AuthScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
+import { isOwnerEmail, OWNER_FIXED_ID } from './lib/accountRules';
 import {
   realtimeService,
   IncomingCallEvent,
@@ -99,7 +100,12 @@ export default function App() {
       const cached = localStorage.getItem('kempo_user_profile');
       if (cached) {
         try {
-          return JSON.parse(cached);
+          const parsed = JSON.parse(cached);
+          const email = parsed.email || localStorage.getItem('kempo_auth_user') || '';
+          if (isOwnerEmail(email)) {
+            parsed.kempoId = OWNER_FIXED_ID;
+          }
+          return parsed;
         } catch (e) {
           console.error(e);
         }
@@ -249,16 +255,26 @@ export default function App() {
       if (session?.user) {
         setIsAuthenticated(true);
         setCurrentUserId(session.user.id);
-        setCurrentUserEmail(session.user.email || '');
+        const email = session.user.email || '';
+        setCurrentUserEmail(email);
+        const isOwner = isOwnerEmail(email);
         const meta = session.user.user_metadata || {};
-        const name = meta.full_name || meta.name || meta.display_name || session.user.email?.split('@')[0] || 'User';
+        const name =
+          meta.full_name ||
+          meta.name ||
+          meta.display_name ||
+          (isOwner ? 'Precious Ddkid' : 'Kempo User');
         setCurrentUserName(name);
-        localStorage.setItem('kempo_auth_user', session.user.email || '');
+        localStorage.setItem('kempo_auth_user', email);
         if (name) localStorage.setItem('kempo_auth_name', name);
 
         // Check if user is already onboarded
         const profile = await fetchUserProfile(session.user.id);
         if (profile && profile.isOnboarded && profile.kempoId && hasCompletedOnboarding()) {
+          if (isOwner) {
+            profile.kempoId = OWNER_FIXED_ID;
+            profile.accountType = 'creator';
+          }
           setUserProfile(profile);
           setShowOnboarding(false);
         } else {
@@ -311,6 +327,10 @@ export default function App() {
   };
 
   const handleOnboardingComplete = async (profile: UserProfileData) => {
+    if (isOwnerEmail(profile.email || currentUserEmail)) {
+      profile.kempoId = OWNER_FIXED_ID;
+      profile.accountType = 'creator';
+    }
     await saveFullUserProfile(profile);
     setUserProfile(profile);
     setCurrentUserName(profile.displayName);

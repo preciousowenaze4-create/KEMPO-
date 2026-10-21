@@ -17,7 +17,8 @@ import {
   Copy,
 } from 'lucide-react';
 import { AccountType, AppPreferences, UserProfileData } from '../types';
-import { uploadAvatarToSupabase, generateKempoId } from '../lib/supabase';
+import { uploadAvatarToSupabase } from '../lib/supabase';
+import { isOwnerEmail, assignUserKempoId, OWNER_FIXED_ID } from '../lib/accountRules';
 
 interface OnboardingFlowProps {
   userId: string;
@@ -34,17 +35,21 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   initialAvatar = '',
   onComplete,
 }) => {
+  const isOwner = isOwnerEmail(userEmail);
+
   // Current Step: 1 = Profile, 2 = Account Type, 3 = Preferences, 4 = Final ID Reveal
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
-  // Profile state
-  const [displayName, setDisplayName] = useState(initialName || userEmail.split('@')[0] || 'Kempo User');
+  // Profile state: Keep email strictly in the backend, never show raw email on frontend
+  const [displayName, setDisplayName] = useState(
+    initialName || (isOwner ? 'Precious Ddkid' : 'Kempo User')
+  );
   const [avatarUrl, setAvatarUrl] = useState(initialAvatar || '');
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Account Type state (Default to Personal)
-  const [accountType, setAccountType] = useState<AccountType>('personal');
+  // Account Type state (Default to Creator for owner, Personal for others)
+  const [accountType, setAccountType] = useState<AccountType>(isOwner ? 'creator' : 'personal');
 
   // Preferences state
   const [preferences, setPreferences] = useState<AppPreferences>({
@@ -91,7 +96,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   // Step 1 -> Step 2
   const handleNextFromProfile = () => {
     if (!displayName.trim()) {
-      setDisplayName(userEmail.split('@')[0] || 'Kempo User');
+      setDisplayName(isOwner ? 'Precious Ddkid' : 'Kempo User');
     }
     setStep(2);
   };
@@ -105,15 +110,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const handleFinishSetup = async () => {
     setIsFinishing(true);
 
-    const newKempoId = generateKempoId();
+    const newKempoId = assignUserKempoId(userEmail, displayName);
     setGeneratedId(newKempoId);
 
     const finalProfile: UserProfileData = {
       id: userId,
       email: userEmail,
-      displayName: displayName.trim() || userEmail.split('@')[0] || 'Kempo User',
+      displayName: displayName.trim() || (isOwner ? 'Precious Ddkid' : 'Kempo User'),
       avatarUrl,
-      accountType,
+      accountType: isOwner ? 'creator' : accountType,
       kempoId: newKempoId,
       preferences,
       isOnboarded: true,
@@ -517,14 +522,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             <Check className="w-10 h-10 text-white stroke-[3]" />
           </div>
 
-          <h2 className="text-2xl font-black text-white">You're All Set!</h2>
+          <h2 className="text-2xl font-black text-white">
+            {isOwner ? "Welcome, Kempo Pro Owner!" : "You're All Set!"}
+          </h2>
           <p className="text-xs text-neutral-400 mt-1 max-w-xs mx-auto">
-            Your unique KEMPO User ID has been generated and linked to your Supabase account.
+            {isOwner
+              ? "Your fixed official Owner ID 'kempo pro' has been assigned and verified."
+              : "Your unique KEMPO User ID has been generated and securely linked to your account."}
           </p>
 
           <div className="my-6 p-4 rounded-2xl bg-[#141417] border border-red-700/60 shadow-xl shadow-red-950/40 inline-flex flex-col items-center gap-1.5 w-full">
-            <span className="text-[11px] uppercase tracking-wider text-neutral-400 font-semibold">
-              Your Shareable User ID
+            <span className="text-[11px] uppercase tracking-wider text-neutral-400 font-semibold flex items-center gap-1">
+              {isOwner ? '👑 Official Owner User ID' : 'Your Shareable User ID'}
             </span>
             <div className="flex items-center gap-2">
               <span className="text-xl font-black text-white tracking-widest font-mono text-red-400">
@@ -538,8 +547,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 {copiedId ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
               </button>
             </div>
+            {isOwner && (
+              <span className="px-2.5 py-0.5 rounded-full bg-red-950/90 text-red-300 text-[10px] font-bold border border-red-700/80">
+                OFFICIAL KEMPO PRO OWNER & ADMIN
+              </span>
+            )}
             <span className="text-[10px] text-neutral-500">
-              Share this ID with friends to chat instantly!
+              {isOwner
+                ? 'Recognized as the application owner/admin.'
+                : 'Share this ID with friends to chat instantly!'}
             </span>
           </div>
 

@@ -95,14 +95,20 @@ export async function saveSupabaseUserProfile(user: any, name?: string) {
   }
 }
 
-// Generate a unique, shareable KEMPO User ID (e.g., KEMPO-XXXXXX)
-export function generateKempoId(): string {
-  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  let randomPart = '';
-  for (let i = 0; i < 6; i++) {
-    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+// Import account rules
+import {
+  isOwnerEmail,
+  assignUserKempoId,
+  generateStandardUserKempoId,
+  OWNER_FIXED_ID,
+} from './accountRules';
+
+// Generate or assign a shareable KEMPO User ID (fixed 'kempo pro' for owner, distinct appended ID for others)
+export function generateKempoId(email?: string, name?: string): string {
+  if (email && isOwnerEmail(email)) {
+    return OWNER_FIXED_ID;
   }
-  return `KEMPO-${randomPart}`;
+  return generateStandardUserKempoId(name);
 }
 
 // Default app preferences
@@ -148,29 +154,42 @@ export async function uploadAvatarToSupabase(file: File | Blob, userId: string):
 
 // Save complete user profile to Supabase auth metadata and profiles table
 export async function saveFullUserProfile(profile: UserProfileData): Promise<void> {
+  // Enforce account rules: owner always gets 'kempo pro', non-owners cannot mimic 'kempo pro'
+  let normalizedKempoId = profile.kempoId;
+  if (isOwnerEmail(profile.email)) {
+    normalizedKempoId = OWNER_FIXED_ID;
+  } else if (normalizedKempoId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
+    normalizedKempoId = generateStandardUserKempoId(profile.displayName);
+  }
+
+  const securedProfile: UserProfileData = {
+    ...profile,
+    kempoId: normalizedKempoId,
+  };
+
   try {
     // 1. Update Supabase Auth user metadata
     await supabase.auth.updateUser({
       data: {
-        display_name: profile.displayName,
-        full_name: profile.displayName,
-        avatar_url: profile.avatarUrl,
-        kempo_id: profile.kempoId,
-        account_type: profile.accountType,
-        preferences: profile.preferences,
+        display_name: securedProfile.displayName,
+        full_name: securedProfile.displayName,
+        avatar_url: securedProfile.avatarUrl,
+        kempo_id: securedProfile.kempoId,
+        account_type: securedProfile.accountType,
+        preferences: securedProfile.preferences,
         is_onboarded: true,
       },
     });
 
     // 2. Upsert into Supabase 'profiles' table
     const { error } = await supabase.from('profiles').upsert({
-      id: profile.id,
-      email: profile.email,
-      display_name: profile.displayName,
-      avatar_url: profile.avatarUrl,
-      account_type: profile.accountType,
-      kempo_id: profile.kempoId,
-      preferences: profile.preferences,
+      id: securedProfile.id,
+      email: securedProfile.email,
+      display_name: securedProfile.displayName,
+      avatar_url: securedProfile.avatarUrl,
+      account_type: securedProfile.accountType,
+      kempo_id: securedProfile.kempoId,
+      preferences: securedProfile.preferences,
       is_onboarded: true,
       updated_at: new Date().toISOString(),
     });
@@ -184,13 +203,13 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
 
   // 3. Cache locally for instant loading and offline capability
   if (typeof window !== 'undefined') {
-    localStorage.setItem('kempo_user_profile', JSON.stringify(profile));
+    localStorage.setItem('kempo_user_profile', JSON.stringify(securedProfile));
     localStorage.setItem('kempo_onboarded_completed', 'true');
-    localStorage.setItem('kempo_auth_user', profile.email);
-    localStorage.setItem('kempo_auth_name', profile.displayName);
-    localStorage.setItem('kempo_user_id', profile.kempoId);
-    if (profile.avatarUrl) {
-      localStorage.setItem('kempo_user_avatar', profile.avatarUrl);
+    localStorage.setItem('kempo_auth_user', securedProfile.email);
+    localStorage.setItem('kempo_auth_name', securedProfile.displayName);
+    localStorage.setItem('kempo_user_id', securedProfile.kempoId);
+    if (securedProfile.avatarUrl) {
+      localStorage.setItem('kempo_user_avatar', securedProfile.avatarUrl);
     }
   }
 }
@@ -203,7 +222,12 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
-        if (parsed.id === userId) return parsed;
+        if (parsed.id === userId) {
+          if (isOwnerEmail(parsed.email)) {
+            parsed.kempoId = OWNER_FIXED_ID;
+          }
+          return parsed;
+        }
       } catch (e) {
         console.error(e);
       }
@@ -219,18 +243,27 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
       .maybeSingle();
 
     if (!error && data) {
+      const email = data.email || '';
+      let assignedId = data.kempo_id;
+      if (isOwnerEmail(email)) {
+        assignedId = OWNER_FIXED_ID;
+      } else if (!assignedId || assignedId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
+        assignedId = generateStandardUserKempoId(data.display_name);
+      }
+
       const profile: UserProfileData = {
         id: data.id,
-        email: data.email || '',
-        displayName: data.display_name || 'Kempo User',
+        email,
+        displayName: data.display_name || (isOwnerEmail(email) ? 'Precious Ddkid' : 'Kempo User'),
         avatarUrl: data.avatar_url || '',
-        accountType: data.account_type || 'personal',
-        kempoId: data.kempo_id || generateKempoId(),
+        accountType: data.account_type || (isOwnerEmail(email) ? 'creator' : 'personal'),
+        kempoId: assignedId,
         preferences: data.preferences || DEFAULT_PREFERENCES,
         isOnboarded: Boolean(data.is_onboarded === true),
       };
       if (typeof window !== 'undefined') {
         localStorage.setItem('kempo_user_profile', JSON.stringify(profile));
+        localStorage.setItem('kempo_user_id', profile.kempoId);
       }
       return profile;
     }

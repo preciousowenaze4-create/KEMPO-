@@ -17,9 +17,18 @@ import {
   Shield,
   Image as ImageIcon,
   X,
+  Edit3,
+  AlertCircle,
+  Crown,
 } from 'lucide-react';
 import { UserProfileData, Chat, AppPreferences } from '../types';
 import { uploadAvatarToSupabase, saveFullUserProfile } from '../lib/supabase';
+import {
+  isOwnerEmail,
+  OWNER_FIXED_ID,
+  validateAndFormatUserId,
+  getBackendPrivacyStatus,
+} from '../lib/accountRules';
 
 interface YouTabProps {
   onOpenPwaGuide: () => void;
@@ -62,10 +71,21 @@ export const YouTab: React.FC<YouTabProps> = ({
   onAddContactById,
   onOpenChat,
 }) => {
-  const displayName = userProfile?.displayName || currentUserName || 'Precious Ddkid';
-  const displayEmail = userProfile?.email || currentUserEmail || 'preciousddkid@gmail.com';
-  const kempoId = userProfile?.kempoId || 'KEMPO-PRO';
-  const accountType = userProfile?.accountType || 'creator';
+  // Determine if this account is the recognized application owner
+  const rawEmail = userProfile?.email || currentUserEmail || '';
+  const isOwner =
+    isOwnerEmail(rawEmail) ||
+    userProfile?.kempoId?.toLowerCase() === OWNER_FIXED_ID.toLowerCase();
+
+  // For owner, fixed ID is always 'kempo pro'
+  const kempoId = isOwner
+    ? OWNER_FIXED_ID
+    : userProfile?.kempoId || 'KEMPO-USER';
+  const displayName =
+    userProfile?.displayName ||
+    currentUserName ||
+    (isOwner ? 'Precious Ddkid' : 'Kempo User');
+  const accountType = isOwner ? 'creator' : userProfile?.accountType || 'personal';
 
   // Offline-resilient avatar state (loaded from cache instantly)
   const [avatarUrl, setAvatarUrl] = useState<string>(() => {
@@ -92,10 +112,19 @@ export const YouTab: React.FC<YouTabProps> = ({
   // Copy ID state
   const [copiedId, setCopiedId] = useState(false);
 
+  // Edit / Customize ID modal state
+  const [showEditIdModal, setShowEditIdModal] = useState(false);
+  const [customIdInput, setCustomIdInput] = useState('');
+  const [editIdError, setEditIdError] = useState('');
+  const [editIdSuccess, setEditIdSuccess] = useState('');
+
   // Add Contact by ID state
   const [targetId, setTargetId] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [searchFeedback, setSearchFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [searchFeedback, setSearchFeedback] = useState<{
+    type: 'success' | 'error';
+    msg: string;
+  } | null>(null);
 
   // Check if running on home screen as standalone app
   const isRunningOnHomeScreen =
@@ -206,6 +235,38 @@ export const YouTab: React.FC<YouTabProps> = ({
     }
   };
 
+  // Handle User ID customization attempt (Enforces non-owner restriction on 'kempo pro')
+  const handleSaveCustomId = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditIdError('');
+    setEditIdSuccess('');
+
+    if (!customIdInput.trim()) {
+      setEditIdError('Please enter a desired ID.');
+      return;
+    }
+
+    const result = validateAndFormatUserId(customIdInput, rawEmail);
+    if (!result.valid) {
+      setEditIdError(result.error || "Cannot use this User ID.");
+      return;
+    }
+
+    if (userProfile) {
+      const updatedProfile: UserProfileData = {
+        ...userProfile,
+        kempoId: result.formattedId,
+      };
+      await saveFullUserProfile(updatedProfile);
+      onUpdateProfile?.(updatedProfile);
+      setEditIdSuccess(`User ID updated to: ${result.formattedId}`);
+      setTimeout(() => {
+        setShowEditIdModal(false);
+        setEditIdSuccess('');
+      }, 1200);
+    }
+  };
+
   // Handle Add Contact by ID
   const handleAddById = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,15 +326,15 @@ export const YouTab: React.FC<YouTabProps> = ({
 
       {/* Upgraded Centered User Profile Card */}
       <div className="flex flex-col items-center text-center p-6 rounded-3xl bg-[#141417] shadow-xl relative overflow-hidden">
-        {/* Soft atmospheric ambient red glow */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-32 bg-red-600/15 blur-3xl pointer-events-none rounded-full" />
+        {/* Soft atmospheric ambient glow */}
+        <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-48 h-32 blur-3xl pointer-events-none rounded-full ${isOwner ? 'bg-amber-500/20' : 'bg-red-600/15'}`} />
 
         {/* Centered Circular Avatar with Camera Uploader */}
         <div
           className="relative mb-3.5 group cursor-pointer"
           onClick={() => setShowAvatarPicker(true)}
         >
-          <div className="w-24 h-24 rounded-full overflow-hidden ring-4 ring-red-600/70 hover:ring-red-500 bg-[#1e1e24] flex items-center justify-center shadow-xl shadow-red-950/40 transition">
+          <div className={`w-24 h-24 rounded-full overflow-hidden ring-4 ${isOwner ? 'ring-amber-500/80 shadow-amber-950/50' : 'ring-red-600/70 shadow-red-950/40'} bg-[#1e1e24] flex items-center justify-center shadow-xl transition`}>
             {avatarUrl ? (
               <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
             ) : (
@@ -301,19 +362,27 @@ export const YouTab: React.FC<YouTabProps> = ({
           </button>
         </div>
 
-        {/* Centered Display Name (Chosen Name / Name from Profile) */}
-        <h2 className="text-xl font-black text-white tracking-tight">
-          {displayName}
+        {/* Centered Display Name */}
+        <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-1.5 justify-center">
+          <span>{displayName}</span>
+          {isOwner && <Crown className="w-4 h-4 text-amber-400 fill-amber-400" />}
         </h2>
 
-        {/* Centered Account Type Badge */}
+        {/* Centered Account Distinction Badge */}
         <div className="mt-1.5 flex items-center justify-center">
-          <span className="px-3 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-red-950/80 text-red-300 border border-red-700/60 shadow-xs">
-            {accountType === 'personal' && 'Personal Account'}
-            {accountType === 'business' && 'Business Account'}
-            {accountType === 'creator' && 'Creator Profile'}
-            {accountType === 'developer_gamer' && 'Developer / Gamer'}
-          </span>
+          {isOwner ? (
+            <span className="px-3.5 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 text-white shadow-lg shadow-red-950/50 border border-amber-400/40 flex items-center gap-1.5">
+              <span>👑</span>
+              <span>KEMPO PRO OWNER & ADMIN</span>
+            </span>
+          ) : (
+            <span className="px-3 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-red-950/80 text-red-300 border border-red-700/60 shadow-xs">
+              {accountType === 'personal' && 'Personal Account'}
+              {accountType === 'business' && 'Business Account'}
+              {accountType === 'creator' && 'Creator Profile'}
+              {accountType === 'developer_gamer' && 'Developer / Gamer'}
+            </span>
+          )}
         </div>
 
         {/* Change Profile Picture Action Button */}
@@ -327,7 +396,7 @@ export const YouTab: React.FC<YouTabProps> = ({
         </button>
 
         <p className="text-[11px] text-neutral-500 mt-2 font-medium">
-          Saved offline and synced to cloud
+          Saved offline &bull; Synced with Supabase
         </p>
       </div>
 
@@ -335,20 +404,35 @@ export const YouTab: React.FC<YouTabProps> = ({
       <div className="p-4 rounded-3xl bg-[#141417] shadow-lg flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-neutral-400">
-              Your Shareable User ID
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-neutral-400 flex items-center gap-1">
+              {isOwner ? '👑 Official Owner User ID' : 'Your Shareable User ID'}
             </span>
-            <div className="text-xl font-black text-white font-mono tracking-wider mt-0.5 text-red-400">
+            <div className={`text-xl font-black font-mono tracking-wider mt-0.5 ${isOwner ? 'text-amber-400' : 'text-red-400'}`}>
               {kempoId}
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {!isOwner && (
+              <button
+                onClick={() => {
+                  setCustomIdInput(kempoId);
+                  setEditIdError('');
+                  setEditIdSuccess('');
+                  setShowEditIdModal(true);
+                }}
+                className="px-2.5 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                title="Customize ID"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit</span>
+              </button>
+            )}
             <button
               onClick={handleCopyId}
               className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
             >
               {copiedId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedId ? 'Copied' : 'Copy ID'}</span>
+              <span>{copiedId ? 'Copied' : 'Copy'}</span>
             </button>
             <button
               onClick={handleShareId}
@@ -360,7 +444,9 @@ export const YouTab: React.FC<YouTabProps> = ({
           </div>
         </div>
         <p className="text-[11.5px] text-neutral-400 leading-snug">
-          Give this ID to other people to connect and start messaging instantly in real-time.
+          {isOwner
+            ? "Fixed official User ID for the application owner. Non-owners are restricted from using this ID."
+            : "Give this ID to other people to connect and start messaging instantly in real-time."}
         </p>
       </div>
 
@@ -379,8 +465,8 @@ export const YouTab: React.FC<YouTabProps> = ({
             type="text"
             value={targetId}
             onChange={(e) => setTargetId(e.target.value.toUpperCase())}
-            placeholder="e.g. KEMPO-XXXXXX"
-            maxLength={18}
+            placeholder="e.g. KEMPO-XXXXXX or kempo pro"
+            maxLength={22}
             className="flex-1 h-11 px-3.5 rounded-xl bg-[#0e0e11] text-white placeholder-neutral-500 text-xs font-mono font-semibold focus:outline-none focus:ring-1 focus:ring-red-500 uppercase transition"
           />
           <button
@@ -416,11 +502,11 @@ export const YouTab: React.FC<YouTabProps> = ({
           Preferences & Security
         </h3>
 
-        {/* 1. Privacy & Security (Email is placed here as requested) */}
+        {/* 1. Privacy & Security (Strict backend privacy: email handled strictly on backend, not exposed) */}
         <div
           onClick={() => {
             alert(
-              `Privacy & Account Security:\n\nEmail: ${displayEmail}\nUser ID: ${kempoId}\nEnd-to-End Encryption: Enabled\nStatus: Secure & Active`
+              `Privacy & Account Security:\n\nAccount Status: Active & Encrypted\nUser ID: ${kempoId}\nAccount Type: ${isOwner ? '👑 Kempo Pro Owner / Admin' : 'Standard Account'}\n\nBackend Email Privacy: Active\nYour sign-in email is handled strictly by the backend server and is never exposed or visible on the app frontend.\n\nEnd-to-End Encryption: Enabled`
             );
           }}
           className="p-3.5 rounded-2xl bg-[#161619] hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-99"
@@ -431,7 +517,10 @@ export const YouTab: React.FC<YouTabProps> = ({
             </div>
             <div className="min-w-0">
               <h4 className="text-[15px] font-semibold text-white">Privacy & Security</h4>
-              <p className="text-[12px] text-neutral-400 truncate">{displayEmail}</p>
+              <p className="text-[12px] text-neutral-400 truncate flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0 inline" />
+                <span>{getBackendPrivacyStatus(rawEmail)}</span>
+              </p>
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
@@ -548,54 +637,135 @@ export const YouTab: React.FC<YouTabProps> = ({
         </p>
       </div>
 
-      {/* Avatar Selection Sheet / Modal */}
+      {/* Change Profile Picture Modal (Preset Avatars + File/Camera Upload) */}
       {showAvatarPicker && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
-          <div className="w-full max-w-md bg-[#161619] rounded-t-3xl sm:rounded-3xl p-5 space-y-4 max-h-[85vh] overflow-y-auto animate-in slide-in-from-bottom">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-white">Change Profile Picture</h3>
-                <p className="text-xs text-neutral-400">Choose a stylish avatar or upload from your device</p>
-              </div>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-[#161619] border border-neutral-800 rounded-3xl p-5 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Camera className="w-4 h-4 text-red-500" />
+                Change Profile Picture
+              </h3>
               <button
                 onClick={() => setShowAvatarPicker(false)}
-                className="w-8 h-8 rounded-full bg-neutral-800 text-neutral-300 hover:text-white flex items-center justify-center cursor-pointer"
+                className="w-7 h-7 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400 hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Custom Photo Upload Button */}
+            {/* Upload from device / camera */}
             <button
-              type="button"
               onClick={() => avatarInputRef.current?.click()}
-              className="w-full py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-red-950 transition active:scale-98 cursor-pointer"
+              disabled={isUploadingAvatar}
+              className="w-full py-3 px-4 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm shadow-lg shadow-red-950 flex items-center justify-center gap-2 mb-4 active:scale-98 transition cursor-pointer"
             >
-              <ImageIcon className="w-4 h-4" />
-              <span>Upload Photo from Device / Camera</span>
+              {isUploadingAvatar ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ImageIcon className="w-4 h-4" />
+              )}
+              <span>Upload from Device or Camera</span>
             </button>
 
-            {/* Preset Avatars Grid */}
-            <div>
-              <p className="text-xs font-semibold text-neutral-400 mb-2 uppercase tracking-wider">
-                Or select a preset avatar
-              </p>
-              <div className="grid grid-cols-3 gap-3">
-                {PRESET_AVATARS.map((preset, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleSelectPresetAvatar(preset)}
-                    className="relative aspect-square rounded-2xl overflow-hidden ring-2 ring-neutral-800 hover:ring-red-500 transition active:scale-95 cursor-pointer group"
-                  >
-                    <img
-                      src={preset}
-                      alt={`Avatar preset ${index + 1}`}
-                      className="w-full h-full object-cover group-hover:scale-105 transition"
-                    />
-                  </button>
-                ))}
-              </div>
+            {/* Preset Avatars Header */}
+            <p className="text-xs font-semibold text-neutral-400 mb-2.5">
+              Or pick an instant avatar:
+            </p>
+
+            <div className="grid grid-cols-3 gap-2.5 mb-4">
+              {PRESET_AVATARS.map((url, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => handleSelectPresetAvatar(url)}
+                  className={`w-full aspect-square rounded-2xl overflow-hidden ring-2 cursor-pointer transition hover:scale-105 active:scale-95 ${
+                    avatarUrl === url ? 'ring-red-500' : 'ring-neutral-700/60'
+                  }`}
+                >
+                  <img src={url} alt={`Preset ${idx + 1}`} className="w-full h-full object-cover" />
+                </div>
+              ))}
             </div>
+
+            <button
+              onClick={() => setShowAvatarPicker(false)}
+              className="w-full py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Edit User ID Modal (Enforcing non-owner restriction on 'kempo pro') */}
+      {showEditIdModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-[#161619] border border-neutral-800 rounded-3xl p-5 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-red-500" />
+                Customize User ID
+              </h3>
+              <button
+                onClick={() => setShowEditIdModal(false)}
+                className="w-7 h-7 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-400 mb-3 leading-relaxed">
+              Standard User IDs cannot mimic or use <strong className="text-white">"kempo pro"</strong>. Unique numbers or characters are automatically appended to ensure every standard ID is distinct.
+            </p>
+
+            <form onSubmit={handleSaveCustomId} className="space-y-3">
+              <div>
+                <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
+                  Desired Handle or ID
+                </label>
+                <input
+                  type="text"
+                  value={customIdInput}
+                  onChange={(e) => {
+                    setCustomIdInput(e.target.value);
+                    setEditIdError('');
+                  }}
+                  placeholder="e.g. shadow, alex, warrior"
+                  maxLength={20}
+                  className="w-full h-11 px-3.5 rounded-xl bg-[#0e0e11] text-white placeholder-neutral-500 text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-red-500 transition"
+                />
+              </div>
+
+              {editIdError && (
+                <div className="p-2.5 rounded-xl bg-red-950/80 border border-red-700/60 text-red-300 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                  <span>{editIdError}</span>
+                </div>
+              )}
+
+              {editIdSuccess && (
+                <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-700/60 text-emerald-300 text-xs flex items-center gap-2">
+                  <Check className="w-4 h-4 shrink-0 text-emerald-400" />
+                  <span>{editIdSuccess}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowEditIdModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-950 active:scale-95 transition"
+                >
+                  Save ID
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
