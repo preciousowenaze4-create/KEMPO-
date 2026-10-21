@@ -24,8 +24,17 @@ import { realtimeService } from '../lib/realtimeService';
 interface ChatRoomProps {
   chat: Chat;
   myId?: string;
+  currentUserName?: string;
+  currentUserAvatar?: string;
   onBack: () => void;
-  onSendMessage: (chatId: string, text: string, mediaType?: 'image' | 'audio' | 'sticker' | 'document', mediaUrl?: string) => void;
+  onSendMessage: (
+    chatId: string,
+    text: string,
+    mediaType?: 'image' | 'audio' | 'sticker' | 'document',
+    mediaUrl?: string,
+    senderId?: string,
+    timestamp?: string
+  ) => void;
   onStartCall?: (chat: Chat, isVideo: boolean) => void;
   onMarkRead?: (chatId: string) => void;
 }
@@ -33,6 +42,8 @@ interface ChatRoomProps {
 export const ChatRoom: React.FC<ChatRoomProps> = ({
   chat,
   myId = 'me',
+  currentUserName,
+  currentUserAvatar,
   onBack,
   onSendMessage,
   onStartCall,
@@ -65,7 +76,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   useEffect(() => {
     if (!chat.id) return;
 
-    const partnerId = chat.phoneNumber || chat.about?.replace('KEMPO ID: ', '') || chat.id;
+    const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
 
     // Notify that we have opened and read this chat
     onMarkRead?.(chat.id);
@@ -75,7 +86,14 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       myId,
       partnerId,
       (incomingMsg) => {
-        onSendMessage(chat.id, incomingMsg.text || '', incomingMsg.mediaType, incomingMsg.mediaUrl);
+        onSendMessage(
+          chat.id,
+          incomingMsg.text || '',
+          incomingMsg.mediaType,
+          incomingMsg.mediaUrl,
+          incomingMsg.senderId,
+          incomingMsg.timestamp
+        );
       },
       () => {
         // Partner has seen our messages -> turns ticks to double blue mark!
@@ -95,21 +113,32 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     setInputText('');
     setShowAttachMenu(false);
 
-    onSendMessage(chat.id, text);
-
-    const partnerId = chat.phoneNumber || chat.about?.replace('KEMPO ID: ', '') || chat.id;
+    const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
     const now = new Date();
     let hours = now.getHours();
     const minutes = now.getMinutes().toString().padStart(2, '0');
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
+    const timeStr = `${hours}:${minutes} ${ampm}`;
 
-    realtimeService.sendMessage(myId, partnerId, {
-      id: `msg-${Date.now()}`,
+    const newMsg: Message = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       senderId: myId,
+      recipientId: partnerId,
       text,
-      timestamp: `${hours}:${minutes} ${ampm}`,
+      timestamp: timeStr,
       status: 'sent',
+    };
+
+    onSendMessage(chat.id, text, undefined, undefined, myId, timeStr);
+
+    realtimeService.sendMessage(myId, partnerId, newMsg);
+    realtimeService.sendDirectMessage(partnerId, {
+      message: newMsg,
+      senderKempoId: myId,
+      senderName: currentUserName || myId,
+      senderAvatar: currentUserAvatar || '',
+      recipientKempoId: partnerId,
     });
   };
 
@@ -129,23 +158,34 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       const base64Audio = reader.result as string;
       const text = `🎤 Voice Message (${durationStr})`;
 
-      onSendMessage(chat.id, text, 'audio', base64Audio);
-
-      const partnerId = chat.phoneNumber || chat.about?.replace('KEMPO ID: ', '') || chat.id;
+      const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
       const now = new Date();
       let hours = now.getHours();
       const minutes = now.getMinutes().toString().padStart(2, '0');
       const ampm = hours >= 12 ? 'PM' : 'AM';
       hours = hours % 12 || 12;
+      const timeStr = `${hours}:${minutes} ${ampm}`;
 
-      realtimeService.sendMessage(myId, partnerId, {
-        id: `msg-${Date.now()}`,
+      const newMsg: Message = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         senderId: myId,
+        recipientId: partnerId,
         text,
         mediaType: 'audio',
         mediaUrl: base64Audio,
-        timestamp: `${hours}:${minutes} ${ampm}`,
+        timestamp: timeStr,
         status: 'sent',
+      };
+
+      onSendMessage(chat.id, text, 'audio', base64Audio, myId, timeStr);
+
+      realtimeService.sendMessage(myId, partnerId, newMsg);
+      realtimeService.sendDirectMessage(partnerId, {
+        message: newMsg,
+        senderKempoId: myId,
+        senderName: currentUserName || myId,
+        senderAvatar: currentUserAvatar || '',
+        recipientKempoId: partnerId,
       });
     };
     reader.readAsDataURL(audioBlob);
@@ -183,15 +223,34 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         onSendMessage(chat.id, '📸 Photo', 'image', imgUrl);
         setShowAttachMenu(false);
 
-        const partnerId = chat.phoneNumber || chat.about?.replace('KEMPO ID: ', '') || chat.id;
-        realtimeService.sendMessage(myId, partnerId, {
-          id: `msg-${Date.now()}`,
+        const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
+        const now = new Date();
+        let hours = now.getHours();
+        const minutes = now.getMinutes().toString().padStart(2, '0');
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12 || 12;
+        const timeStr = `${hours}:${minutes} ${ampm}`;
+
+        const newMsg: Message = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
           senderId: myId,
+          recipientId: partnerId,
           text: '📸 Photo',
           mediaType: 'image',
           mediaUrl: imgUrl,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: timeStr,
           status: 'sent',
+        };
+
+        onSendMessage(chat.id, '📸 Photo', 'image', imgUrl, myId, timeStr);
+
+        realtimeService.sendMessage(myId, partnerId, newMsg);
+        realtimeService.sendDirectMessage(partnerId, {
+          message: newMsg,
+          senderKempoId: myId,
+          senderName: currentUserName || myId,
+          senderAvatar: currentUserAvatar || '',
+          recipientKempoId: partnerId,
         });
       }
     };

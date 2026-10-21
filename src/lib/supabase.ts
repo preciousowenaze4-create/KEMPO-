@@ -185,6 +185,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
   // 3. Cache locally for instant loading and offline capability
   if (typeof window !== 'undefined') {
     localStorage.setItem('kempo_user_profile', JSON.stringify(profile));
+    localStorage.setItem('kempo_onboarded_completed', 'true');
     localStorage.setItem('kempo_auth_user', profile.email);
     localStorage.setItem('kempo_auth_name', profile.displayName);
     localStorage.setItem('kempo_user_id', profile.kempoId);
@@ -226,7 +227,7 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
         accountType: data.account_type || 'personal',
         kempoId: data.kempo_id || generateKempoId(),
         preferences: data.preferences || DEFAULT_PREFERENCES,
-        isOnboarded: data.is_onboarded ?? true,
+        isOnboarded: Boolean(data.is_onboarded === true),
       };
       if (typeof window !== 'undefined') {
         localStorage.setItem('kempo_user_profile', JSON.stringify(profile));

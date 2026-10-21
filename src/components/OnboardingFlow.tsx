@@ -59,6 +59,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [copiedId, setCopiedId] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
 
+  // Synchronize initialName and initialAvatar from Google OAuth account
+  React.useEffect(() => {
+    if (initialName && (!displayName || displayName === 'Kempo User')) {
+      setDisplayName(initialName);
+    }
+  }, [initialName]);
+
+  React.useEffect(() => {
+    if (initialAvatar && !avatarUrl) {
+      setAvatarUrl(initialAvatar);
+    }
+  }, [initialAvatar]);
+
   // Handle avatar upload via file picker
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

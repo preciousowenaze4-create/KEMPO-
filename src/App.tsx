@@ -24,7 +24,7 @@ import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthScreen } from './components/AuthScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
-import { realtimeService, IncomingCallEvent } from './lib/realtimeService';
+import { realtimeService, IncomingCallEvent, DirectMessagePayload } from './lib/realtimeService';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import {
   supabase,
@@ -45,14 +45,42 @@ import {
 } from './data/mockData';
 import { Chat, Message, FilterType, TabType, StatusStory, CallLog, UserProfileData } from './types';
 
+// Helper to check if browser is returning from Google OAuth redirect
+const isGoogleRedirect = () => {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.location.hash.includes('access_token') ||
+    window.location.search.includes('code=') ||
+    sessionStorage.getItem('kempo_google_auth_in_progress') === 'true'
+  );
+};
+
+// Helper to check if user has fully finished profile setup
+const hasCompletedOnboarding = () => {
+  if (typeof window === 'undefined') return false;
+  if (localStorage.getItem('kempo_onboarded_completed') === 'true') return true;
+  try {
+    const cached = localStorage.getItem('kempo_user_profile');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      return Boolean(parsed.isOnboarded && parsed.kempoId);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+  return false;
+};
+
 export default function App() {
-  // Auth state
+  // Auth state: If returning from Google OAuth, authenticate immediately without flashing dashboard
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
+      if (isGoogleRedirect()) return true;
       return Boolean(localStorage.getItem('kempo_auth_user') || localStorage.getItem('sb-token'));
     }
     return false;
   });
+
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [currentUserEmail, setCurrentUserEmail] = useState<string>(() => {
     return (typeof window !== 'undefined' ? localStorage.getItem('kempo_auth_user') : '') || '';
@@ -73,7 +101,16 @@ export default function App() {
     }
     return null;
   });
-  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
+
+  // Direct straight to Complete Your Profile (Step 1 of 3) immediately after Google login
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      if (isGoogleRedirect()) return true;
+      const isAuth = Boolean(localStorage.getItem('kempo_auth_user') || localStorage.getItem('sb-token'));
+      if (isAuth && !hasCompletedOnboarding()) return true;
+    }
+    return false;
+  });
   // Chats & app state (Empty by default for a fresh app experience)
   const [chats, setChats] = useState<Chat[]>(() => {
     if (typeof window !== 'undefined') {
@@ -150,24 +187,24 @@ export default function App() {
 
         // Fetch or verify onboarding
         const profile = await fetchUserProfile(session.user.id);
-        if (profile && profile.isOnboarded) {
+        if (profile && profile.isOnboarded && profile.kempoId && hasCompletedOnboarding()) {
           setUserProfile(profile);
           setShowOnboarding(false);
-        } else if (meta.is_onboarded) {
-          const p: UserProfileData = {
-            id: session.user.id,
-            email: session.user.email || '',
-            displayName: name,
-            avatarUrl: meta.avatar_url || meta.picture || '',
-            accountType: meta.account_type || 'personal',
-            kempoId: meta.kempo_id || generateKempoId(),
-            preferences: meta.preferences || DEFAULT_PREFERENCES,
-            isOnboarded: true,
-          };
-          setUserProfile(p);
-          setShowOnboarding(false);
         } else {
+          // Immediately show Complete Your Profile setup screen (Step 1 of 3)
           setShowOnboarding(true);
+        }
+      } else {
+        if (!isGoogleRedirect()) {
+          const stored = localStorage.getItem('kempo_auth_user');
+          if (!stored) {
+            setIsAuthenticated(false);
+            setCurrentUserId('');
+            setCurrentUserEmail('');
+            setCurrentUserName('');
+            setUserProfile(null);
+            setShowOnboarding(false);
+          }
         }
       }
     });
@@ -188,36 +225,25 @@ export default function App() {
 
         // Check if user is already onboarded
         const profile = await fetchUserProfile(session.user.id);
-        if (profile && profile.isOnboarded) {
+        if (profile && profile.isOnboarded && profile.kempoId && hasCompletedOnboarding()) {
           setUserProfile(profile);
           setShowOnboarding(false);
-        } else if (meta.is_onboarded) {
-          const p: UserProfileData = {
-            id: session.user.id,
-            email: session.user.email || '',
-            displayName: name,
-            avatarUrl: meta.avatar_url || meta.picture || '',
-            accountType: meta.account_type || 'personal',
-            kempoId: meta.kempo_id || generateKempoId(),
-            preferences: meta.preferences || DEFAULT_PREFERENCES,
-            isOnboarded: true,
-          };
-          setUserProfile(p);
-          setShowOnboarding(false);
         } else {
-          // Immediately redirect to Complete Your Profile screen as requested!
+          // Immediately redirect straight to Complete Your Profile screen as requested!
           setShowOnboarding(true);
         }
-      } else {
-        const stored = localStorage.getItem('kempo_auth_user');
-        if (!stored) {
-          setIsAuthenticated(false);
-          setCurrentUserId('');
-          setCurrentUserEmail('');
-          setCurrentUserName('');
-          setUserProfile(null);
-          setShowOnboarding(false);
-        }
+      } else if (_event === 'SIGNED_OUT') {
+        setIsAuthenticated(false);
+        setCurrentUserId('');
+        setCurrentUserEmail('');
+        setCurrentUserName('');
+        setUserProfile(null);
+        setShowOnboarding(false);
+        localStorage.removeItem('kempo_auth_user');
+        localStorage.removeItem('kempo_auth_name');
+        localStorage.removeItem('kempo_user_profile');
+        localStorage.removeItem('kempo_user_id');
+        localStorage.removeItem('kempo_onboarded_completed');
       }
     });
 
@@ -256,6 +282,12 @@ export default function App() {
     setUserProfile(profile);
     setCurrentUserName(profile.displayName);
     setShowOnboarding(false);
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('kempo_google_auth_in_progress');
+      if (window.location.hash) {
+        history.replaceState(null, '', window.location.pathname);
+      }
+    }
   };
 
   const handleSignOut = async () => {
@@ -270,17 +302,24 @@ export default function App() {
     localStorage.removeItem('kempo_auth_name');
     localStorage.removeItem('kempo_user_profile');
     localStorage.removeItem('kempo_user_id');
+    localStorage.removeItem('kempo_onboarded_completed');
   };
 
   // Add Contact by shareable KEMPO-ID
   const handleAddContactById = async (targetId: string): Promise<Chat | null> => {
     const cleanId = targetId.trim().toUpperCase();
+    if (!cleanId) return null;
 
     // Check if user already exists in current chats list
     const existing = chats.find(
-      (c) => c.about?.toUpperCase().includes(cleanId) || c.name.toUpperCase().includes(cleanId)
+      (c) =>
+        (c.kempoId && c.kempoId.toUpperCase() === cleanId) ||
+        (c.about && c.about.toUpperCase().includes(cleanId)) ||
+        c.name.toUpperCase().includes(cleanId) ||
+        c.id === `user-${cleanId}`
     );
     if (existing) {
+      setSelectedChat(existing);
       return existing;
     }
 
@@ -293,6 +332,7 @@ export default function App() {
 
     const newChat: Chat = {
       id: foundProfile?.id || `user-${cleanId}`,
+      kempoId: cleanId,
       name: contactName,
       avatarUrl: contactAvatar,
       avatarBg: '#251a24',
@@ -303,19 +343,12 @@ export default function App() {
       unreadCount: 0,
       online: true,
       about: contactAbout,
-      phoneNumber: foundProfile?.email || cleanId,
-      messages: [
-        {
-          id: `welcome-${Date.now()}`,
-          senderId: foundProfile?.id || `user-${cleanId}`,
-          text: `Hey! Connected via KEMPO ID ${cleanId}.`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          status: 'delivered',
-        },
-      ],
+      phoneNumber: cleanId,
+      messages: [],
     };
 
     setChats((prev) => [newChat, ...prev]);
+    setSelectedChat(newChat);
     syncChatToSupabase(newChat);
     return newChat;
   };
@@ -347,26 +380,128 @@ export default function App() {
     return true;
   });
 
+  // Handle incoming live direct messages in real time
+  const handleIncomingDirectMessage = (dm: DirectMessagePayload) => {
+    const senderKempoId = dm.senderKempoId.toUpperCase();
+    const msg = dm.message;
+
+    setChats((prevChats) => {
+      const existingIndex = prevChats.findIndex(
+        (c) =>
+          (c.kempoId && c.kempoId.toUpperCase() === senderKempoId) ||
+          (c.about && c.about.toUpperCase().includes(senderKempoId)) ||
+          c.id === `user-${senderKempoId}` ||
+          c.id === senderKempoId
+      );
+
+      if (existingIndex >= 0) {
+        const existing = prevChats[existingIndex];
+        if (existing.messages.some((m) => m.id === msg.id)) {
+          return prevChats;
+        }
+        const updatedChat: Chat = {
+          ...existing,
+          lastMessage: msg.text || (msg.mediaType === 'audio' ? '🎤 Voice message' : '📸 Photo'),
+          lastMessageStatus: 'none',
+          timestamp: msg.timestamp || 'Just now',
+          unreadCount:
+            selectedChat &&
+            ((selectedChat.kempoId && selectedChat.kempoId.toUpperCase() === senderKempoId) ||
+              selectedChat.id === existing.id)
+              ? 0
+              : (existing.unreadCount || 0) + 1,
+          messages: [...existing.messages, { ...msg, status: 'delivered' }],
+        };
+        const rest = prevChats.filter((_, idx) => idx !== existingIndex);
+        const newChats = [updatedChat, ...rest];
+        localStorage.setItem('kempo_user_chats', JSON.stringify(newChats));
+        syncChatToSupabase(updatedChat);
+        return newChats;
+      } else {
+        const newChat: Chat = {
+          id: `user-${senderKempoId}`,
+          kempoId: senderKempoId,
+          name: dm.senderName || `User (${senderKempoId})`,
+          avatarUrl: dm.senderAvatar || '',
+          avatarBg: '#251a24',
+          avatarType: dm.senderAvatar ? 'photo' : 'initials',
+          timestamp: msg.timestamp || 'Just now',
+          lastMessage: msg.text || (msg.mediaType === 'audio' ? '🎤 Voice message' : '📸 Photo'),
+          lastMessageStatus: 'none',
+          unreadCount: 1,
+          online: true,
+          about: `KEMPO ID: ${senderKempoId}`,
+          phoneNumber: senderKempoId,
+          messages: [{ ...msg, status: 'delivered' }],
+        };
+        const newChats = [newChat, ...prevChats];
+        localStorage.setItem('kempo_user_chats', JSON.stringify(newChats));
+        syncChatToSupabase(newChat);
+        return newChats;
+      }
+    });
+
+    // Update active selectedChat if it's the sender
+    if (selectedChat) {
+      const isThisChat =
+        (selectedChat.kempoId && selectedChat.kempoId.toUpperCase() === senderKempoId) ||
+        (selectedChat.about && selectedChat.about.toUpperCase().includes(senderKempoId)) ||
+        selectedChat.id === `user-${senderKempoId}`;
+
+      if (isThisChat) {
+        setSelectedChat((prev) => {
+          if (!prev) return null;
+          if (prev.messages.some((m) => m.id === msg.id)) return prev;
+          return {
+            ...prev,
+            lastMessage: msg.text || 'New message',
+            timestamp: msg.timestamp || 'Just now',
+            unreadCount: 0,
+            messages: [...prev.messages, { ...msg, status: 'delivered' }],
+          };
+        });
+      }
+    }
+
+    // Audio tone
+    if (userProfile?.preferences?.messageTones !== false) {
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.25);
+      } catch {}
+    }
+  };
+
   // Handle sending a message in a chat
   const handleSendMessage = (
     chatId: string,
     text: string,
     mediaType?: 'image' | 'audio' | 'sticker' | 'document',
-    mediaUrl?: string
+    mediaUrl?: string,
+    senderId?: string,
+    timestamp?: string
   ) => {
-    const isIncoming = text.startsWith('[incoming]');
-    const cleanText = isIncoming ? text.replace('[incoming]', '') : text;
+    const isIncoming = Boolean(senderId && senderId !== (userProfile?.kempoId || 'me') && !senderId.startsWith('me'));
+    const cleanText = text.startsWith('[incoming]') ? text.replace('[incoming]', '') : text;
 
     const now = new Date();
     let hours = now.getHours();
     const minutes = now.getMinutes().toString().padStart(2, '0');
     const ampm = hours >= 12 ? 'PM' : 'AM';
     hours = hours % 12 || 12;
-    const timeStr = `${hours}:${minutes} ${ampm}`;
+    const timeStr = timestamp || `${hours}:${minutes} ${ampm}`;
 
     const newMsg: Message = {
-      id: `msg-${Date.now()}-${Math.random()}`,
-      senderId: isIncoming ? chatId : 'me',
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      senderId: senderId || userProfile?.kempoId || 'me',
       text: cleanText,
       mediaType: mediaType,
       mediaUrl,
@@ -455,7 +590,7 @@ export default function App() {
     setSelectedChat({ ...chat, unreadCount: 0 });
   };
 
-  // Listen to personal signaling channel for real incoming WhatsApp calls
+  // Listen to personal signaling channel for real incoming WhatsApp calls and direct messages
   useEffect(() => {
     const myId = userProfile?.kempoId || currentUserName || 'my-id';
     realtimeService.listenToPersonalSignals(
@@ -471,9 +606,12 @@ export default function App() {
       },
       () => {
         setIncomingCall(null);
+      },
+      (dm: DirectMessagePayload) => {
+        handleIncomingDirectMessage(dm);
       }
     );
-  }, [userProfile?.kempoId, currentUserName]);
+  }, [userProfile?.kempoId, currentUserName, selectedChat]);
 
   // Start Call (Video or Voice) with Real-Time Signaling
   const handleStartCall = (chatOrName: Chat | string, isVideo: boolean) => {
@@ -785,6 +923,8 @@ export default function App() {
           <ChatRoom
             chat={selectedChat}
             myId={userProfile?.kempoId || 'me'}
+            currentUserName={userProfile?.displayName || currentUserName}
+            currentUserAvatar={userProfile?.avatarUrl || ''}
             onBack={() => setSelectedChat(null)}
             onSendMessage={handleSendMessage}
             onStartCall={(chat, isVideo) => handleStartCall(chat, isVideo)}

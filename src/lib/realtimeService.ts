@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { Message, Chat, UserProfileData } from '../types';
+import { Message } from '../types';
 
 export interface IncomingCallEvent {
   callId: string;
@@ -10,29 +10,49 @@ export interface IncomingCallEvent {
   isVideo: boolean;
 }
 
+export interface DirectMessagePayload {
+  message: Message;
+  senderKempoId: string;
+  senderName: string;
+  senderAvatar?: string;
+  recipientKempoId: string;
+}
+
 export class KempoRealtimeService {
   private activeChannels: Map<string, any> = new Map();
   private userChannel: any = null;
 
-  // Get deterministic room ID between two participants
-  getRoomChannelName(myId: string, partnerId: string): string {
-    const sorted = [myId.trim(), partnerId.trim()].sort();
-    return `kempo_chat_${sorted[0]}_${sorted[1]}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  // Normalize ID for clean room channels
+  private normalizeId(id: string): string {
+    return (id || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
   }
 
-  // Listen to personal signaling channel for incoming calls and notifications
+  // Get deterministic room ID between two participants (order invariant)
+  getRoomChannelName(myId: string, partnerId: string): string {
+    const clean1 = this.normalizeId(myId);
+    const clean2 = this.normalizeId(partnerId);
+    const sorted = [clean1, clean2].sort();
+    return `kempo_chat_${sorted[0]}_${sorted[1]}`;
+  }
+
+  // Listen to personal signaling channel for incoming calls, direct messages, and notifications
   listenToPersonalSignals(
     myKempoId: string,
     onIncomingCall: (call: IncomingCallEvent) => void,
-    onCallEnded?: () => void
+    onCallEnded?: () => void,
+    onIncomingDirectMessage?: (dm: DirectMessagePayload) => void
   ) {
     if (!myKempoId) return;
 
     if (this.userChannel) {
-      supabase.removeChannel(this.userChannel);
+      try {
+        supabase.removeChannel(this.userChannel);
+      } catch (e) {
+        console.warn(e);
+      }
     }
 
-    const cleanChannelName = `user_${myKempoId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const cleanChannelName = `user_${this.normalizeId(myKempoId)}`;
     const channel = supabase.channel(cleanChannelName, {
       config: { broadcast: { self: false } },
     });
@@ -46,9 +66,43 @@ export class KempoRealtimeService {
       .on('broadcast', { event: 'call_ended' }, () => {
         onCallEnded?.();
       })
-      .subscribe();
+      .on('broadcast', { event: 'direct_message' }, ({ payload }) => {
+        if (payload && onIncomingDirectMessage) {
+          onIncomingDirectMessage(payload as DirectMessagePayload);
+        }
+      })
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          console.info(`Subscribed to personal channel: ${cleanChannelName}`);
+        }
+      });
 
     this.userChannel = channel;
+  }
+
+  // Send a direct message to a user's personal channel (arrives even if they aren't in the chat room yet)
+  sendDirectMessage(recipientKempoId: string, payload: DirectMessagePayload) {
+    if (!recipientKempoId) return;
+    const cleanChannelName = `user_${this.normalizeId(recipientKempoId)}`;
+    const channel = supabase.channel(cleanChannelName, {
+      config: { broadcast: { self: false } },
+    });
+
+    channel.subscribe((status: string) => {
+      if (status === 'SUBSCRIBED') {
+        channel.send({
+          type: 'broadcast',
+          event: 'direct_message',
+          payload,
+        });
+        // Leave temporary channel after sending
+        setTimeout(() => {
+          try {
+            supabase.removeChannel(channel);
+          } catch {}
+        }, 1500);
+      }
+    });
   }
 
   // Trigger an incoming call on the recipient's phone/screen
@@ -56,12 +110,12 @@ export class KempoRealtimeService {
     targetKempoId: string,
     callData: IncomingCallEvent
   ) {
-    const cleanChannelName = `user_${targetKempoId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
     const channel = supabase.channel(cleanChannelName, {
       config: { broadcast: { self: false } },
     });
 
-    channel.subscribe((status) => {
+    channel.subscribe((status: string) => {
       if (status === 'SUBSCRIBED') {
         channel.send({
           type: 'broadcast',
@@ -74,12 +128,12 @@ export class KempoRealtimeService {
 
   // Send Call Ended signal to recipient
   sendCallEnded(targetKempoId: string) {
-    const cleanChannelName = `user_${targetKempoId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
     const channel = supabase.channel(cleanChannelName, {
       config: { broadcast: { self: false } },
     });
 
-    channel.subscribe((status) => {
+    channel.subscribe((status: string) => {
       if (status === 'SUBSCRIBED') {
         channel.send({
           type: 'broadcast',
@@ -98,10 +152,13 @@ export class KempoRealtimeService {
     onReadReceipt: (readerId: string) => void
   ) {
     const channelName = this.getRoomChannelName(myId, partnerId);
+    const cleanMyId = this.normalizeId(myId);
 
     // Clean up if already exists
     if (this.activeChannels.has(channelName)) {
-      supabase.removeChannel(this.activeChannels.get(channelName));
+      try {
+        supabase.removeChannel(this.activeChannels.get(channelName));
+      } catch {}
     }
 
     const channel = supabase.channel(channelName, {
@@ -110,14 +167,14 @@ export class KempoRealtimeService {
 
     channel
       .on('broadcast', { event: 'new_message' }, ({ payload }) => {
-        if (payload && payload.senderId !== myId) {
+        if (payload && this.normalizeId(payload.senderId) !== cleanMyId) {
           onMessage(payload);
           // Auto send back read receipt
           this.sendReadReceipt(myId, partnerId);
         }
       })
       .on('broadcast', { event: 'read_receipt' }, ({ payload }) => {
-        if (payload && payload.readerId !== myId) {
+        if (payload && this.normalizeId(payload.readerId) !== cleanMyId) {
           onReadReceipt(payload.readerId);
         }
       })
@@ -131,7 +188,9 @@ export class KempoRealtimeService {
     }, 500);
 
     return () => {
-      supabase.removeChannel(channel);
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
       this.activeChannels.delete(channelName);
     };
   }
@@ -145,15 +204,23 @@ export class KempoRealtimeService {
       channel = supabase.channel(channelName, {
         config: { broadcast: { self: false } },
       });
-      channel.subscribe();
+      channel.subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast',
+            event: 'new_message',
+            payload: message,
+          });
+        }
+      });
       this.activeChannels.set(channelName, channel);
+    } else {
+      channel.send({
+        type: 'broadcast',
+        event: 'new_message',
+        payload: message,
+      });
     }
-
-    channel.send({
-      type: 'broadcast',
-      event: 'new_message',
-      payload: message,
-    });
   }
 
   // Send read receipt over the room channel
@@ -171,10 +238,16 @@ export class KempoRealtimeService {
 
   cleanup() {
     if (this.userChannel) {
-      supabase.removeChannel(this.userChannel);
+      try {
+        supabase.removeChannel(this.userChannel);
+      } catch {}
       this.userChannel = null;
     }
-    this.activeChannels.forEach((ch) => supabase.removeChannel(ch));
+    this.activeChannels.forEach((ch) => {
+      try {
+        supabase.removeChannel(ch);
+      } catch {}
+    });
     this.activeChannels.clear();
   }
 }

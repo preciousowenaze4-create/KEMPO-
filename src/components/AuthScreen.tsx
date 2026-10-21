@@ -104,6 +104,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     setGoogleLoading(true);
 
     try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('kempo_google_auth_in_progress', 'true');
+      }
       setSuccessMsg('Connecting to Google...');
       await supabaseSignInWithGoogle();
       // Browser redirects to Google OAuth and returns to app

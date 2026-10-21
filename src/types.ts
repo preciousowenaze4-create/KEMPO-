@@ -1,6 +1,7 @@
 export interface Message {
   id: string;
   senderId: string;
+  recipientId?: string;
   text?: string;
   mediaUrl?: string;
   mediaType?: 'image' | 'sticker' | 'audio' | 'document';
@@ -13,6 +14,7 @@ export interface Message {
 
 export interface Chat {
   id: string;
+  kempoId?: string;
   name: string;
   avatarUrl: string;
   avatarBg?: string;
