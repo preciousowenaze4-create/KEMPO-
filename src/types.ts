@@ -83,6 +83,8 @@ export interface UserProfileData {
   kempoId: string;
   preferences: AppPreferences;
   isOnboarded: boolean;
+  isProfileCompleted?: boolean;
+  is_profile_completed?: boolean;
   status?: UserStatus;
   isVerified?: boolean;
   isAdmin?: boolean;

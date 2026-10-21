@@ -122,6 +122,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       kempoId: newKempoId,
       preferences,
       isOnboarded: true,
+      isProfileCompleted: true,
+      is_profile_completed: true,
     };
 
     // Show ID confirmation briefly (smooth instant transition)

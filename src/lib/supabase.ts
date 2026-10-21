@@ -166,6 +166,9 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
   const securedProfile: UserProfileData = {
     ...profile,
     kempoId: normalizedKempoId,
+    isOnboarded: true,
+    isProfileCompleted: true,
+    is_profile_completed: true,
     status: profile.status || (isOwner ? 'verified' : 'active'),
     isVerified: profile.isVerified ?? isOwner,
     isAdmin: isOwner,
@@ -182,6 +185,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
         account_type: securedProfile.accountType,
         preferences: securedProfile.preferences,
         is_onboarded: true,
+        is_profile_completed: true,
         status: securedProfile.status,
         is_verified: securedProfile.isVerified,
       },
@@ -197,6 +201,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
       kempo_id: securedProfile.kempoId,
       preferences: securedProfile.preferences,
       is_onboarded: true,
+      is_profile_completed: true,
       status: securedProfile.status,
       is_verified: securedProfile.isVerified,
       is_admin: securedProfile.isAdmin,
@@ -214,6 +219,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
   if (typeof window !== 'undefined') {
     localStorage.setItem('kempo_user_profile', JSON.stringify(securedProfile));
     localStorage.setItem('kempo_onboarded_completed', 'true');
+    localStorage.setItem('kempo_profile_completed', 'true');
     localStorage.setItem('kempo_auth_user', securedProfile.email);
     localStorage.setItem('kempo_auth_name', securedProfile.displayName);
     localStorage.setItem('kempo_user_id', securedProfile.kempoId);
@@ -280,6 +286,12 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
         assignedId = generateStandardUserKempoId();
       }
 
+      const isCompleted = Boolean(
+        data.is_profile_completed === true ||
+        data.is_onboarded === true ||
+        (data.display_name && data.display_name !== 'Kempo User' && data.kempo_id)
+      );
+
       const profile: UserProfileData = {
         id: data.id,
         email,
@@ -288,7 +300,9 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
         accountType: data.account_type || (isOwner ? 'creator' : 'personal'),
         kempoId: assignedId,
         preferences: data.preferences || DEFAULT_PREFERENCES,
-        isOnboarded: Boolean(data.is_onboarded === true),
+        isOnboarded: isCompleted,
+        isProfileCompleted: isCompleted,
+        is_profile_completed: isCompleted,
         status: data.status || (isOwner ? 'verified' : 'active'),
         isVerified: Boolean(data.is_verified || isOwner),
         isAdmin: isOwner,
@@ -296,6 +310,10 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
       if (typeof window !== 'undefined') {
         localStorage.setItem('kempo_user_profile', JSON.stringify(profile));
         localStorage.setItem('kempo_user_id', profile.kempoId);
+        if (isCompleted) {
+          localStorage.setItem('kempo_onboarded_completed', 'true');
+          localStorage.setItem('kempo_profile_completed', 'true');
+        }
       }
       return profile;
     }
@@ -304,6 +322,72 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
   }
 
   return null;
+}
+
+// Check profile status in Supabase before routing (Bypasses setup for returning users)
+export async function checkUserProfileCompletion(
+  userId: string,
+  userEmail?: string
+): Promise<{ isCompleted: boolean; profile: UserProfileData | null }> {
+  // 1. Check local cache first for instant navigation
+  if (typeof window !== 'undefined') {
+    const cached = localStorage.getItem('kempo_user_profile');
+    const isLocalDone =
+      localStorage.getItem('kempo_profile_completed') === 'true' ||
+      localStorage.getItem('kempo_onboarded_completed') === 'true';
+
+    if (cached) {
+      try {
+        const parsed: UserProfileData = JSON.parse(cached);
+        if (parsed.id === userId || (userEmail && parsed.email?.toLowerCase() === userEmail.toLowerCase())) {
+          if (parsed.isProfileCompleted || parsed.is_profile_completed || parsed.isOnboarded || isLocalDone) {
+            return { isCompleted: true, profile: parsed };
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }
+
+  // 2. Query Supabase database record
+  try {
+    const profile = await fetchUserProfile(userId);
+    if (profile) {
+      const isCompleted = Boolean(
+        profile.isProfileCompleted ||
+        profile.is_profile_completed ||
+        profile.isOnboarded ||
+        (profile.displayName && profile.displayName !== 'Kempo User' && profile.kempoId)
+      );
+      return { isCompleted, profile };
+    }
+
+    // 3. Also check Auth metadata
+    const { data: authData } = await supabase.auth.getUser();
+    if (authData?.user) {
+      const meta = authData.user.user_metadata || {};
+      if (meta.is_profile_completed === true || meta.is_onboarded === true) {
+        const fallbackProfile: UserProfileData = {
+          id: authData.user.id,
+          email: authData.user.email || userEmail || '',
+          displayName: meta.display_name || meta.full_name || 'Kempo User',
+          avatarUrl: meta.avatar_url || meta.picture || '',
+          accountType: meta.account_type || 'personal',
+          kempoId: meta.kempo_id || generateStandardUserKempoId(),
+          preferences: meta.preferences || DEFAULT_PREFERENCES,
+          isOnboarded: true,
+          isProfileCompleted: true,
+          is_profile_completed: true,
+        };
+        return { isCompleted: true, profile: fallbackProfile };
+      }
+    }
+  } catch (err) {
+    console.warn('Profile completion check warning:', err);
+  }
+
+  return { isCompleted: false, profile: null };
 }
 
 // Fetch all registered users for the Owner & Admin Control Panel

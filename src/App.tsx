@@ -22,7 +22,7 @@ import { ActionMenuModal } from './components/ActionMenuModal';
 import { CameraModal } from './components/CameraModal';
 import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { PhoneMissed, MessageCircle, ShieldAlert } from 'lucide-react';
+import { PhoneMissed, MessageCircle, ShieldAlert, Loader2 } from 'lucide-react';
 import { AuthScreen } from './components/AuthScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { isOwnerEmail, OWNER_FIXED_ID } from './lib/accountRules';
@@ -40,6 +40,7 @@ import {
   fetchUserProfile,
   saveFullUserProfile,
   findUserByKempoId,
+  checkUserProfileCompletion,
   DEFAULT_PREFERENCES,
   generateKempoId,
 } from './lib/supabase';
