@@ -5,11 +5,12 @@ import { CallLog } from '../types';
 interface CallsTabProps {
   calls: CallLog[];
   onStartCall: (name: string, isVideo: boolean) => void;
+  onSimulateIncomingCall?: (isVideo: boolean) => void;
 }
 
-export const CallsTab: React.FC<CallsTabProps> = ({ calls, onStartCall }) => {
+export const CallsTab: React.FC<CallsTabProps> = ({ calls, onStartCall, onSimulateIncomingCall }) => {
   return (
-    <div className="flex-1 overflow-y-auto px-4 pt-[max(env(safe-area-inset-top),10px)] select-none space-y-5 pb-20">
+    <div className="flex-1 overflow-y-auto px-4 pt-[max(env(safe-area-inset-top),10px)] select-none space-y-4 pb-20">
       {/* Top Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-extrabold tracking-tight text-white">Calls</h1>
@@ -20,6 +21,34 @@ export const CallsTab: React.FC<CallsTabProps> = ({ calls, onStartCall }) => {
         >
           <PhoneCall className="w-5 h-5" />
         </button>
+      </div>
+
+      {/* Test Real Incoming Call Card */}
+      <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/60 via-[#141d17] to-[#121415] border border-emerald-800/60 shadow-md flex items-center justify-between">
+        <div>
+          <h3 className="text-[14.5px] font-bold text-white flex items-center gap-1.5">
+            Test Real Incoming Call
+          </h3>
+          <p className="text-[11.5px] text-neutral-400 mt-0.5">
+            Hear your phone ring with the WhatsApp ringtone and answer.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onSimulateIncomingCall?.(false)}
+            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-950 active:scale-95 transition cursor-pointer flex items-center gap-1"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            <span>Voice</span>
+          </button>
+          <button
+            onClick={() => onSimulateIncomingCall?.(true)}
+            className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-md shadow-red-950 active:scale-95 transition cursor-pointer flex items-center gap-1"
+          >
+            <Video className="w-3.5 h-3.5" />
+            <span>Video</span>
+          </button>
+        </div>
       </div>
 
       {/* Create Call Link Card */}

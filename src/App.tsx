@@ -351,7 +351,7 @@ export default function App() {
   const handleSendMessage = (
     chatId: string,
     text: string,
-    mediaType?: 'image' | 'audio' | 'sticker',
+    mediaType?: 'image' | 'audio' | 'sticker' | 'document',
     mediaUrl?: string
   ) => {
     const isIncoming = text.startsWith('[incoming]');
@@ -455,7 +455,27 @@ export default function App() {
     setSelectedChat({ ...chat, unreadCount: 0 });
   };
 
-  // Start Call
+  // Listen to personal signaling channel for real incoming WhatsApp calls
+  useEffect(() => {
+    const myId = userProfile?.kempoId || currentUserName || 'my-id';
+    realtimeService.listenToPersonalSignals(
+      myId,
+      (callEvent: IncomingCallEvent) => {
+        setIncomingCall({
+          id: callEvent.callerId,
+          name: callEvent.callerName,
+          avatarUrl: callEvent.callerAvatar,
+          kempoId: callEvent.callerKempoId,
+          isVideo: callEvent.isVideo,
+        });
+      },
+      () => {
+        setIncomingCall(null);
+      }
+    );
+  }, [userProfile?.kempoId, currentUserName]);
+
+  // Start Call (Video or Voice) with Real-Time Signaling
   const handleStartCall = (chatOrName: Chat | string, isVideo: boolean) => {
     let targetChat: Chat | undefined;
     if (typeof chatOrName === 'string') {
@@ -464,7 +484,7 @@ export default function App() {
         name: chatOrName,
         avatarUrl: '',
         timestamp: 'Just now',
-        lastMessage: 'Call started',
+        lastMessage: isVideo ? 'Video call' : 'Voice call',
         messages: [],
       };
     } else {
@@ -472,6 +492,60 @@ export default function App() {
     }
     setIsVideoCall(isVideo);
     setActiveCallingChat(targetChat);
+
+    // Send call invite signal over Supabase Realtime to target user's personal channel
+    const targetKempoId = targetChat.phoneNumber || targetChat.about?.replace('KEMPO ID: ', '') || targetChat.id;
+    if (targetKempoId && userProfile) {
+      realtimeService.sendCallInvite(targetKempoId, {
+        callId: `call-${Date.now()}`,
+        callerId: userProfile.id,
+        callerName: userProfile.displayName,
+        callerAvatar: userProfile.avatarUrl,
+        callerKempoId: userProfile.kempoId,
+        isVideo,
+      });
+    }
+  };
+
+  // Accept Incoming Call
+  const handleAcceptIncomingCall = () => {
+    if (!incomingCall) return;
+    const callChat: Chat = {
+      id: incomingCall.id,
+      name: incomingCall.name,
+      avatarUrl: incomingCall.avatarUrl || '',
+      timestamp: 'Just now',
+      lastMessage: incomingCall.isVideo ? 'Video call' : 'Voice call',
+      messages: [],
+    };
+    setIsVideoCall(incomingCall.isVideo);
+    setActiveCallingChat(callChat);
+    setIncomingCall(null);
+  };
+
+  // Decline Incoming Call
+  const handleDeclineIncomingCall = () => {
+    if (incomingCall && incomingCall.kempoId) {
+      realtimeService.sendCallEnded(incomingCall.kempoId);
+    }
+    setIncomingCall(null);
+  };
+
+  // Mark all outgoing messages as read (Double Blue Ticks)
+  const handleMarkRead = (chatId: string) => {
+    setChats((prev) =>
+      prev.map((c) => {
+        if (c.id === chatId) {
+          return {
+            ...c,
+            unreadCount: 0,
+            lastMessageStatus: 'double_tick_blue',
+            messages: c.messages.map((m) => ({ ...m, status: 'read' as const })),
+          };
+        }
+        return c;
+      })
+    );
   };
 
   // Add new custom contact
@@ -653,6 +727,17 @@ export default function App() {
           <CallsTab
             calls={calls}
             onStartCall={(name, isVideo) => handleStartCall(name, isVideo)}
+            onSimulateIncomingCall={(isVideo) => {
+              const callerName = chats[0]?.name || 'Alex Morgan';
+              const callerAvatar = chats[0]?.avatarUrl || '';
+              setIncomingCall({
+                id: 'demo-caller',
+                name: callerName,
+                avatarUrl: callerAvatar,
+                kempoId: 'KEMPO-89A7F1',
+                isVideo,
+              });
+            }}
           />
         )}
 
@@ -699,9 +784,11 @@ export default function App() {
         {selectedChat && (
           <ChatRoom
             chat={selectedChat}
+            myId={userProfile?.kempoId || 'me'}
             onBack={() => setSelectedChat(null)}
             onSendMessage={handleSendMessage}
             onStartCall={(chat, isVideo) => handleStartCall(chat, isVideo)}
+            onMarkRead={handleMarkRead}
           />
         )}
 
@@ -810,6 +897,15 @@ export default function App() {
             chat={activeCallingChat}
             isVideo={isVideoCall}
             onEndCall={() => setActiveCallingChat(null)}
+          />
+        )}
+
+        {/* Incoming WhatsApp Call Modal (with real ringing audio and Accept/Decline) */}
+        {incomingCall && (
+          <IncomingCallModal
+            caller={incomingCall}
+            onAccept={handleAcceptIncomingCall}
+            onDecline={handleDeclineIncomingCall}
           />
         )}
 

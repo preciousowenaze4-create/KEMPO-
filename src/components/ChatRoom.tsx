@@ -25,7 +25,7 @@ interface ChatRoomProps {
   chat: Chat;
   myId?: string;
   onBack: () => void;
-  onSendMessage: (chatId: string, text: string, mediaType?: 'image' | 'audio' | 'sticker', mediaUrl?: string) => void;
+  onSendMessage: (chatId: string, text: string, mediaType?: 'image' | 'audio' | 'sticker' | 'document', mediaUrl?: string) => void;
   onStartCall?: (chat: Chat, isVideo: boolean) => void;
   onMarkRead?: (chatId: string) => void;
 }
