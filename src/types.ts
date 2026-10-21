@@ -72,6 +72,8 @@ export interface AppPreferences {
   darkTheme: boolean;
 }
 
+export type UserStatus = 'active' | 'verified' | 'suspended' | 'banned' | 'restricted';
+
 export interface UserProfileData {
   id: string;
   email: string;
@@ -81,5 +83,10 @@ export interface UserProfileData {
   kempoId: string;
   preferences: AppPreferences;
   isOnboarded: boolean;
+  status?: UserStatus;
+  isVerified?: boolean;
+  isAdmin?: boolean;
+  createdAt?: string;
+  lastActive?: string;
 }
 

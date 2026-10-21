@@ -3,7 +3,10 @@
  * Enforces owner identification, fixed owner ID, backend email privacy, and standard user ID validation.
  */
 
-export const OWNER_EMAIL = 'Preciousddkid@gmail.com';
+export const OWNER_EMAILS = [
+  'preciousddkid@gmail.com',
+  'preciousowenaze4@gmail.com',
+];
 export const OWNER_FIXED_ID = 'kempo pro';
 
 /**
@@ -11,7 +14,8 @@ export const OWNER_FIXED_ID = 'kempo pro';
  */
 export function isOwnerEmail(email?: string | null): boolean {
   if (!email) return false;
-  return email.trim().toLowerCase() === OWNER_EMAIL.toLowerCase();
+  const clean = email.trim().toLowerCase();
+  return OWNER_EMAILS.some((ownerEmail) => ownerEmail.toLowerCase() === clean);
 }
 
 /**
@@ -27,45 +31,41 @@ export function isOwnerAccount(profile?: { email?: string; kempoId?: string } | 
 }
 
 /**
- * Generate a distinct standard user ID with unique random numbers/characters appended.
- * Ensures no regular user can ever have or mimic 'kempo pro'.
+ * Generate standard user ID strictly using the app name as prefix:
+ * Format: KEMPO-[digits/letters], NEVER username with number!
+ * Example: KEMPO-749219 or KEMPO-9B4X21
  */
-export function generateStandardUserKempoId(preferredPrefix?: string): string {
-  // Random 5-digit number or alphanumeric tag
-  const randomSuffix = Math.floor(10000 + Math.random() * 90000).toString();
-  
-  if (preferredPrefix && preferredPrefix.trim()) {
-    let clean = preferredPrefix.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (clean === 'kempopro' || clean === 'kempo' || clean === 'pro' || clean === 'owner') {
-      clean = 'user';
-    }
-    return `${clean}-${randomSuffix}`;
-  }
-
-  // Default standard format e.g. KEMPO-49182
+export function generateStandardUserKempoId(): string {
+  // App name prefix followed by 6 random alphanumeric characters / numbers
   const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const digits = '1234567890';
   let randomPart = '';
+  // Mix 4 digits and 2 letters
   for (let i = 0; i < 4; i++) {
+    randomPart += digits.charAt(Math.floor(Math.random() * digits.length));
+  }
+  for (let i = 0; i < 2; i++) {
     randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return `KEMPO-${randomSuffix.slice(0, 3)}${randomPart.slice(0, 2)}`;
+  return `KEMPO-${randomPart}`;
 }
 
 /**
  * Assign appropriate User ID based on account credentials.
- * Automatically gives fixed 'kempo pro' to Preciousddkid@gmail.com,
- * and distinct appended IDs to standard users.
+ * Automatically gives fixed 'kempo pro' to the owner account,
+ * and app name prefix 'KEMPO-[digits/letters]' to all other people signing up.
  */
-export function assignUserKempoId(email: string, preferredName?: string): string {
+export function assignUserKempoId(email: string, _preferredName?: string): string {
   if (isOwnerEmail(email)) {
     return OWNER_FIXED_ID;
   }
-  return generateStandardUserKempoId(preferredName);
+  return generateStandardUserKempoId();
 }
 
 /**
  * Validate when a user attempts to customize or set a User ID.
  * Returns validation status and error messages if regular users attempt to use 'kempo pro'.
+ * Enforces KEMPO- prefix for standard users as requested by the user.
  */
 export function validateAndFormatUserId(
   desiredId: string,
@@ -92,19 +92,24 @@ export function validateAndFormatUserId(
     };
   }
 
-  // Check if standard ID has required appended numbers/characters
-  const hasDigitsOrChars = /\d{2,}/.test(trimmed) || /-[a-zA-Z0-9]+/.test(trimmed);
-  if (!hasDigitsOrChars) {
-    // Automatically append unique numbers to ensure distinctness
-    const uniqueSuffix = Math.floor(1000 + Math.random() * 9000);
-    const cleaned = trimmed.replace(/\s+/g, '-');
-    return {
-      valid: true,
-      formattedId: `${cleaned}-${uniqueSuffix}`,
-    };
+  // Ensure standard user ID starts with the app name: KEMPO-
+  let formatted = trimmed.toUpperCase();
+  if (!formatted.startsWith('KEMPO-')) {
+    const cleanSuffix = formatted.replace(/^KEMPO/i, '').replace(/[^A-Z0-9]/g, '');
+    if (cleanSuffix) {
+      formatted = `KEMPO-${cleanSuffix}`;
+    } else {
+      formatted = generateStandardUserKempoId();
+    }
   }
 
-  return { valid: true, formattedId: trimmed };
+  // Ensure it has letters/digits after KEMPO-
+  const suffix = formatted.replace('KEMPO-', '');
+  if (!suffix || suffix.length < 3) {
+    formatted = `${formatted}${Math.floor(100 + Math.random() * 900)}`;
+  }
+
+  return { valid: true, formattedId: formatted };
 }
 
 /**

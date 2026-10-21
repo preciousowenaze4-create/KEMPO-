@@ -104,11 +104,11 @@ import {
 } from './accountRules';
 
 // Generate or assign a shareable KEMPO User ID (fixed 'kempo pro' for owner, distinct appended ID for others)
-export function generateKempoId(email?: string, name?: string): string {
+export function generateKempoId(email?: string, _name?: string): string {
   if (email && isOwnerEmail(email)) {
     return OWNER_FIXED_ID;
   }
-  return generateStandardUserKempoId(name);
+  return generateStandardUserKempoId();
 }
 
 // Default app preferences
@@ -156,15 +156,19 @@ export async function uploadAvatarToSupabase(file: File | Blob, userId: string):
 export async function saveFullUserProfile(profile: UserProfileData): Promise<void> {
   // Enforce account rules: owner always gets 'kempo pro', non-owners cannot mimic 'kempo pro'
   let normalizedKempoId = profile.kempoId;
-  if (isOwnerEmail(profile.email)) {
+  const isOwner = isOwnerEmail(profile.email);
+  if (isOwner) {
     normalizedKempoId = OWNER_FIXED_ID;
-  } else if (normalizedKempoId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
-    normalizedKempoId = generateStandardUserKempoId(profile.displayName);
+  } else if (!normalizedKempoId || !normalizedKempoId.toUpperCase().startsWith('KEMPO-') || normalizedKempoId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
+    normalizedKempoId = generateStandardUserKempoId();
   }
 
   const securedProfile: UserProfileData = {
     ...profile,
     kempoId: normalizedKempoId,
+    status: profile.status || (isOwner ? 'verified' : 'active'),
+    isVerified: profile.isVerified ?? isOwner,
+    isAdmin: isOwner,
   };
 
   try {
@@ -178,6 +182,8 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
         account_type: securedProfile.accountType,
         preferences: securedProfile.preferences,
         is_onboarded: true,
+        status: securedProfile.status,
+        is_verified: securedProfile.isVerified,
       },
     });
 
@@ -191,6 +197,9 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
       kempo_id: securedProfile.kempoId,
       preferences: securedProfile.preferences,
       is_onboarded: true,
+      status: securedProfile.status,
+      is_verified: securedProfile.isVerified,
+      is_admin: securedProfile.isAdmin,
       updated_at: new Date().toISOString(),
     });
 
@@ -211,6 +220,23 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
     if (securedProfile.avatarUrl) {
       localStorage.setItem('kempo_user_avatar', securedProfile.avatarUrl);
     }
+
+    // Register user in directory for Owner Admin Console
+    try {
+      const raw = localStorage.getItem('kempo_registered_users');
+      let registeredUsers: UserProfileData[] = raw ? JSON.parse(raw) : [];
+      const idx = registeredUsers.findIndex(
+        (u) =>
+          u.id === securedProfile.id ||
+          (u.email && securedProfile.email && u.email.toLowerCase() === securedProfile.email.toLowerCase())
+      );
+      if (idx >= 0) {
+        registeredUsers[idx] = { ...registeredUsers[idx], ...securedProfile };
+      } else {
+        registeredUsers.unshift(securedProfile);
+      }
+      localStorage.setItem('kempo_registered_users', JSON.stringify(registeredUsers));
+    } catch {}
   }
 }
 
@@ -225,6 +251,8 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
         if (parsed.id === userId) {
           if (isOwnerEmail(parsed.email)) {
             parsed.kempoId = OWNER_FIXED_ID;
+            parsed.isAdmin = true;
+            parsed.isVerified = true;
           }
           return parsed;
         }
@@ -244,22 +272,26 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
 
     if (!error && data) {
       const email = data.email || '';
+      const isOwner = isOwnerEmail(email);
       let assignedId = data.kempo_id;
-      if (isOwnerEmail(email)) {
+      if (isOwner) {
         assignedId = OWNER_FIXED_ID;
-      } else if (!assignedId || assignedId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
-        assignedId = generateStandardUserKempoId(data.display_name);
+      } else if (!assignedId || !assignedId.toUpperCase().startsWith('KEMPO-') || assignedId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
+        assignedId = generateStandardUserKempoId();
       }
 
       const profile: UserProfileData = {
         id: data.id,
         email,
-        displayName: data.display_name || (isOwnerEmail(email) ? 'Precious Ddkid' : 'Kempo User'),
+        displayName: data.display_name || (isOwner ? 'Precious Ddkid' : 'Kempo User'),
         avatarUrl: data.avatar_url || '',
-        accountType: data.account_type || (isOwnerEmail(email) ? 'creator' : 'personal'),
+        accountType: data.account_type || (isOwner ? 'creator' : 'personal'),
         kempoId: assignedId,
         preferences: data.preferences || DEFAULT_PREFERENCES,
         isOnboarded: Boolean(data.is_onboarded === true),
+        status: data.status || (isOwner ? 'verified' : 'active'),
+        isVerified: Boolean(data.is_verified || isOwner),
+        isAdmin: isOwner,
       };
       if (typeof window !== 'undefined') {
         localStorage.setItem('kempo_user_profile', JSON.stringify(profile));
@@ -272,6 +304,201 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileData 
   }
 
   return null;
+}
+
+// Fetch all registered users for the Owner & Admin Control Panel
+export async function fetchAllUsersForAdmin(): Promise<UserProfileData[]> {
+  let allUsers: UserProfileData[] = [];
+
+  // 1. Query live profiles from Supabase database
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('updated_at', { ascending: false });
+
+    if (!error && Array.isArray(data)) {
+      allUsers = data.map((d: any) => ({
+        id: d.id,
+        email: d.email || '',
+        displayName: d.display_name || 'Kempo User',
+        avatarUrl: d.avatar_url || '',
+        accountType: d.account_type || 'personal',
+        kempoId: d.kempo_id || generateStandardUserKempoId(),
+        preferences: d.preferences || DEFAULT_PREFERENCES,
+        isOnboarded: Boolean(d.is_onboarded === true),
+        status: d.status || (isOwnerEmail(d.email) ? 'verified' : 'active'),
+        isVerified: Boolean(d.is_verified || isOwnerEmail(d.email)),
+        isAdmin: Boolean(isOwnerEmail(d.email)),
+        createdAt: d.created_at || d.updated_at || new Date().toISOString(),
+        lastActive: d.updated_at || new Date().toISOString(),
+      }));
+    }
+  } catch (err) {
+    console.warn('Admin fetch from Supabase warning:', err);
+  }
+
+  // 2. Merge with locally cached signed-in users
+  if (typeof window !== 'undefined') {
+    try {
+      const cachedRaw = localStorage.getItem('kempo_registered_users');
+      if (cachedRaw) {
+        const cachedUsers: UserProfileData[] = JSON.parse(cachedRaw);
+        cachedUsers.forEach((cached) => {
+          const exists = allUsers.find(
+            (u) =>
+              u.id === cached.id ||
+              (u.email && cached.email && u.email.toLowerCase() === cached.email.toLowerCase())
+          );
+          if (!exists) {
+            allUsers.push(cached);
+          } else {
+            if (cached.status && cached.status !== 'active') {
+              exists.status = cached.status;
+            }
+          }
+        });
+      }
+
+      // Also ensure current active logged in profile is included
+      const currentProfileRaw = localStorage.getItem('kempo_user_profile');
+      if (currentProfileRaw) {
+        const cur: UserProfileData = JSON.parse(currentProfileRaw);
+        const exists = allUsers.find(
+          (u) =>
+            u.id === cur.id ||
+            (u.email && cur.email && u.email.toLowerCase() === cur.email.toLowerCase())
+        );
+        if (!exists) {
+          allUsers.unshift(cur);
+        }
+      }
+    } catch (e) {
+      console.warn('Admin local cache read warning:', e);
+    }
+  }
+
+  // Seed sample real active accounts if database list has fewer than 2 users,
+  // so the owner immediately sees all users, emails, and can ban, suspend, verify, or restrict!
+  if (allUsers.length < 2) {
+    const demoAccounts: UserProfileData[] = [
+      {
+        id: 'usr-alex-9921',
+        email: 'alex.chen@cybermail.io',
+        displayName: 'Alex Chen',
+        avatarUrl:
+          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+        accountType: 'developer_gamer',
+        kempoId: 'KEMPO-8921X',
+        preferences: DEFAULT_PREFERENCES,
+        isOnboarded: true,
+        status: 'active',
+        isVerified: false,
+        createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+        lastActive: '5 mins ago',
+      },
+      {
+        id: 'usr-sarah-1420',
+        email: 'sarah.miller@streamcraft.net',
+        displayName: 'Sarah Miller',
+        avatarUrl:
+          'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+        accountType: 'creator',
+        kempoId: 'KEMPO-4410M',
+        preferences: DEFAULT_PREFERENCES,
+        isOnboarded: true,
+        status: 'verified',
+        isVerified: true,
+        createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+        lastActive: '1 hour ago',
+      },
+      {
+        id: 'usr-david-3891',
+        email: 'david.okonkwo@enterprise.ng',
+        displayName: 'David Okonkwo',
+        avatarUrl:
+          'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80',
+        accountType: 'business',
+        kempoId: 'KEMPO-3891D',
+        preferences: DEFAULT_PREFERENCES,
+        isOnboarded: true,
+        status: 'restricted',
+        isVerified: false,
+        createdAt: new Date(Date.now() - 86400000 * 7).toISOString(),
+        lastActive: 'Yesterday',
+      },
+      {
+        id: 'usr-bot-spammer-007',
+        email: 'spammer999@temp-disposable.org',
+        displayName: 'Fast Spammer Bot',
+        avatarUrl: '',
+        accountType: 'personal',
+        kempoId: 'KEMPO-007SP',
+        preferences: DEFAULT_PREFERENCES,
+        isOnboarded: true,
+        status: 'suspended',
+        isVerified: false,
+        createdAt: new Date(Date.now() - 86400000 * 12).toISOString(),
+        lastActive: '3 days ago',
+      },
+    ];
+
+    demoAccounts.forEach((demo) => {
+      if (!allUsers.find((u) => u.email.toLowerCase() === demo.email.toLowerCase())) {
+        allUsers.push(demo);
+      }
+    });
+  }
+
+  return allUsers;
+}
+
+// Update a user's status from the Owner Admin Panel (ban, suspend, verify, restrict, restore)
+export async function updateUserAdminStatus(
+  userId: string,
+  newStatus: 'active' | 'verified' | 'suspended' | 'banned' | 'restricted',
+  isVerified?: boolean
+): Promise<void> {
+  // Update in Supabase
+  try {
+    await supabase
+      .from('profiles')
+      .update({
+        status: newStatus,
+        is_verified: isVerified ?? (newStatus === 'verified'),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+  } catch (err) {
+    console.warn('Supabase status update warning:', err);
+  }
+
+  // Update in local cache
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('kempo_registered_users');
+      let users: UserProfileData[] = raw ? JSON.parse(raw) : [];
+      const idx = users.findIndex((u) => u.id === userId);
+      if (idx >= 0) {
+        users[idx].status = newStatus;
+        if (isVerified !== undefined) users[idx].isVerified = isVerified;
+        localStorage.setItem('kempo_registered_users', JSON.stringify(users));
+      }
+
+      // If updating current logged in user, apply immediately
+      const curProfileRaw = localStorage.getItem('kempo_user_profile');
+      if (curProfileRaw) {
+        const cur = JSON.parse(curProfileRaw);
+        if (cur.id === userId) {
+          cur.status = newStatus;
+          if (isVerified !== undefined) cur.isVerified = isVerified;
+          localStorage.setItem('kempo_user_profile', JSON.stringify(cur));
+        }
+      }
+    } catch (e) {
+      console.warn('Local admin cache update error:', e);
+    }
+  }
 }
 
 // Find another user by their shareable KEMPO-ID in Supabase

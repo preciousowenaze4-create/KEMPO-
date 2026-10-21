@@ -28,7 +28,9 @@ import {
   OWNER_FIXED_ID,
   validateAndFormatUserId,
   getBackendPrivacyStatus,
+  generateStandardUserKempoId,
 } from '../lib/accountRules';
+import { AdminConsoleModal } from './AdminConsoleModal';
 
 interface YouTabProps {
   onOpenPwaGuide: () => void;
@@ -78,14 +80,28 @@ export const YouTab: React.FC<YouTabProps> = ({
     userProfile?.kempoId?.toLowerCase() === OWNER_FIXED_ID.toLowerCase();
 
   // For owner, fixed ID is always 'kempo pro'
+  // For standard users: Always start with app name 'KEMPO-' followed by numbers/letters!
   const kempoId = isOwner
     ? OWNER_FIXED_ID
-    : userProfile?.kempoId || 'KEMPO-USER';
+    : userProfile?.kempoId && userProfile.kempoId.toUpperCase().startsWith('KEMPO-')
+    ? userProfile.kempoId
+    : 'KEMPO-749219';
+
   const displayName =
     userProfile?.displayName ||
     currentUserName ||
     (isOwner ? 'Precious Ddkid' : 'Kempo User');
   const accountType = isOwner ? 'creator' : userProfile?.accountType || 'personal';
+
+  // Auto-correct any legacy ID (such as ddkidcast-70319) so every regular user has KEMPO-[digits/letters]
+  useEffect(() => {
+    if (!isOwner && userProfile?.kempoId && !userProfile.kempoId.toUpperCase().startsWith('KEMPO-')) {
+      const standardId = generateStandardUserKempoId();
+      const updatedProfile = { ...userProfile, kempoId: standardId };
+      saveFullUserProfile(updatedProfile);
+      onUpdateProfile?.(updatedProfile);
+    }
+  }, [isOwner, userProfile?.kempoId]);
 
   // Offline-resilient avatar state (loaded from cache instantly)
   const [avatarUrl, setAvatarUrl] = useState<string>(() => {
@@ -111,6 +127,9 @@ export const YouTab: React.FC<YouTabProps> = ({
 
   // Copy ID state
   const [copiedId, setCopiedId] = useState(false);
+
+  // Owner & Admin Console state
+  const [showAdminConsole, setShowAdminConsole] = useState(false);
 
   // Edit / Customize ID modal state
   const [showEditIdModal, setShowEditIdModal] = useState(false);
@@ -625,6 +644,32 @@ export const YouTab: React.FC<YouTabProps> = ({
           </div>
           <ChevronRight className="w-4 h-4 text-neutral-600 shrink-0" />
         </div>
+
+        {/* 7. Owner & Admin Console Button (Visible ONLY to the owner) */}
+        {isOwner && (
+          <div
+            onClick={() => setShowAdminConsole(true)}
+            className="p-4 rounded-2xl bg-gradient-to-r from-red-950 via-[#1f1216] to-[#2a170d] border-2 border-amber-500/70 hover:border-amber-400 flex items-center justify-between cursor-pointer transition active:scale-99 shadow-2xl shadow-red-950/60 mt-2"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-400 via-amber-500 to-red-600 text-black flex items-center justify-center font-black shadow-lg shadow-amber-950/60 shrink-0">
+                <Crown className="w-5 h-5 text-black fill-black" />
+              </div>
+              <div className="min-w-0 text-left">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-[15px] font-black text-white">Owner & Admin Console</h4>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider shadow-xs">
+                    Admin Only
+                  </span>
+                </div>
+                <p className="text-[12px] text-amber-200/90 font-medium truncate">
+                  View signed-in user emails, ban, suspend, verify & restrict accounts
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-amber-300 shrink-0" />
+          </div>
+        )}
       </div>
 
       {/* App Info Footer */}
@@ -715,24 +760,24 @@ export const YouTab: React.FC<YouTabProps> = ({
             </div>
 
             <p className="text-xs text-neutral-400 mb-3 leading-relaxed">
-              Standard User IDs cannot mimic or use <strong className="text-white">"kempo pro"</strong>. Unique numbers or characters are automatically appended to ensure every standard ID is distinct.
+              Standard User IDs always start with the app name <strong className="text-white">"KEMPO-"</strong> followed by numbers or letters. The fixed ID <strong className="text-white">"kempo pro"</strong> is reserved exclusively for the system owner.
             </p>
 
             <form onSubmit={handleSaveCustomId} className="space-y-3">
               <div>
                 <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                  Desired Handle or ID
+                  Desired Handle or ID (e.g. KEMPO-728193 or KEMPO-HERO)
                 </label>
                 <input
                   type="text"
                   value={customIdInput}
                   onChange={(e) => {
-                    setCustomIdInput(e.target.value);
+                    setCustomIdInput(e.target.value.toUpperCase());
                     setEditIdError('');
                   }}
-                  placeholder="e.g. shadow, alex, warrior"
-                  maxLength={20}
-                  className="w-full h-11 px-3.5 rounded-xl bg-[#0e0e11] text-white placeholder-neutral-500 text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-red-500 transition"
+                  placeholder="e.g. KEMPO-728193 or KEMPO-HERO"
+                  maxLength={22}
+                  className="w-full h-11 px-3.5 rounded-xl bg-[#0e0e11] text-white placeholder-neutral-500 text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-red-500 transition uppercase"
                 />
               </div>
 
@@ -768,6 +813,14 @@ export const YouTab: React.FC<YouTabProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Owner & Admin Console Modal (Visible ONLY to the owner) */}
+      {showAdminConsole && isOwner && (
+        <AdminConsoleModal
+          onClose={() => setShowAdminConsole(false)}
+          currentOwnerEmail={rawEmail || 'Preciousddkid@gmail.com'}
+        />
       )}
     </div>
   );
