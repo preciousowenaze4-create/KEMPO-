@@ -140,28 +140,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   return (
     <div className="w-full h-full min-h-screen bg-black text-white flex flex-col justify-between p-5 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] select-none overflow-y-auto">
-      {/* Header & Step progress indicators */}
-      <div className="w-full max-w-sm mx-auto">
-        <div className="flex items-center justify-between pb-3">
+      {/* Clean Top Branding Header without progress lines or step numbers */}
+      <div className="w-full max-w-sm mx-auto mb-4">
+        <div className="flex items-center justify-between pb-1">
           <div className="flex items-center gap-1.5">
             <div className="w-6 h-6 rounded-lg bg-red-600 flex items-center justify-center font-black text-xs">
               K
             </div>
             <span className="font-extrabold text-sm tracking-tight">KEMPO <span className="text-red-500">PRo</span></span>
           </div>
-          <span className="text-xs font-semibold text-neutral-400">
-            {step === 1 && 'Step 1 of 3'}
-            {step === 2 && 'Step 2 of 3'}
-            {step === 3 && 'Step 3 of 3'}
-            {step === 4 && 'Complete!'}
-          </span>
-        </div>
-
-        {/* Multi-step progress bar */}
-        <div className="grid grid-cols-3 gap-1.5 mb-6">
-          <div className={`h-1.5 rounded-full transition-all duration-300 ${step >= 1 ? 'bg-red-600' : 'bg-neutral-800'}`} />
-          <div className={`h-1.5 rounded-full transition-all duration-300 ${step >= 2 ? 'bg-red-600' : 'bg-neutral-800'}`} />
-          <div className={`h-1.5 rounded-full transition-all duration-300 ${step >= 3 ? 'bg-red-600' : 'bg-neutral-800'}`} />
         </div>
       </div>
 
