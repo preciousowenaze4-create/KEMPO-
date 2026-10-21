@@ -22,9 +22,15 @@ import { ActionMenuModal } from './components/ActionMenuModal';
 import { CameraModal } from './components/CameraModal';
 import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { PhoneMissed, MessageCircle } from 'lucide-react';
 import { AuthScreen } from './components/AuthScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
-import { realtimeService, IncomingCallEvent, DirectMessagePayload } from './lib/realtimeService';
+import {
+  realtimeService,
+  IncomingCallEvent,
+  DirectMessagePayload,
+  MissedCallEvent,
+} from './lib/realtimeService';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import {
   supabase,
@@ -160,6 +166,9 @@ export default function App() {
   // Calling state
   const [activeCallingChat, setActiveCallingChat] = useState<Chat | null>(null);
   const [isVideoCall, setIsVideoCall] = useState(false);
+  const [activeCallStatus, setActiveCallStatus] = useState<
+    'Ringing...' | 'Connected' | 'Call Declined' | 'No Answer'
+  >('Ringing...');
   const [incomingCall, setIncomingCall] = useState<{
     id: string;
     name: string;
@@ -167,6 +176,30 @@ export default function App() {
     kempoId?: string;
     isVideo: boolean;
   } | null>(null);
+
+  // In-app Notification Banner state (real-time popup for missed calls & incoming messages)
+  const [bannerNotification, setBannerNotification] = useState<{
+    id: string;
+    type: 'missed_call' | 'message';
+    title: string;
+    body: string;
+    avatarUrl?: string;
+    onClick?: () => void;
+  } | null>(null);
+
+  const showBanner = (notif: {
+    type: 'missed_call' | 'message';
+    title: string;
+    body: string;
+    avatarUrl?: string;
+    onClick?: () => void;
+  }) => {
+    const id = `notif-${Date.now()}`;
+    setBannerNotification({ id, ...notif });
+    setTimeout(() => {
+      setBannerNotification((prev) => (prev?.id === id ? null : prev));
+    }, 4500);
+  };
 
   // PWA install hook
   const { isInstallable, isInstalled, install } = usePWAInstall();
@@ -590,7 +623,7 @@ export default function App() {
     setSelectedChat({ ...chat, unreadCount: 0 });
   };
 
-  // Listen to personal signaling channel for real incoming WhatsApp calls and direct messages
+  // Listen to personal signaling channel for real incoming WhatsApp calls, responses, and missed calls
   useEffect(() => {
     const myId = userProfile?.kempoId || currentUserName || 'my-id';
     realtimeService.listenToPersonalSignals(
@@ -605,15 +638,73 @@ export default function App() {
         });
       },
       () => {
+        setActiveCallingChat(null);
         setIncomingCall(null);
       },
       (dm: DirectMessagePayload) => {
         handleIncomingDirectMessage(dm);
+      },
+      () => {
+        // Call accepted by recipient
+        setActiveCallStatus('Connected');
+      },
+      () => {
+        // Call declined by recipient
+        setActiveCallStatus('Call Declined');
+        if (activeCallingChat) {
+          const isVideo = isVideoCall;
+          const outgoingLog: CallLog = {
+            id: `call-${Date.now()}`,
+            name: activeCallingChat.name,
+            avatarUrl: activeCallingChat.avatarUrl,
+            timestamp: 'Just now',
+            type: 'outgoing',
+            isVideo,
+          };
+          setCalls((prev) => [outgoingLog, ...prev]);
+          handleSendMessage(activeCallingChat.id, `📞 Missed ${isVideo ? 'video' : 'voice'} call`);
+        }
+        setTimeout(() => {
+          setActiveCallingChat(null);
+        }, 1800);
+      },
+      (missedEvent: MissedCallEvent) => {
+        // Missed call received
+        const missedLog: CallLog = {
+          id: `call-${Date.now()}`,
+          name: missedEvent.callerName,
+          avatarUrl: missedEvent.callerAvatar || '',
+          timestamp: missedEvent.timestamp || 'Just now',
+          type: 'missed',
+          isVideo: missedEvent.isVideo,
+        };
+        setCalls((prev) => [missedLog, ...prev]);
+
+        // Real in-app notification banner
+        showBanner({
+          type: 'missed_call',
+          title: `Missed ${missedEvent.isVideo ? 'Video' : 'Voice'} Call`,
+          body: `Missed call from ${missedEvent.callerName}`,
+          avatarUrl: missedEvent.callerAvatar,
+          onClick: () => setActiveTab('calls'),
+        });
+
+        // Add missed call message to chat
+        const callerKempoId = missedEvent.callerKempoId || missedEvent.callerId;
+        const matched = chats.find(
+          (c) =>
+            (c.kempoId && c.kempoId.toUpperCase() === callerKempoId.toUpperCase()) ||
+            (c.phoneNumber && c.phoneNumber.toUpperCase() === callerKempoId.toUpperCase()) ||
+            c.name === missedEvent.callerName
+        );
+        if (matched) {
+          handleSendMessage(matched.id, `📞 Missed ${missedEvent.isVideo ? 'video' : 'voice'} call`);
+        }
       }
     );
-  }, [userProfile?.kempoId, currentUserName, selectedChat]);
+  }, [userProfile?.kempoId, currentUserName, selectedChat, activeCallingChat, isVideoCall, chats]);
 
-  // Start Call (Video or Voice) with Real-Time Signaling
+  // Start Call (Video or Voice) with Real-Time Signaling (Never call self)
   const handleStartCall = (chatOrName: Chat | string, isVideo: boolean) => {
     let targetChat: Chat | undefined;
     if (typeof chatOrName === 'string') {
@@ -628,11 +719,27 @@ export default function App() {
     } else {
       targetChat = chatOrName;
     }
+
+    const targetKempoId =
+      targetChat.kempoId ||
+      targetChat.phoneNumber ||
+      targetChat.about?.replace('KEMPO ID: ', '') ||
+      targetChat.id;
+
+    if (
+      userProfile?.kempoId &&
+      targetKempoId &&
+      targetKempoId.toUpperCase() === userProfile.kempoId.toUpperCase()
+    ) {
+      alert('You cannot call yourself. Enter another person’s KEMPO ID to call them.');
+      return;
+    }
+
     setIsVideoCall(isVideo);
+    setActiveCallStatus('Ringing...');
     setActiveCallingChat(targetChat);
 
     // Send call invite signal over Supabase Realtime to target user's personal channel
-    const targetKempoId = targetChat.phoneNumber || targetChat.about?.replace('KEMPO ID: ', '') || targetChat.id;
     if (targetKempoId && userProfile) {
       realtimeService.sendCallInvite(targetKempoId, {
         callId: `call-${Date.now()}`,
@@ -645,18 +752,104 @@ export default function App() {
     }
   };
 
+  // Start Call directly by recipient User ID
+  const handleStartCallById = async (targetKempoId: string, isVideo: boolean) => {
+    const cleanId = targetKempoId.trim().toUpperCase();
+    if (!cleanId) return;
+
+    if (userProfile?.kempoId && cleanId === userProfile.kempoId.toUpperCase()) {
+      alert('You cannot call yourself. Enter another person’s KEMPO ID to ring their device.');
+      return;
+    }
+
+    let targetChat = chats.find(
+      (c) =>
+        (c.kempoId && c.kempoId.toUpperCase() === cleanId) ||
+        (c.phoneNumber && c.phoneNumber.toUpperCase() === cleanId) ||
+        (c.about && c.about.toUpperCase().includes(cleanId))
+    );
+
+    if (!targetChat) {
+      const found = await findUserByKempoId(cleanId);
+      const newContact: Chat = {
+        id: `c-${found?.id || Date.now()}`,
+        name: found?.displayName || `User (${cleanId})`,
+        kempoId: cleanId,
+        phoneNumber: cleanId,
+        avatarUrl: found?.avatarUrl || '',
+        avatarBg: '#2a1a1a',
+        avatarType: 'icon',
+        timestamp: 'Just now',
+        lastMessage: isVideo ? 'Video call' : 'Voice call',
+        lastMessageStatus: 'none',
+        unreadCount: 0,
+        online: true,
+        about: `KEMPO ID: ${cleanId}`,
+        messages: [],
+      };
+      setChats((prev) => [newContact, ...prev]);
+      targetChat = newContact;
+    }
+
+    handleStartCall(targetChat, isVideo);
+  };
+
+  // Handle Call No Answer / Recipient did not pick up
+  const handleCallNoAnswer = () => {
+    if (!activeCallingChat || !userProfile) return;
+    const isVideo = isVideoCall;
+    const targetKempoId =
+      activeCallingChat.kempoId ||
+      activeCallingChat.phoneNumber ||
+      activeCallingChat.about?.replace('KEMPO ID: ', '') ||
+      activeCallingChat.id;
+
+    // 1. Log outgoing unanswered call in caller's calls list
+    const outgoingLog: CallLog = {
+      id: `call-${Date.now()}`,
+      name: activeCallingChat.name,
+      avatarUrl: activeCallingChat.avatarUrl,
+      timestamp: 'Just now',
+      type: 'outgoing',
+      isVideo,
+    };
+    setCalls((prev) => [outgoingLog, ...prev]);
+
+    // 2. Add missed call message in chat
+    const missedText = `📞 Missed ${isVideo ? 'video' : 'voice'} call`;
+    handleSendMessage(activeCallingChat.id, missedText);
+
+    // 3. Send missed call event & direct message signal to recipient
+    if (targetKempoId) {
+      realtimeService.sendMissedCall(targetKempoId, {
+        callId: `call-${Date.now()}`,
+        callerId: userProfile.id,
+        callerName: userProfile.displayName,
+        callerAvatar: userProfile.avatarUrl,
+        callerKempoId: userProfile.kempoId,
+        isVideo,
+        timestamp: 'Just now',
+      });
+    }
+  };
+
   // Accept Incoming Call
   const handleAcceptIncomingCall = () => {
     if (!incomingCall) return;
+    if (incomingCall.kempoId) {
+      realtimeService.sendCallAccepted(incomingCall.kempoId);
+    }
     const callChat: Chat = {
       id: incomingCall.id,
       name: incomingCall.name,
       avatarUrl: incomingCall.avatarUrl || '',
+      kempoId: incomingCall.kempoId,
       timestamp: 'Just now',
       lastMessage: incomingCall.isVideo ? 'Video call' : 'Voice call',
       messages: [],
     };
     setIsVideoCall(incomingCall.isVideo);
+    setActiveCallStatus('Connected');
     setActiveCallingChat(callChat);
     setIncomingCall(null);
   };
@@ -664,8 +857,33 @@ export default function App() {
   // Decline Incoming Call
   const handleDeclineIncomingCall = () => {
     if (incomingCall && incomingCall.kempoId) {
-      realtimeService.sendCallEnded(incomingCall.kempoId);
+      realtimeService.sendCallDeclined(incomingCall.kempoId);
     }
+
+    // Callee logs missed call in their own call log
+    if (incomingCall) {
+      const missedLog: CallLog = {
+        id: `call-${Date.now()}`,
+        name: incomingCall.name,
+        avatarUrl: incomingCall.avatarUrl || '',
+        timestamp: 'Just now',
+        type: 'missed',
+        isVideo: incomingCall.isVideo,
+      };
+      setCalls((prev) => [missedLog, ...prev]);
+
+      const callerKempoId = incomingCall.kempoId || incomingCall.id;
+      const matchedChat = chats.find(
+        (c) =>
+          (c.kempoId && c.kempoId.toUpperCase() === callerKempoId.toUpperCase()) ||
+          (c.phoneNumber && c.phoneNumber.toUpperCase() === callerKempoId.toUpperCase()) ||
+          c.name === incomingCall.name
+      );
+      if (matchedChat) {
+        handleSendMessage(matchedChat.id, `📞 Missed ${incomingCall.isVideo ? 'video' : 'voice'} call`);
+      }
+    }
+
     setIncomingCall(null);
   };
 
@@ -750,6 +968,36 @@ export default function App() {
   return (
     <div className="w-full h-full min-h-screen bg-black text-white flex flex-col relative overflow-hidden select-none">
       <OfflineIndicator />
+
+      {/* Real In-App Notification Banner (Missed calls & Live Messages) */}
+      {bannerNotification && (
+        <div
+          onClick={() => {
+            bannerNotification.onClick?.();
+            setBannerNotification(null);
+          }}
+          className="fixed top-4 left-4 right-4 z-50 max-w-md mx-auto p-3.5 rounded-2xl bg-[#1c1c20]/95 backdrop-blur-md shadow-2xl border border-neutral-800 flex items-center gap-3 cursor-pointer animate-in slide-in-from-top duration-300 select-none"
+        >
+          <div className="w-10 h-10 rounded-full bg-red-600/20 text-red-500 flex items-center justify-center shrink-0">
+            {bannerNotification.type === 'missed_call' ? (
+              <PhoneMissed className="w-5 h-5 text-red-500" />
+            ) : (
+              <MessageCircle className="w-5 h-5 text-emerald-400" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                {bannerNotification.title}
+              </h4>
+              <span className="text-[10px] text-neutral-400">Just now</span>
+            </div>
+            <p className="text-sm text-neutral-300 font-medium truncate mt-0.5">
+              {bannerNotification.body}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Main App Container: True edge-to-edge full-screen display */}
       <div className="w-full h-full flex flex-col flex-1 relative overflow-hidden">
@@ -864,18 +1112,9 @@ export default function App() {
         {activeTab === 'calls' && (
           <CallsTab
             calls={calls}
+            currentKempoId={userProfile?.kempoId}
             onStartCall={(name, isVideo) => handleStartCall(name, isVideo)}
-            onSimulateIncomingCall={(isVideo) => {
-              const callerName = chats[0]?.name || 'Alex Morgan';
-              const callerAvatar = chats[0]?.avatarUrl || '';
-              setIncomingCall({
-                id: 'demo-caller',
-                name: callerName,
-                avatarUrl: callerAvatar,
-                kempoId: 'KEMPO-89A7F1',
-                isVideo,
-              });
-            }}
+            onStartCallById={(kempoId, isVideo) => handleStartCallById(kempoId, isVideo)}
           />
         )}
 
@@ -905,6 +1144,7 @@ export default function App() {
             currentUserEmail={currentUserEmail}
             currentUserName={currentUserName}
             userProfile={userProfile}
+            onUpdateProfile={(updated) => setUserProfile(updated)}
             onAddContactById={handleAddContactById}
             onOpenChat={handleOpenChat}
           />
@@ -1036,7 +1276,9 @@ export default function App() {
           <ActiveCallModal
             chat={activeCallingChat}
             isVideo={isVideoCall}
+            callStatus={activeCallStatus}
             onEndCall={() => setActiveCallingChat(null)}
+            onNoAnswer={handleCallNoAnswer}
           />
         )}
 

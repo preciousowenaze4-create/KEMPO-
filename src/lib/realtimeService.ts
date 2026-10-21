@@ -10,6 +10,16 @@ export interface IncomingCallEvent {
   isVideo: boolean;
 }
 
+export interface MissedCallEvent {
+  callId: string;
+  callerId: string;
+  callerName: string;
+  callerAvatar?: string;
+  callerKempoId?: string;
+  isVideo: boolean;
+  timestamp: string;
+}
+
 export interface DirectMessagePayload {
   message: Message;
   senderKempoId: string;
@@ -23,7 +33,7 @@ export class KempoRealtimeService {
   private userChannel: any = null;
 
   // Normalize ID for clean room channels
-  private normalizeId(id: string): string {
+  public normalizeId(id: string): string {
     return (id || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
   }
 
@@ -35,12 +45,15 @@ export class KempoRealtimeService {
     return `kempo_chat_${sorted[0]}_${sorted[1]}`;
   }
 
-  // Listen to personal signaling channel for incoming calls, direct messages, and notifications
+  // Listen to personal signaling channel for incoming calls, responses, direct messages, and missed calls
   listenToPersonalSignals(
     myKempoId: string,
     onIncomingCall: (call: IncomingCallEvent) => void,
     onCallEnded?: () => void,
-    onIncomingDirectMessage?: (dm: DirectMessagePayload) => void
+    onIncomingDirectMessage?: (dm: DirectMessagePayload) => void,
+    onCallAccepted?: () => void,
+    onCallDeclined?: () => void,
+    onMissedCall?: (event: MissedCallEvent) => void
   ) {
     if (!myKempoId) return;
 
@@ -63,8 +76,19 @@ export class KempoRealtimeService {
           onIncomingCall(payload as IncomingCallEvent);
         }
       })
+      .on('broadcast', { event: 'call_accepted' }, () => {
+        onCallAccepted?.();
+      })
+      .on('broadcast', { event: 'call_declined' }, () => {
+        onCallDeclined?.();
+      })
       .on('broadcast', { event: 'call_ended' }, () => {
         onCallEnded?.();
+      })
+      .on('broadcast', { event: 'missed_call' }, ({ payload }) => {
+        if (payload && onMissedCall) {
+          onMissedCall(payload as MissedCallEvent);
+        }
       })
       .on('broadcast', { event: 'direct_message' }, ({ payload }) => {
         if (payload && onIncomingDirectMessage) {
@@ -80,7 +104,7 @@ export class KempoRealtimeService {
     this.userChannel = channel;
   }
 
-  // Send a direct message to a user's personal channel (arrives even if they aren't in the chat room yet)
+  // Send a direct message to a user's personal channel
   sendDirectMessage(recipientKempoId: string, payload: DirectMessagePayload) {
     if (!recipientKempoId) return;
     const cleanChannelName = `user_${this.normalizeId(recipientKempoId)}`;
@@ -95,7 +119,6 @@ export class KempoRealtimeService {
           event: 'direct_message',
           payload,
         });
-        // Leave temporary channel after sending
         setTimeout(() => {
           try {
             supabase.removeChannel(channel);
@@ -126,6 +149,69 @@ export class KempoRealtimeService {
     });
   }
 
+  // Send Call Accepted signal back to caller
+  sendCallAccepted(targetKempoId: string) {
+    const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
+    const channel = supabase.channel(cleanChannelName, {
+      config: { broadcast: { self: false } },
+    });
+
+    channel.subscribe((status: string) => {
+      if (status === 'SUBSCRIBED') {
+        channel.send({
+          type: 'broadcast',
+          event: 'call_accepted',
+          payload: {},
+        });
+        setTimeout(() => {
+          try { supabase.removeChannel(channel); } catch {}
+        }, 1500);
+      }
+    });
+  }
+
+  // Send Call Declined signal back to caller
+  sendCallDeclined(targetKempoId: string) {
+    const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
+    const channel = supabase.channel(cleanChannelName, {
+      config: { broadcast: { self: false } },
+    });
+
+    channel.subscribe((status: string) => {
+      if (status === 'SUBSCRIBED') {
+        channel.send({
+          type: 'broadcast',
+          event: 'call_declined',
+          payload: {},
+        });
+        setTimeout(() => {
+          try { supabase.removeChannel(channel); } catch {}
+        }, 1500);
+      }
+    });
+  }
+
+  // Send Missed Call signal to recipient
+  sendMissedCall(targetKempoId: string, event: MissedCallEvent) {
+    const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
+    const channel = supabase.channel(cleanChannelName, {
+      config: { broadcast: { self: false } },
+    });
+
+    channel.subscribe((status: string) => {
+      if (status === 'SUBSCRIBED') {
+        channel.send({
+          type: 'broadcast',
+          event: 'missed_call',
+          payload: event,
+        });
+        setTimeout(() => {
+          try { supabase.removeChannel(channel); } catch {}
+        }, 1500);
+      }
+    });
+  }
+
   // Send Call Ended signal to recipient
   sendCallEnded(targetKempoId: string) {
     const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
@@ -140,6 +226,9 @@ export class KempoRealtimeService {
           event: 'call_ended',
           payload: {},
         });
+        setTimeout(() => {
+          try { supabase.removeChannel(channel); } catch {}
+        }, 1500);
       }
     });
   }
@@ -154,7 +243,6 @@ export class KempoRealtimeService {
     const channelName = this.getRoomChannelName(myId, partnerId);
     const cleanMyId = this.normalizeId(myId);
 
-    // Clean up if already exists
     if (this.activeChannels.has(channelName)) {
       try {
         supabase.removeChannel(this.activeChannels.get(channelName));
@@ -169,7 +257,6 @@ export class KempoRealtimeService {
       .on('broadcast', { event: 'new_message' }, ({ payload }) => {
         if (payload && this.normalizeId(payload.senderId) !== cleanMyId) {
           onMessage(payload);
-          // Auto send back read receipt
           this.sendReadReceipt(myId, partnerId);
         }
       })
@@ -182,7 +269,6 @@ export class KempoRealtimeService {
 
     this.activeChannels.set(channelName, channel);
 
-    // Initial read receipt emission
     setTimeout(() => {
       this.sendReadReceipt(myId, partnerId);
     }, 500);

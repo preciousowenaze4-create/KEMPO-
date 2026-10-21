@@ -19,24 +19,40 @@ import { ringtoneManager } from '../lib/callSounds';
 interface ActiveCallModalProps {
   chat: Chat | null;
   isVideo: boolean;
+  callStatus?: 'Ringing...' | 'Connected' | 'Call Declined' | 'No Answer';
   onEndCall: () => void;
+  onNoAnswer?: () => void;
 }
 
 export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
   chat,
   isVideo,
+  callStatus = 'Ringing...',
   onEndCall,
+  onNoAnswer,
 }) => {
   const [seconds, setSeconds] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(isVideo);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
-  const [callState, setCallState] = useState<'Ringing...' | 'Connected'>('Ringing...');
+  const [callState, setCallState] = useState<'Ringing...' | 'Connected' | 'Call Declined' | 'No Answer'>(callStatus);
   const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [micVolume, setMicVolume] = useState<number>(0);
   const [isPipSwapped, setIsPipSwapped] = useState(false);
+
+  // Sync external callStatus changes
+  useEffect(() => {
+    if (callStatus) {
+      setCallState(callStatus);
+      if (callStatus === 'Connected') {
+        ringtoneManager.playConnectedTone();
+      } else if (callStatus === 'Call Declined' || callStatus === 'No Answer') {
+        ringtoneManager.playEndCallTone();
+      }
+    }
+  }, [callStatus]);
 
   // Video and audio references
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -51,8 +67,10 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
 
     let activeStream: MediaStream | null = null;
 
-    // Start authentic WhatsApp ringing tone
-    ringtoneManager.startOutgoingTone();
+    // Start authentic WhatsApp ringing tone if ringing
+    if (callState === 'Ringing...') {
+      ringtoneManager.startOutgoingTone();
+    }
 
     // Request real user media (camera/mic)
     const initMedia = async () => {
@@ -72,7 +90,6 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
           localVideoRef.current.play().catch(() => {});
         }
 
-        // Initialize real microphone level analyser for authentic voice reaction
         try {
           const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
           const ctx = new AudioCtxClass();
@@ -109,19 +126,26 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
 
     initMedia();
 
-    // Connect call after 2.5s ringing (authentic WhatsApp flow)
-    const ringTimer = setTimeout(() => {
-      ringtoneManager.playConnectedTone();
-      setCallState('Connected');
-    }, 2500);
+    // 25-second Ringing Timeout: If recipient doesn't answer, mark as No Answer
+    let noAnswerTimer: any = null;
+    if (callState === 'Ringing...') {
+      noAnswerTimer = setTimeout(() => {
+        setCallState('No Answer');
+        ringtoneManager.playEndCallTone();
+        onNoAnswer?.();
+        setTimeout(() => {
+          onEndCall();
+        }, 2000);
+      }, 25000);
+    }
 
-    // Call duration timer
+    // Call duration timer only increments when Connected
     const interval = setInterval(() => {
-      setSeconds((prev) => prev + 1);
+      setSeconds((prev) => (callState === 'Connected' ? prev + 1 : 0));
     }, 1000);
 
     return () => {
-      clearTimeout(ringTimer);
+      if (noAnswerTimer) clearTimeout(noAnswerTimer);
       clearInterval(interval);
       ringtoneManager.stop();
 
@@ -136,7 +160,7 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
         audioContextRef.current.close().catch(() => {});
       }
     };
-  }, [chat, isVideo]);
+  }, [chat, isVideo, callState]);
 
   // Flip camera (front vs rear)
   const handleFlipCamera = async () => {
@@ -190,9 +214,11 @@ export const ActiveCallModal: React.FC<ActiveCallModalProps> = ({
     setIsVideoOn(!isVideoOn);
   };
 
-  // End Call handler
   const handleEndCall = () => {
     ringtoneManager.playEndCallTone();
+    if (callState === 'Ringing...') {
+      onNoAnswer?.();
+    }
     if (mediaStream) {
       mediaStream.getTracks().forEach((t) => t.stop());
     }
