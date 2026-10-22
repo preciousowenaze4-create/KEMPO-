@@ -39,6 +39,7 @@ import {
   generateStandardUserKempoId,
 } from '../lib/accountRules';
 import { AdminConsoleModal } from './AdminConsoleModal';
+import { ProfileEditScreen } from './ProfileEditScreen';
 
 interface YouTabProps {
   onOpenPwaGuide: () => void;
@@ -165,6 +166,9 @@ export const YouTab: React.FC<YouTabProps> = ({
 
   // Owner & Admin Console state
   const [showAdminConsole, setShowAdminConsole] = useState(false);
+
+  // Dedicated Profile Editing Screen state (IMG_4734 & IMG_4733)
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
 
   // Edit / Customize ID modal state
   const [showEditIdModal, setShowEditIdModal] = useState(false);
@@ -336,9 +340,10 @@ export const YouTab: React.FC<YouTabProps> = ({
             <QrCode className="w-4.5 h-4.5" />
           </button>
           <button
-            onClick={() => setShowAvatarPicker(true)}
+            onClick={() => setShowProfileEdit(true)}
             className="w-9 h-9 rounded-full bg-[#1c1c1e] hover:bg-[#252528] text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer"
-            title="Change Avatar"
+            title="Edit Profile"
+            aria-label="Edit Profile"
           >
             <Edit3 className="w-4.5 h-4.5" />
           </button>
@@ -990,6 +995,22 @@ export const YouTab: React.FC<YouTabProps> = ({
         <AdminConsoleModal
           onClose={() => setShowAdminConsole(false)}
           currentOwnerEmail={rawEmail || 'Preciousddkid@gmail.com'}
+        />
+      )}
+
+      {/* Dedicated Profile Editing Screen (Matching IMG_4734 & IMG_4733) */}
+      {showProfileEdit && (
+        <ProfileEditScreen
+          userProfile={userProfile || null}
+          currentUserEmail={currentUserEmail}
+          currentUserName={currentUserName}
+          onBack={() => setShowProfileEdit(false)}
+          onSaveSuccess={(updated) => {
+            onUpdateProfile?.(updated);
+            if (updated.avatarUrl) {
+              setAvatarUrl(updated.avatarUrl);
+            }
+          }}
         />
       )}
     </div>
