@@ -54,7 +54,6 @@ interface YouTabProps {
   onUpdateProfile?: (profile: UserProfileData) => void;
   onAddContactById: (kempoId: string) => Promise<Chat | null>;
   onOpenChat: (chat: Chat) => void;
-  onOpenOnboarding?: () => void;
 }
 
 // Preset stylish avatars for quick selection
@@ -81,7 +80,6 @@ export const YouTab: React.FC<YouTabProps> = ({
   onUpdateProfile,
   onAddContactById,
   onOpenChat,
-  onOpenOnboarding,
 }) => {
   // Determine if this account is the recognized application owner
   const rawEmail = userProfile?.email || currentUserEmail || '';
@@ -96,15 +94,21 @@ export const YouTab: React.FC<YouTabProps> = ({
     return upper.startsWith('KEMPO') || upper.startsWith('KEMPO PRO') || upper.startsWith('KEMPO-');
   };
 
-  // For owner, fixed ID is always 'kempo pro'
-  // For standard users: Always starts with Kempo Pro or KEMPO-
-  const kempoId = isOwner
-    ? OWNER_FIXED_ID
-    : userProfile?.kempoId && isKempoFormatted(userProfile.kempoId)
-    ? userProfile.kempoId
-    : userProfile?.countryCode
-    ? `Kempo Pro ${userProfile.countryCode} ${userProfile.phoneNumber || 'A5738'}`
-    : 'Kempo Pro +234 A5738';
+  // Ensure country dial code selected during onboarding (e.g., +234) remains permanently attached to the user's shareable ID
+  const countryPrefix =
+    userProfile?.countryCode ||
+    (typeof window !== 'undefined' ? localStorage.getItem('kempo_country_code') || '+234' : '+234');
+  const cleanCode = countryPrefix.startsWith('+') ? countryPrefix : `+${countryPrefix}`;
+  const rawSuffix =
+    userProfile?.rawIdEntry ||
+    (userProfile?.phoneNumber ? userProfile.phoneNumber.replace(cleanCode, '') : '') ||
+    'A5738';
+
+  // Display complete ID format (e.g., "Kempo Pro +234 [ID]") prominently without dropping the country prefix
+  const kempoId =
+    userProfile?.kempoId && userProfile.kempoId.includes('+')
+      ? userProfile.kempoId
+      : `Kempo Pro ${cleanCode}${rawSuffix}`;
 
   const displayName =
     userProfile?.displayName ||
@@ -167,14 +171,6 @@ export const YouTab: React.FC<YouTabProps> = ({
   const [customIdInput, setCustomIdInput] = useState('');
   const [editIdError, setEditIdError] = useState('');
   const [editIdSuccess, setEditIdSuccess] = useState('');
-
-  // Add Contact by ID state
-  const [targetId, setTargetId] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchFeedback, setSearchFeedback] = useState<{
-    type: 'success' | 'error';
-    msg: string;
-  } | null>(null);
 
   // Check if running on home screen as standalone app
   const isRunningOnHomeScreen =
@@ -314,40 +310,6 @@ export const YouTab: React.FC<YouTabProps> = ({
         setShowEditIdModal(false);
         setEditIdSuccess('');
       }, 1200);
-    }
-  };
-
-  // Handle Add Contact by ID
-  const handleAddById = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!targetId.trim()) return;
-
-    if (targetId.trim().toUpperCase() === kempoId.toUpperCase()) {
-      setSearchFeedback({ type: 'error', msg: 'You cannot add your own User ID.' });
-      return;
-    }
-
-    setIsSearching(true);
-    setSearchFeedback(null);
-
-    try {
-      const newChat = await onAddContactById(targetId.trim());
-      if (newChat) {
-        setSearchFeedback({ type: 'success', msg: `Connected with ${newChat.name}! Opening chat...` });
-        setTargetId('');
-        setTimeout(() => {
-          onOpenChat(newChat);
-        }, 500);
-      } else {
-        setSearchFeedback({
-          type: 'error',
-          msg: `User ID "${targetId.trim().toUpperCase()}" not found. Verify the ID and try again.`,
-        });
-      }
-    } catch (err: any) {
-      setSearchFeedback({ type: 'error', msg: err?.message || 'Failed to search for user.' });
-    } finally {
-      setIsSearching(false);
     }
   };
 
@@ -527,31 +489,6 @@ export const YouTab: React.FC<YouTabProps> = ({
         </div>
       </div>
 
-      {/* Re-enter / Edit Profile, Country & ID Setup Flow */}
-      {onOpenOnboarding && (
-        <button
-          type="button"
-          onClick={onOpenOnboarding}
-          className="w-full p-3.5 rounded-2xl bg-gradient-to-r from-red-950/80 to-[#18181e] border border-red-600/50 hover:border-red-500 text-left transition flex items-center justify-between shadow-xl cursor-pointer active:scale-[0.99] group"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-red-600 flex items-center justify-center text-white shrink-0 shadow-md shadow-red-950 group-hover:scale-105 transition">
-              <Camera className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-                <span>Profile, Country & ID Setup</span>
-                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-red-600 text-white">3-Step</span>
-              </h4>
-              <p className="text-xs text-neutral-400 mt-0.5 truncate">
-                Update picture, country dial code & account category
-              </p>
-            </div>
-          </div>
-          <ChevronRight className="w-5 h-5 text-neutral-400 group-hover:text-red-400 transition shrink-0" />
-        </button>
-      )}
-
       {/* WhatsApp-Style Group 1: Subscriptions, Lists, Broadcasts, Starred, Linked Devices */}
       <div className="rounded-2xl bg-[#161619] border border-neutral-800/80 overflow-hidden divide-y divide-[#222226]">
         {/* 1. Subscriptions */}
@@ -645,52 +582,6 @@ export const YouTab: React.FC<YouTabProps> = ({
           </div>
           <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
         </div>
-      </div>
-
-      {/* Add Contact by ID Card (Compact, with signature red action button) */}
-      <div className="p-3.5 rounded-2xl bg-[#161619] border border-neutral-800/80 shadow-md">
-        <div className="flex items-center gap-2 mb-1.5">
-          <UserPlus className="w-4 h-4 text-red-500" />
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider">Add Contact by ID</h3>
-        </div>
-        <p className="text-[11.5px] text-neutral-400 mb-2.5">
-          Enter another user's KEMPO ID to connect and chat in real-time.
-        </p>
-
-        <form onSubmit={handleAddById} className="flex gap-2">
-          <input
-            type="text"
-            value={targetId}
-            onChange={(e) => setTargetId(e.target.value.toUpperCase())}
-            placeholder="e.g. KEMPO-XXXXXX or kempo pro"
-            maxLength={22}
-            className="flex-1 h-9.5 px-3 rounded-xl bg-[#0e0e11] border border-neutral-800 text-white placeholder-neutral-500 text-xs font-mono font-semibold focus:outline-none focus:ring-1 focus:ring-red-500 uppercase transition"
-          />
-          <button
-            type="submit"
-            disabled={isSearching || !targetId.trim()}
-            className="px-3.5 h-9.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-red-950 transition active:scale-95 flex items-center gap-1.5 shrink-0 cursor-pointer"
-          >
-            {isSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Add Contact</span>}
-          </button>
-        </form>
-
-        {searchFeedback && (
-          <div
-            className={`mt-2 p-2 rounded-xl text-xs flex items-center gap-2 ${
-              searchFeedback.type === 'success'
-                ? 'bg-emerald-950/60 text-emerald-300'
-                : 'bg-red-950/60 text-red-300'
-            }`}
-          >
-            {searchFeedback.type === 'success' ? (
-              <Check className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
-            ) : (
-              <Shield className="w-3.5 h-3.5 shrink-0 text-red-400" />
-            )}
-            <span>{searchFeedback.msg}</span>
-          </div>
-        )}
       </div>
 
       {/* WhatsApp-Style Group 2: Account, Privacy, Chats, Appearance, Notifications, Install, Log Out */}

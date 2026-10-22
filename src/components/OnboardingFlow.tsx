@@ -109,10 +109,26 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Cache local Data URL immediately so avatar displays offline instantly
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setAvatarUrl(dataUrl);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('kempo_user_avatar', dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+
     setIsUploadingAvatar(true);
     try {
       const publicUrl = await uploadAvatarToSupabase(file, userId);
-      setAvatarUrl(publicUrl);
+      if (publicUrl) {
+        setAvatarUrl(publicUrl);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('kempo_user_avatar', publicUrl);
+        }
+      }
     } catch (err) {
       console.error('Failed to upload avatar:', err);
     } finally {
@@ -121,9 +137,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   };
 
   // Auto-formatted read-only Kempo ID (e.g. Kempo Pro +234A5738)
-  const formattedKempoId = isOwner
-    ? OWNER_FIXED_ID
-    : formatKempoUserPhoneId(selectedCountry.dialCode, idSuffix);
+  const formattedKempoId = formatKempoUserPhoneId(selectedCountry.dialCode, idSuffix);
 
   // Step 1 -> Step 2
   const handleNextFromProfile = () => {
@@ -142,9 +156,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const handleFinishOnboarding = async () => {
     setIsSaving(true);
 
-    const finalKempoId = isOwner
-      ? OWNER_FIXED_ID
-      : formatKempoUserPhoneId(selectedCountry.dialCode, idSuffix);
+    const finalKempoId = formatKempoUserPhoneId(
+      selectedCountry.dialCode,
+      isOwner ? (idSuffix || 'OWNER') : idSuffix
+    );
 
     const finalProfile: UserProfileData = {
       id: userId,
@@ -173,6 +188,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       isVerified: isOwner,
       isAdmin: isOwner,
     };
+
+    if (typeof window !== 'undefined') {
+      if (avatarUrl) {
+        localStorage.setItem('kempo_user_avatar', avatarUrl);
+      }
+      localStorage.setItem('kempo_country_code', selectedCountry.dialCode);
+      localStorage.setItem('kempo_user_id', finalKempoId);
+    }
 
     try {
       // Save directly to Supabase profiles table, user metadata, and persistent local storage
@@ -301,7 +324,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   <button
                     key={idx}
                     type="button"
-                    onClick={() => setAvatarUrl(preset)}
+                    onClick={() => {
+                      setAvatarUrl(preset);
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('kempo_user_avatar', preset);
+                      }
+                    }}
                     className={`w-9 h-9 rounded-xl overflow-hidden border-2 transition active:scale-95 cursor-pointer ${
                       avatarUrl === preset
                         ? 'border-red-500 scale-110 shadow-lg shadow-red-950'

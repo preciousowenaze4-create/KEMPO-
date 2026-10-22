@@ -124,27 +124,34 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
           </span>
         </button>
 
-        {/* Tab 5: You */}
+        {/* Tab 5: You (Displays persistent locally-cached profile photo) */}
         <button
           onClick={() => onSelectTab('you')}
           className="flex flex-col items-center justify-center flex-1 py-1 cursor-pointer group"
         >
           <div className="relative">
-            <div
-              className={`w-6.5 h-6.5 rounded-full p-[1px] flex items-center justify-center bg-neutral-800 transition ${
-                activeTab === 'you' ? 'ring-2 ring-red-500 ring-offset-1 ring-offset-black' : 'ring-1 ring-neutral-600'
-              }`}
-            >
-              {userAvatarUrl ? (
-                <img
-                  src={userAvatarUrl}
-                  alt="You"
-                  className="w-full h-full rounded-full object-cover"
-                />
-              ) : (
-                <span className="text-[10px] text-neutral-300 font-bold">U</span>
-              )}
-            </div>
+            {(() => {
+              const cachedAvatar = typeof window !== 'undefined' ? (localStorage.getItem('kempo_user_avatar') || '') : '';
+              const effectiveAvatar = userAvatarUrl || cachedAvatar;
+
+              return (
+                <div
+                  className={`w-6.5 h-6.5 rounded-full overflow-hidden p-[1px] flex items-center justify-center bg-neutral-800 transition ${
+                    activeTab === 'you' ? 'ring-2 ring-red-500 ring-offset-1 ring-offset-black' : 'ring-1 ring-neutral-600'
+                  }`}
+                >
+                  {effectiveAvatar ? (
+                    <img
+                      src={effectiveAvatar}
+                      alt="You"
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-[10px] text-neutral-300 font-bold">U</span>
+                  )}
+                </div>
+              );
+            })()}
             {/* Small status indicator */}
             <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 ring-1 ring-black"></span>
           </div>
