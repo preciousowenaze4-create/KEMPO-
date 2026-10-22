@@ -65,7 +65,9 @@ export type AccountType =
   | 'personal'
   | 'business'
   | 'creator'
-  | 'developer_gamer';
+  | 'developer_gamer'
+  | 'gamer'
+  | 'developer';
 
 export interface AppPreferences {
   inAppSounds: boolean;
@@ -82,6 +84,11 @@ export interface UserProfileData {
   displayName: string;
   avatarUrl: string;
   accountType: AccountType;
+  category?: string;
+  phoneNumber?: string;
+  countryCode?: string;
+  countryName?: string;
+  rawIdEntry?: string;
   kempoId: string;
   preferences: AppPreferences;
   isOnboarded: boolean;

@@ -1,24 +1,25 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
+  ChevronLeft,
+  MoreVertical,
+  ChevronRight,
+  Search,
+  Check,
   Camera,
   User,
-  Check,
-  ChevronRight,
-  Briefcase,
   Gamepad2,
+  Code,
+  Briefcase,
+  UserCheck,
   Radio,
-  Shield,
-  Volume2,
-  Bell,
-  Sparkles,
-  Sun,
-  Moon,
+  Delete,
   Loader2,
-  Copy,
+  Sparkles,
 } from 'lucide-react';
+import { COUNTRIES, Country, DEFAULT_COUNTRY } from '../data/countries';
 import { AccountType, AppPreferences, UserProfileData } from '../types';
-import { uploadAvatarToSupabase } from '../lib/supabase';
-import { isOwnerEmail, assignUserKempoId, OWNER_FIXED_ID } from '../lib/accountRules';
+import { formatKempoUserPhoneId, isOwnerEmail, OWNER_FIXED_ID } from '../lib/accountRules';
+import { uploadAvatarToSupabase, saveFullUserProfile } from '../lib/supabase';
 
 interface OnboardingFlowProps {
   userId: string;
@@ -26,6 +27,7 @@ interface OnboardingFlowProps {
   initialName?: string;
   initialAvatar?: string;
   onComplete: (profile: UserProfileData) => void;
+  onBackToWelcome?: () => void;
 }
 
 export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
@@ -34,13 +36,31 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   initialName = '',
   initialAvatar = '',
   onComplete,
+  onBackToWelcome,
 }) => {
   const isOwner = isOwnerEmail(userEmail);
 
-  // Current Step: 1 = Profile, 2 = Account Type, 3 = Preferences, 4 = Final ID Reveal
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  // Step 1: Country & Phone/ID Setup (Image 2 style)
+  // Step 2: Account Category & Profile Details
+  // Step 3: Instant Celebration / ID Confirmation
+  const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  // Profile state: Keep email strictly in the backend, never show raw email on frontend
+  // Country Selection State
+  const [selectedCountry, setSelectedCountry] = useState<Country>(DEFAULT_COUNTRY);
+  const [showCountryModal, setShowCountryModal] = useState(false);
+  const [countrySearch, setCountrySearch] = useState('');
+
+  // Phone / ID entry field (Starts with "Kempo Pro +234 " strictly)
+  // Default entry e.g. "A5738" or empty for user entry
+  const [phoneEntry, setPhoneEntry] = useState(isOwner ? 'OWNER' : 'A5738');
+  const [inputMode, setInputMode] = useState<'keypad' | 'text'>('keypad');
+
+  // Category Selection State
+  const [selectedCategory, setSelectedCategory] = useState<
+    'gamer' | 'developer' | 'business' | 'personal' | 'creator'
+  >(isOwner ? 'creator' : 'gamer');
+
+  // Profile Details
   const [displayName, setDisplayName] = useState(
     initialName || (isOwner ? 'Precious Ddkid' : 'Kempo User')
   );
@@ -48,76 +68,38 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Account Type state (Default to Creator for owner, Personal for others)
-  const [accountType, setAccountType] = useState<AccountType>(isOwner ? 'creator' : 'personal');
+  // Status and submission states
+  const [isSaving, setIsSaving] = useState(false);
+  const [showMenuOptions, setShowMenuOptions] = useState(false);
 
-  // Preferences state
-  const [preferences, setPreferences] = useState<AppPreferences>({
+  // Default app preferences
+  const [preferences] = useState<AppPreferences>({
     inAppSounds: true,
     messageTones: true,
     gamingIntegration: true,
     darkTheme: true,
   });
 
-  // Generated KEMPO User ID
-  const [generatedId, setGeneratedId] = useState<string>('');
-  const [copiedId, setCopiedId] = useState(false);
-  const [isFinishing, setIsFinishing] = useState(false);
+  // Filtered countries for the modal
+  const filteredCountries = COUNTRIES.filter(
+    (c) =>
+      c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
+      c.dialCode.includes(countrySearch) ||
+      c.code.toLowerCase().includes(countrySearch.toLowerCase())
+  );
 
-  // Self-healing: If user is owner or already completed profile, bypass onboarding instantly
-  React.useEffect(() => {
-    if (isOwner) {
-      onComplete({
-        id: userId,
-        email: userEmail,
-        displayName: 'Precious Ddkid',
-        avatarUrl: initialAvatar || '',
-        accountType: 'creator',
-        kempoId: OWNER_FIXED_ID,
-        preferences,
-        isOnboarded: true,
-        isProfileCompleted: true,
-        is_profile_completed: true,
-        status: 'verified',
-        isVerified: true,
-        isAdmin: true,
-      });
-      return;
-    }
-
-    try {
-      if (typeof window !== 'undefined') {
-        const cached = localStorage.getItem('kempo_user_profile');
-        if (cached) {
-          const parsed: UserProfileData = JSON.parse(cached);
-          if (
-            parsed.is_profile_completed ||
-            parsed.isProfileCompleted ||
-            parsed.isOnboarded ||
-            (parsed.displayName && parsed.displayName !== 'Kempo User')
-          ) {
-            onComplete(parsed);
-          }
-        }
-      }
-    } catch {}
-  }, [isOwner]);
-
-  // Synchronize initialName and initialAvatar from Google OAuth account
-  React.useEffect(() => {
+  // Auto-fill Google OAuth data if present
+  useEffect(() => {
     if (initialName && (!displayName || displayName === 'Kempo User')) {
       setDisplayName(initialName);
     }
-  }, [initialName]);
-
-  React.useEffect(() => {
     if (initialAvatar && !avatarUrl) {
       setAvatarUrl(initialAvatar);
     }
-  }, [initialAvatar]);
+  }, [initialName, initialAvatar]);
 
-  // Handle avatar upload via file picker
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle avatar upload
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -132,486 +114,567 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
   };
 
+  // Virtual Keypad click handler
+  const handleKeypadPress = (val: string) => {
+    if (phoneEntry.length < 16) {
+      setPhoneEntry((prev) => prev + val);
+    }
+  };
+
+  const handleKeypadBackspace = () => {
+    setPhoneEntry((prev) => prev.slice(0, -1));
+  };
+
+  // Formatted Full Kempo ID preview
+  const formattedKempoId = isOwner
+    ? OWNER_FIXED_ID
+    : formatKempoUserPhoneId(selectedCountry.dialCode, phoneEntry || 'A5738');
+
   // Step 1 -> Step 2
-  const handleNextFromProfile = () => {
-    if (!displayName.trim()) {
-      setDisplayName(isOwner ? 'Precious Ddkid' : 'Kempo User');
+  const handleNextFromPhone = () => {
+    if (!phoneEntry.trim() && !isOwner) {
+      // Generate a default code if empty
+      setPhoneEntry('A5738');
     }
     setStep(2);
   };
 
-  // Step 2 -> Step 3
-  const handleNextFromAccountType = () => {
-    setStep(3);
-  };
+  // Step 2 -> Save to Supabase & Finalize Setup
+  const handleFinishOnboarding = async () => {
+    setIsSaving(true);
 
-  // Step 3 -> Finish Setup (Instant ID generation and celebration)
-  const handleFinishSetup = async () => {
-    setIsFinishing(true);
+    const finalKempoId = isOwner
+      ? OWNER_FIXED_ID
+      : formatKempoUserPhoneId(selectedCountry.dialCode, phoneEntry.trim() || 'A5738');
 
-    const newKempoId = assignUserKempoId(userEmail, displayName);
-    setGeneratedId(newKempoId);
+    const mappedAccountType: AccountType =
+      selectedCategory === 'developer' || selectedCategory === 'gamer'
+        ? 'developer_gamer'
+        : selectedCategory;
 
     const finalProfile: UserProfileData = {
       id: userId,
       email: userEmail,
       displayName: displayName.trim() || (isOwner ? 'Precious Ddkid' : 'Kempo User'),
       avatarUrl,
-      accountType: isOwner ? 'creator' : accountType,
-      kempoId: newKempoId,
+      accountType: isOwner ? 'creator' : mappedAccountType,
+      category: selectedCategory,
+      phoneNumber: phoneEntry.trim(),
+      countryCode: selectedCountry.dialCode,
+      countryName: selectedCountry.name,
+      rawIdEntry: phoneEntry.trim(),
+      kempoId: finalKempoId,
       preferences,
       isOnboarded: true,
       isProfileCompleted: true,
       is_profile_completed: true,
+      status: isOwner ? 'verified' : 'active',
+      isVerified: isOwner,
+      isAdmin: isOwner,
     };
 
-    // Show ID confirmation briefly (smooth instant transition)
-    setStep(4);
-    setIsFinishing(false);
+    try {
+      // Save directly to Supabase profiles table, user metadata, and persistent local storage
+      await saveFullUserProfile(finalProfile);
+    } catch (err) {
+      console.warn('Supabase save notice:', err);
+    }
 
-    // After 1.2s instant celebration, transition to main dashboard
+    // Step 3 celebration
+    setStep(3);
+    setIsSaving(false);
+
+    // Smooth transition into the chat dashboard
     setTimeout(() => {
       onComplete(finalProfile);
-    }, 1200);
-  };
-
-  // Copy ID helper
-  const handleCopyId = () => {
-    if (generatedId) {
-      navigator.clipboard.writeText(generatedId);
-      setCopiedId(true);
-      setTimeout(() => setCopiedId(false), 2000);
-    }
+    }, 1100);
   };
 
   return (
-    <div className="w-full h-full min-h-screen bg-black text-white flex flex-col justify-between p-5 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] select-none overflow-y-auto">
-      {/* Clean Top Branding Header without progress lines or step numbers */}
-      <div className="w-full max-w-sm mx-auto mb-4">
-        <div className="flex items-center justify-between pb-1">
-          <div className="flex items-center gap-1.5">
-            <div className="w-6 h-6 rounded-lg bg-red-600 flex items-center justify-center font-black text-xs">
-              K
-            </div>
-            <span className="font-extrabold text-sm tracking-tight">KEMPO <span className="text-red-500">PRo</span></span>
+    <div className="w-full h-full min-h-screen bg-black text-white flex flex-col justify-between select-none overflow-y-auto">
+      {/* Top iOS/WhatsApp Style Header */}
+      <div className="w-full max-w-md mx-auto pt-[max(env(safe-area-inset-top),16px)] px-4 flex items-center justify-between pb-3">
+        <button
+          type="button"
+          onClick={() => {
+            if (step === 2) {
+              setStep(1);
+            } else if (onBackToWelcome) {
+              onBackToWelcome();
+            }
+          }}
+          className="p-2 -ml-2 text-white hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center"
+        >
+          <ChevronLeft className="w-7 h-7 stroke-[2.5]" />
+        </button>
+
+        {/* Kempo Pro Branding Logo Header */}
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-lg bg-red-600 flex items-center justify-center font-black text-xs text-white shadow-md shadow-red-950">
+            K
           </div>
+          <span className="font-black text-sm tracking-tight text-white">
+            KEMPO <span className="text-red-500">PRO</span>
+          </span>
+        </div>
+
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowMenuOptions(!showMenuOptions)}
+            className="p-2 -mr-2 text-white hover:text-neutral-300 active:scale-95 transition cursor-pointer"
+          >
+            <MoreVertical className="w-5 h-5" />
+          </button>
+          {showMenuOptions && (
+            <div className="absolute right-0 top-10 w-44 rounded-2xl bg-[#1c1c20] border border-neutral-800 shadow-2xl py-1 z-50 animate-in fade-in">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMenuOptions(false);
+                  setShowCountryModal(true);
+                }}
+                className="w-full px-4 py-2.5 text-left text-xs text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition"
+              >
+                Change Country
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowMenuOptions(false);
+                  setInputMode(inputMode === 'keypad' ? 'text' : 'keypad');
+                }}
+                className="w-full px-4 py-2.5 text-left text-xs text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition"
+              >
+                Switch Keyboard Mode
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* STEP 1: Profile Setup (Avatar & Display Name) */}
+      {/* ======================================================== */}
+      {/* STEP 1: Country Selection & Phone / ID Setup (Image 2)    */}
+      {/* ======================================================== */}
       {step === 1 && (
-        <div className="w-full max-w-sm mx-auto my-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-black text-white">Complete Your Profile</h2>
-            <p className="text-xs text-neutral-400 mt-1">
-              Add your photo and name so your contacts can identify you.
-            </p>
+        <div className="w-full max-w-md mx-auto flex-1 flex flex-col justify-between px-5 pb-6 animate-in fade-in duration-200">
+          <div>
+            {/* Title & Subtitle matching Image 2 */}
+            <div className="text-center pt-2 mb-6">
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                Enter your phone number
+              </h2>
+              <p className="text-xs sm:text-sm text-neutral-400 mt-2 max-w-xs mx-auto leading-relaxed">
+                Kempo Pro will link this to your account. Carrier charges may apply.
+              </p>
+            </div>
+
+            {/* iOS WhatsApp Style Rounded Input Card */}
+            <div className="bg-[#18181c] border border-neutral-800/90 rounded-2xl overflow-hidden shadow-2xl">
+              {/* Row 1: Country Selector */}
+              <button
+                type="button"
+                onClick={() => setShowCountryModal(true)}
+                className="w-full px-4 py-3.5 flex items-center justify-between hover:bg-neutral-800/40 active:bg-neutral-800/70 transition cursor-pointer text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl leading-none">{selectedCountry.flag}</span>
+                  <span className="text-sm font-semibold text-white">
+                    {selectedCountry.name}
+                  </span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-neutral-500" />
+              </button>
+
+              <div className="h-[1px] bg-neutral-800/80 mx-4" />
+
+              {/* Row 2: Formatted Prefix & Entry Field */}
+              {/* Formats strictly with "Kempo Pro" followed by selected country code, e.g. Kempo Pro +234 A5738 */}
+              <div className="px-4 py-3 flex items-center gap-2.5">
+                <div className="flex items-center gap-1.5 shrink-0 bg-neutral-900/90 px-2.5 py-1.5 rounded-xl border border-neutral-750">
+                  <span className="text-xs font-black text-red-500 tracking-tight">Kempo Pro</span>
+                  <span className="text-sm font-bold text-white font-mono">
+                    {selectedCountry.dialCode}
+                  </span>
+                </div>
+
+                <div className="h-6 w-[1px] bg-neutral-700/80" />
+
+                <input
+                  type="text"
+                  value={phoneEntry}
+                  onChange={(e) => setPhoneEntry(e.target.value)}
+                  placeholder="your phone number"
+                  maxLength={18}
+                  className="flex-1 bg-transparent text-sm sm:text-base font-bold text-white placeholder-neutral-500 focus:outline-none font-mono"
+                />
+
+                {phoneEntry && (
+                  <button
+                    type="button"
+                    onClick={() => setPhoneEntry('')}
+                    className="p-1 rounded-full bg-neutral-800 text-neutral-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Live Shareable ID Preview Card with Signature Red Glow */}
+            <div className="mt-4 p-3 rounded-2xl bg-neutral-900/60 border border-neutral-800/80 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
+                  Your Full Kempo Shareable ID
+                </span>
+                <span className="text-xs sm:text-sm font-black text-white font-mono tracking-wide mt-0.5 block">
+                  {formattedKempoId}
+                </span>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30">
+                Official
+              </span>
+            </div>
           </div>
 
-          <div className="bg-[#141417] border border-neutral-800/80 rounded-3xl p-6 shadow-2xl flex flex-col items-center">
-            {/* Circular Avatar Uploader */}
-            <div className="relative mb-6">
+          {/* Bottom Area: Next Button & iOS Number Keypad */}
+          <div className="mt-6 space-y-4">
+            {/* Next Button */}
+            <button
+              type="button"
+              disabled={!phoneEntry.trim() && !isOwner}
+              onClick={handleNextFromPhone}
+              className={`w-full h-12 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition active:scale-[0.98] cursor-pointer shadow-lg ${
+                phoneEntry.trim() || isOwner
+                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-950/60'
+                  : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+              }`}
+            >
+              <span>Next</span>
+              <ChevronRight className="w-4 h-4 stroke-[3]" />
+            </button>
+
+            {/* WhatsApp / iOS Style Number Keypad (Image 2 Replica) */}
+            {inputMode === 'keypad' && (
+              <div className="bg-[#151518] rounded-3xl p-3 border border-neutral-850 shadow-2xl">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { num: '1', letters: '' },
+                    { num: '2', letters: 'ABC' },
+                    { num: '3', letters: 'DEF' },
+                    { num: '4', letters: 'GHI' },
+                    { num: '5', letters: 'JKL' },
+                    { num: '6', letters: 'MNO' },
+                    { num: '7', letters: 'PQRS' },
+                    { num: '8', letters: 'TUV' },
+                    { num: '9', letters: 'WXYZ' },
+                  ].map(({ num, letters }) => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => handleKeypadPress(num)}
+                      className="h-12 rounded-2xl bg-[#222227] hover:bg-[#2c2c34] active:bg-red-600/20 active:border-red-500/50 border border-neutral-750 flex flex-col items-center justify-center transition cursor-pointer select-none"
+                    >
+                      <span className="text-lg font-bold text-white leading-none">{num}</span>
+                      {letters && (
+                        <span className="text-[9px] font-semibold text-neutral-400 tracking-widest mt-0.5">
+                          {letters}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+
+                  {/* Alphanumeric mode toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('text')}
+                    className="h-12 rounded-2xl bg-[#1c1c20] hover:bg-neutral-800 text-neutral-300 font-bold text-xs flex items-center justify-center transition cursor-pointer"
+                  >
+                    ABC / 123
+                  </button>
+
+                  {/* 0 Key */}
+                  <button
+                    type="button"
+                    onClick={() => handleKeypadPress('0')}
+                    className="h-12 rounded-2xl bg-[#222227] hover:bg-[#2c2c34] active:bg-red-600/20 border border-neutral-750 flex flex-col items-center justify-center transition cursor-pointer select-none"
+                  >
+                    <span className="text-lg font-bold text-white leading-none">0</span>
+                    <span className="text-[9px] font-semibold text-neutral-400 tracking-widest mt-0.5">
+                      +
+                    </span>
+                  </button>
+
+                  {/* Backspace Key */}
+                  <button
+                    type="button"
+                    onClick={handleKeypadBackspace}
+                    className="h-12 rounded-2xl bg-[#1c1c20] hover:bg-neutral-800 text-neutral-300 flex items-center justify-center transition cursor-pointer active:scale-95"
+                  >
+                    <Delete className="w-5 h-5 text-neutral-300" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* STEP 2: Account Category Selection & Customization        */}
+      {/* ======================================================== */}
+      {step === 2 && (
+        <div className="w-full max-w-md mx-auto flex-1 flex flex-col justify-between px-5 pb-6 animate-in fade-in duration-200">
+          <div>
+            <div className="text-center pt-1 mb-5">
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                Select Account Category
+              </h2>
+              <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-xs mx-auto">
+                Choose your profile role on Kempo Pro to personalize your experience.
+              </p>
+            </div>
+
+            {/* Profile Avatar & Name Customization */}
+            <div className="bg-[#141418] border border-neutral-800/80 rounded-2xl p-4 mb-4 flex items-center gap-4">
               <input
                 type="file"
                 ref={fileInputRef}
                 accept="image/*"
-                onChange={handleFileChange}
+                onChange={handleAvatarChange}
                 className="hidden"
               />
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className="w-28 h-28 rounded-full p-1 ring-4 ring-red-600/40 hover:ring-red-500 transition cursor-pointer relative group flex items-center justify-center bg-[#1c1c20] overflow-hidden shadow-xl shadow-red-950/40"
+                className="w-14 h-14 rounded-full ring-2 ring-red-600/50 hover:ring-red-500 transition cursor-pointer relative shrink-0 flex items-center justify-center bg-[#1c1c22] overflow-hidden"
               >
                 {avatarUrl ? (
-                  <img
-                    src={avatarUrl}
-                    alt="Profile Avatar"
-                    className="w-full h-full rounded-full object-cover"
-                  />
+                  <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full rounded-full bg-gradient-to-tr from-neutral-800 to-neutral-900 flex flex-col items-center justify-center text-neutral-400">
-                    <User className="w-10 h-10 text-neutral-500 mb-1" />
-                    <span className="text-[10px] font-semibold text-neutral-400">Add Photo</span>
-                  </div>
+                  <User className="w-6 h-6 text-neutral-400" />
                 )}
-
-                {/* Hover / tap overlay */}
-                <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-                  <Camera className="w-6 h-6 text-white" />
+                <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition">
+                  <Camera className="w-4 h-4 text-white" />
                 </div>
-
                 {isUploadingAvatar && (
-                  <div className="absolute inset-0 rounded-full bg-black/70 flex items-center justify-center">
-                    <Loader2 className="w-6 h-6 text-red-500 animate-spin" />
+                  <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                    <Loader2 className="w-4 h-4 text-red-500 animate-spin" />
                   </div>
                 )}
               </div>
 
-              {/* Floating Camera Badge */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg shadow-red-950 border-2 border-black hover:bg-red-500 transition"
-              >
-                <Camera className="w-4 h-4" />
-              </button>
+              <div className="flex-1 min-w-0">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider block">
+                  Display Name
+                </label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your Name"
+                  maxLength={30}
+                  className="w-full mt-0.5 bg-transparent border-b border-neutral-700 text-white font-bold text-sm pb-1 focus:outline-none focus:border-red-500 transition"
+                />
+              </div>
             </div>
 
-            {/* Display Name Input */}
-            <div className="w-full space-y-1.5 text-left mb-6">
-              <label className="text-xs font-semibold text-neutral-300">
-                Display Name
-              </label>
-              <input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Enter your name"
-                maxLength={35}
-                className="w-full h-12 px-4 rounded-2xl bg-[#0c0c0e] border border-neutral-700/80 text-white placeholder-neutral-500 text-sm focus:outline-none focus:border-red-500 transition font-medium"
-              />
-              <p className="text-[11px] text-neutral-500">
-                This is the name people will see in chats and calls.
-              </p>
-            </div>
+            {/* Category Options List */}
+            <div className="space-y-2.5">
+              {[
+                {
+                  id: 'gamer' as const,
+                  title: 'Gamer',
+                  icon: Gamepad2,
+                  desc: 'Gaming tags, squad voice calls, discord-style channels & live gaming status.',
+                },
+                {
+                  id: 'developer' as const,
+                  title: 'Developer',
+                  icon: Code,
+                  desc: 'Code sharing, bot channels, API hooks & tech community discussions.',
+                },
+                {
+                  id: 'business' as const,
+                  title: 'Business',
+                  icon: Briefcase,
+                  desc: 'Commercial profile, client chats, catalog showcase & verified badge.',
+                },
+                {
+                  id: 'personal' as const,
+                  title: 'Personal',
+                  icon: UserCheck,
+                  desc: 'Encrypted private messaging, family groups & status stories.',
+                },
+                {
+                  id: 'creator' as const,
+                  title: 'Creator',
+                  icon: Radio,
+                  desc: 'Broadcast channels, community hubs & public subscriber updates.',
+                },
+              ].map(({ id, title, icon: Icon, desc }) => {
+                const isSelected = selectedCategory === id;
+                return (
+                  <div
+                    key={id}
+                    onClick={() => setSelectedCategory(id)}
+                    className={`p-3.5 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-red-950/30 border-red-600 shadow-md shadow-red-950/40'
+                        : 'bg-[#141418] border-neutral-800 hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                          isSelected ? 'bg-red-600 text-white shadow-md' : 'bg-neutral-800 text-neutral-300'
+                        }`}
+                      >
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                          {title}
+                          {id === 'gamer' && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-900/60 text-red-300 border border-red-700/60">
+                              Popular
+                            </span>
+                          )}
+                        </h4>
+                        <p className="text-[11px] text-neutral-400 mt-0.5 leading-snug line-clamp-1">
+                          {desc}
+                        </p>
+                      </div>
+                    </div>
 
-            {/* Next Button */}
+                    <div
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ml-2 ${
+                        isSelected ? 'border-red-500 bg-red-600 text-white' : 'border-neutral-600'
+                      }`}
+                    >
+                      {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Finish & Save to Supabase Button */}
+          <div className="mt-6">
             <button
               type="button"
-              onClick={handleNextFromProfile}
-              className="w-full h-12 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm shadow-lg shadow-red-950 flex items-center justify-center gap-2 transition active:scale-98 cursor-pointer"
+              disabled={isSaving}
+              onClick={handleFinishOnboarding}
+              className="w-full h-12 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-bold text-sm shadow-xl shadow-red-950/60 flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-60"
             >
-              <span>Next</span>
-              <ChevronRight className="w-4 h-4" />
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Saving to Supabase...</span>
+                </>
+              ) : (
+                <>
+                  <span>Complete Setup & Enter Kempo Pro</span>
+                  <Check className="w-4 h-4 stroke-[3]" />
+                </>
+              )}
             </button>
           </div>
         </div>
       )}
 
-      {/* STEP 2: Account Type Selection Screen */}
-      {step === 2 && (
-        <div className="w-full max-w-sm mx-auto my-auto animate-in fade-in slide-in-from-right-4 duration-300">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-black text-white">Choose Account Type</h2>
-            <p className="text-xs text-neutral-400 mt-1">
-              Select how you plan to use KEMPO PRo. You can change this anytime.
-            </p>
-          </div>
-
-          <div className="space-y-3 mb-6">
-            {/* Option 1: Personal (Default) */}
-            <div
-              onClick={() => setAccountType('personal')}
-              className={`p-4 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
-                accountType === 'personal'
-                  ? 'bg-red-950/30 border-red-600 shadow-lg shadow-red-950/30'
-                  : 'bg-[#141417] border-neutral-800 hover:border-neutral-700'
-              }`}
-            >
-              <div className="flex items-center gap-3.5">
-                <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${accountType === 'personal' ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-300'}`}>
-                  <Shield className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                    Personal Account
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-300">Default</span>
-                  </h3>
-                  <p className="text-xs text-neutral-400 mt-0.5 leading-snug">
-                    Encrypted private chats, status updates & HD voice calls.
-                  </p>
-                </div>
-              </div>
-              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${accountType === 'personal' ? 'border-red-500 bg-red-600 text-white' : 'border-neutral-600'}`}>
-                {accountType === 'personal' && <Check className="w-3 h-3 stroke-[3]" />}
-              </div>
-            </div>
-
-            {/* Option 2: Business */}
-            <div
-              onClick={() => setAccountType('business')}
-              className={`p-4 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
-                accountType === 'business'
-                  ? 'bg-red-950/30 border-red-600 shadow-lg shadow-red-950/30'
-                  : 'bg-[#141417] border-neutral-800 hover:border-neutral-700'
-              }`}
-            >
-              <div className="flex items-center gap-3.5">
-                <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${accountType === 'business' ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-300'}`}>
-                  <Briefcase className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Business Account</h3>
-                  <p className="text-xs text-neutral-400 mt-0.5 leading-snug">
-                    Commercial profile, verified badge & catalog showcase.
-                  </p>
-                </div>
-              </div>
-              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${accountType === 'business' ? 'border-red-500 bg-red-600 text-white' : 'border-neutral-600'}`}>
-                {accountType === 'business' && <Check className="w-3 h-3 stroke-[3]" />}
-              </div>
-            </div>
-
-            {/* Option 3: Creator / Organization */}
-            <div
-              onClick={() => setAccountType('creator')}
-              className={`p-4 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
-                accountType === 'creator'
-                  ? 'bg-red-950/30 border-red-600 shadow-lg shadow-red-950/30'
-                  : 'bg-[#141417] border-neutral-800 hover:border-neutral-700'
-              }`}
-            >
-              <div className="flex items-center gap-3.5">
-                <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${accountType === 'creator' ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-300'}`}>
-                  <Radio className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Creator & Organization</h3>
-                  <p className="text-xs text-neutral-400 mt-0.5 leading-snug">
-                    Broadcast channels, community hubs & public subscriber updates.
-                  </p>
-                </div>
-              </div>
-              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${accountType === 'creator' ? 'border-red-500 bg-red-600 text-white' : 'border-neutral-600'}`}>
-                {accountType === 'creator' && <Check className="w-3 h-3 stroke-[3]" />}
-              </div>
-            </div>
-
-            {/* Option 4: Developer / Gamer */}
-            <div
-              onClick={() => setAccountType('developer_gamer')}
-              className={`p-4 rounded-2xl border transition cursor-pointer flex items-center justify-between ${
-                accountType === 'developer_gamer'
-                  ? 'bg-red-950/30 border-red-600 shadow-lg shadow-red-950/30'
-                  : 'bg-[#141417] border-neutral-800 hover:border-neutral-700'
-              }`}
-            >
-              <div className="flex items-center gap-3.5">
-                <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${accountType === 'developer_gamer' ? 'bg-red-600 text-white' : 'bg-neutral-800 text-neutral-300'}`}>
-                  <Gamepad2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Developer / Gamer Profile</h3>
-                  <p className="text-xs text-neutral-400 mt-0.5 leading-snug">
-                    Gaming tags, interactive Kempo mini-apps & bot channels.
-                  </p>
-                </div>
-              </div>
-              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${accountType === 'developer_gamer' ? 'border-red-500 bg-red-600 text-white' : 'border-neutral-600'}`}>
-                {accountType === 'developer_gamer' && <Check className="w-3 h-3 stroke-[3]" />}
-              </div>
-            </div>
-          </div>
-
-          {/* Continue Button */}
-          <button
-            type="button"
-            onClick={handleNextFromAccountType}
-            className="w-full h-12 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm shadow-lg shadow-red-950 flex items-center justify-center gap-2 transition active:scale-98 cursor-pointer"
-          >
-            <span>Continue</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* STEP 3: App Preferences Screen */}
+      {/* ======================================================== */}
+      {/* STEP 3: Instant Celebration & Launch Dashboard Screen     */}
+      {/* ======================================================== */}
       {step === 3 && (
-        <div className="w-full max-w-sm mx-auto my-auto animate-in fade-in slide-in-from-right-4 duration-300">
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-black text-white">App Preferences</h2>
-            <p className="text-xs text-neutral-400 mt-1">
-              Customize sounds, notifications, and gaming settings.
-            </p>
+        <div className="w-full max-w-sm mx-auto my-auto text-center px-6 py-8 animate-in zoom-in-95 duration-300">
+          <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-red-600 to-rose-500 mx-auto flex items-center justify-center shadow-2xl shadow-red-900/60 mb-5 animate-bounce">
+            <Sparkles className="w-10 h-10 text-white stroke-[2.5]" />
           </div>
 
-          <div className="bg-[#141417] border border-neutral-800/80 rounded-3xl p-5 shadow-2xl space-y-4 mb-6">
-            {/* Toggle 1: In-App Sound Effects */}
-            <div className="flex items-center justify-between py-1">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-neutral-800 flex items-center justify-center text-neutral-300">
-                  <Volume2 className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white">In-App Sound Effects</h4>
-                  <p className="text-[11px] text-neutral-400">Audio feedback for sends and clicks</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreferences((p) => ({ ...p, inAppSounds: !p.inAppSounds }))}
-                className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
-                  preferences.inAppSounds ? 'bg-red-600' : 'bg-neutral-800'
-                }`}
-              >
-                <div
-                  className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                    preferences.inAppSounds ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            <div className="border-t border-neutral-800/80" />
-
-            {/* Toggle 2: Message Notification Tones */}
-            <div className="flex items-center justify-between py-1">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-neutral-800 flex items-center justify-center text-neutral-300">
-                  <Bell className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white">Notification Tones</h4>
-                  <p className="text-[11px] text-neutral-400">Alert sounds for incoming chats</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreferences((p) => ({ ...p, messageTones: !p.messageTones }))}
-                className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
-                  preferences.messageTones ? 'bg-red-600' : 'bg-neutral-800'
-                }`}
-              >
-                <div
-                  className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                    preferences.messageTones ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            <div className="border-t border-neutral-800/80" />
-
-            {/* Toggle 3: Gaming / Mini-Apps */}
-            <div className="flex items-center justify-between py-1">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-neutral-800 flex items-center justify-center text-neutral-300">
-                  <Sparkles className="w-4 h-4 text-red-400" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white">Game / Mini-App Integrations</h4>
-                  <p className="text-[11px] text-neutral-400">Play Kempo mini-games in chat</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreferences((p) => ({ ...p, gamingIntegration: !p.gamingIntegration }))}
-                className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
-                  preferences.gamingIntegration ? 'bg-red-600' : 'bg-neutral-800'
-                }`}
-              >
-                <div
-                  className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                    preferences.gamingIntegration ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-
-            <div className="border-t border-neutral-800/80" />
-
-            {/* Toggle 4: Dark / Light Theme Preference */}
-            <div className="flex items-center justify-between py-1">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-neutral-800 flex items-center justify-center text-neutral-300">
-                  {preferences.darkTheme ? <Moon className="w-4 h-4 text-purple-400" /> : <Sun className="w-4 h-4 text-yellow-400" />}
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white">Dark Theme (OLED Black)</h4>
-                  <p className="text-[11px] text-neutral-400">Optimized for high-contrast viewing</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPreferences((p) => ({ ...p, darkTheme: !p.darkTheme }))}
-                className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
-                  preferences.darkTheme ? 'bg-red-600' : 'bg-neutral-800'
-                }`}
-              >
-                <div
-                  className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                    preferences.darkTheme ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
-          {/* Finish Setup Button */}
-          <button
-            type="button"
-            disabled={isFinishing}
-            onClick={handleFinishSetup}
-            className="w-full h-12 rounded-2xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold text-sm shadow-lg shadow-red-950 flex items-center justify-center gap-2 transition active:scale-98 cursor-pointer"
-          >
-            {isFinishing ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <>
-                <span>Finish Setup</span>
-                <Check className="w-4 h-4 stroke-[3]" />
-              </>
-            )}
-          </button>
-        </div>
-      )}
-
-      {/* STEP 4: Instant ID Reveal & Transition Screen */}
-      {step === 4 && (
-        <div className="w-full max-w-sm mx-auto my-auto text-center animate-in zoom-in-95 duration-300">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-red-600 to-rose-500 mx-auto flex items-center justify-center shadow-2xl shadow-red-900/60 mb-4 animate-bounce">
-            <Check className="w-10 h-10 text-white stroke-[3]" />
-          </div>
-
-          <h2 className="text-2xl font-black text-white">
-            {isOwner ? "Welcome, Kempo Pro Owner!" : "You're All Set!"}
-          </h2>
-          <p className="text-xs text-neutral-400 mt-1 max-w-xs mx-auto">
-            {isOwner
-              ? "Your fixed official Owner ID 'kempo pro' has been assigned and verified."
-              : "Your unique KEMPO User ID has been generated and securely linked to your account."}
+          <h2 className="text-2xl font-black text-white">Welcome to Kempo Pro!</h2>
+          <p className="text-xs text-neutral-300 mt-1 max-w-xs mx-auto">
+            Your profile and account have been configured and securely saved to Supabase.
           </p>
 
-          <div className="my-6 p-4 rounded-2xl bg-[#141417] border border-red-700/60 shadow-xl shadow-red-950/40 inline-flex flex-col items-center gap-1.5 w-full">
-            <span className="text-[11px] uppercase tracking-wider text-neutral-400 font-semibold flex items-center gap-1">
-              {isOwner ? '👑 Official Owner User ID' : 'Your Shareable User ID'}
+          <div className="my-6 p-4 rounded-2xl bg-[#141418] border border-red-700/60 shadow-xl shadow-red-950/40 inline-flex flex-col items-center gap-1 w-full">
+            <span className="text-[10px] uppercase tracking-wider text-neutral-400 font-bold">
+              Your Shareable User ID
             </span>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-black text-white tracking-widest font-mono text-red-400">
-                {generatedId}
-              </span>
-              <button
-                type="button"
-                onClick={handleCopyId}
-                className="p-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition"
-              >
-                {copiedId ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              </button>
-            </div>
-            {isOwner && (
-              <span className="px-2.5 py-0.5 rounded-full bg-red-950/90 text-red-300 text-[10px] font-bold border border-red-700/80">
-                OFFICIAL KEMPO PRO OWNER & ADMIN
-              </span>
-            )}
-            <span className="text-[10px] text-neutral-500">
-              {isOwner
-                ? 'Recognized as the application owner/admin.'
-                : 'Share this ID with friends to chat instantly!'}
+            <span className="text-base sm:text-lg font-black text-white font-mono tracking-wide text-red-400">
+              {formattedKempoId}
+            </span>
+            <span className="text-[10px] text-neutral-500 mt-1">
+              Category: <strong className="text-neutral-300 capitalize">{selectedCategory}</strong>
             </span>
           </div>
 
-          <p className="text-xs text-red-500 font-semibold animate-pulse">
-            Entering KEMPO PRo...
+          <p className="text-xs text-red-500 font-bold animate-pulse">
+            Entering Kempo Pro Chats...
           </p>
         </div>
       )}
 
-      {/* Clean Footer */}
-      <div className="w-full max-w-sm mx-auto text-center pt-4">
-        <p className="text-[11px] text-neutral-500">
-          KEMPO PRo &bull; End-to-end encrypted messaging
-        </p>
-      </div>
+      {/* Country Selection Modal / Bottom Sheet */}
+      {showCountryModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 animate-in fade-in">
+          <div className="w-full max-w-md bg-[#16161a] border border-neutral-800 rounded-3xl p-5 shadow-2xl max-h-[80vh] flex flex-col animate-in slide-in-from-bottom duration-300">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+              <h3 className="text-base font-bold text-white">Select Your Country</h3>
+              <button
+                type="button"
+                onClick={() => setShowCountryModal(false)}
+                className="w-8 h-8 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative my-3">
+              <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-3.5" />
+              <input
+                type="text"
+                value={countrySearch}
+                onChange={(e) => setCountrySearch(e.target.value)}
+                placeholder="Search country or code (e.g. Nigeria, +234)"
+                className="w-full h-10 pl-9 pr-3 rounded-xl bg-[#202026] border border-neutral-750 text-white text-xs placeholder-neutral-500 focus:outline-none focus:border-red-500"
+              />
+            </div>
+
+            {/* Country List */}
+            <div className="flex-1 overflow-y-auto divide-y divide-neutral-800/80 pr-1">
+              {filteredCountries.map((country) => {
+                const isCurrent = selectedCountry.code === country.code;
+                return (
+                  <button
+                    key={country.code}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCountry(country);
+                      setShowCountryModal(false);
+                    }}
+                    className={`w-full py-3 px-2 flex items-center justify-between hover:bg-neutral-800/50 transition cursor-pointer text-left ${
+                      isCurrent ? 'bg-red-950/20' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl leading-none">{country.flag}</span>
+                      <span className="text-xs font-semibold text-white">{country.name}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-neutral-400 font-mono">
+                        {country.dialCode}
+                      </span>
+                      {isCurrent && <Check className="w-4 h-4 text-red-500" />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

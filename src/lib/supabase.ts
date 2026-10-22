@@ -225,6 +225,10 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
         avatar_url: securedProfile.avatarUrl,
         kempo_id: securedProfile.kempoId,
         account_type: securedProfile.accountType,
+        category: securedProfile.category || securedProfile.accountType,
+        phone_number: securedProfile.phoneNumber,
+        country_code: securedProfile.countryCode,
+        country_name: securedProfile.countryName,
         preferences: securedProfile.preferences,
         is_onboarded: true,
         is_profile_completed: true,
@@ -416,6 +420,10 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
         displayName: data.display_name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
         avatarUrl: data.avatar_url || '',
         accountType: data.account_type || (isRecordOwner ? 'creator' : 'personal'),
+        category: data.category || data.account_type,
+        phoneNumber: data.phone_number,
+        countryCode: data.country_code,
+        countryName: data.country_name,
         kempoId: assignedId,
         preferences: data.preferences || DEFAULT_PREFERENCES,
         isOnboarded: isCompleted,
@@ -724,15 +732,17 @@ export async function updateUserAdminStatus(
   }
 }
 
-// Find another user by their shareable KEMPO-ID in Supabase
+// Find another user by their shareable KEMPO-ID or Phone ID in Supabase
 export async function findUserByKempoId(kempoId: string): Promise<UserProfileData | null> {
-  const cleanId = kempoId.trim().toUpperCase();
+  const cleanId = kempoId.trim();
 
   try {
+    // 1. Try exact or partial match in Supabase database
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .ilike('kempo_id', cleanId)
+      .or(`kempo_id.ilike.%${cleanId}%,kempo_id.ilike.${cleanId}`)
+      .limit(1)
       .maybeSingle();
 
     if (!error && data) {
@@ -742,6 +752,9 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
         displayName: data.display_name || cleanId,
         avatarUrl: data.avatar_url || '',
         accountType: data.account_type || 'personal',
+        category: data.category || data.account_type,
+        phoneNumber: data.phone_number,
+        countryCode: data.country_code,
         kempoId: data.kempo_id || cleanId,
         preferences: data.preferences || DEFAULT_PREFERENCES,
         isOnboarded: true,
@@ -751,8 +764,23 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
     console.info('findUserByKempoId query:', err);
   }
 
-  // If not found in live DB table, simulate or check known directory
-  // This ensures testing between demo IDs works smoothly even before hundreds of users join
+  // 2. Check local registered users cache for instant local testing
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('kempo_registered_users');
+      if (raw) {
+        const users: UserProfileData[] = JSON.parse(raw);
+        const match = users.find(
+          (u) =>
+            u.kempoId?.toLowerCase() === cleanId.toLowerCase() ||
+            u.kempoId?.toLowerCase().includes(cleanId.toLowerCase()) ||
+            (u.phoneNumber && u.phoneNumber === cleanId)
+        );
+        if (match) return match;
+      }
+    } catch {}
+  }
+
   return null;
 }
 

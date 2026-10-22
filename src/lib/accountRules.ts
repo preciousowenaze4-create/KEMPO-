@@ -123,3 +123,17 @@ export function getBackendPrivacyStatus(email?: string): string {
   }
   return 'Verified Account (Encrypted & Protected in Backend)';
 }
+
+/**
+ * Formats user phone or custom ID with the required 'Kempo Pro +[code] [entry]' format
+ * Example: Kempo Pro +234 A5738 or Kempo Pro +234 8012345678
+ */
+export function formatKempoUserPhoneId(countryDialCode: string, entry: string): string {
+  const cleanCode = countryDialCode.startsWith('+') ? countryDialCode : `+${countryDialCode}`;
+  const cleanEntry = entry.trim();
+  if (!cleanEntry) {
+    return `Kempo Pro ${cleanCode}`;
+  }
+  return `Kempo Pro ${cleanCode} ${cleanEntry}`;
+}
+

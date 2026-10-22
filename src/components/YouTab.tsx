@@ -87,24 +87,35 @@ export const YouTab: React.FC<YouTabProps> = ({
     isOwnerEmail(rawEmail) ||
     userProfile?.kempoId?.toLowerCase() === OWNER_FIXED_ID.toLowerCase();
 
+  // Helper to verify ID follows Kempo Pro naming conventions
+  const isKempoFormatted = (id?: string) => {
+    if (!id) return false;
+    const upper = id.trim().toUpperCase();
+    return upper.startsWith('KEMPO') || upper.startsWith('KEMPO PRO') || upper.startsWith('KEMPO-');
+  };
+
   // For owner, fixed ID is always 'kempo pro'
-  // For standard users: Always start with app name 'KEMPO-' followed by numbers/letters!
+  // For standard users: Always starts with Kempo Pro or KEMPO-
   const kempoId = isOwner
     ? OWNER_FIXED_ID
-    : userProfile?.kempoId && userProfile.kempoId.toUpperCase().startsWith('KEMPO-')
+    : userProfile?.kempoId && isKempoFormatted(userProfile.kempoId)
     ? userProfile.kempoId
-    : 'KEMPO-749219';
+    : userProfile?.countryCode
+    ? `Kempo Pro ${userProfile.countryCode} ${userProfile.phoneNumber || 'A5738'}`
+    : 'Kempo Pro +234 A5738';
 
   const displayName =
     userProfile?.displayName ||
     currentUserName ||
     (isOwner ? 'Precious Ddkid' : 'Kempo User');
-  const accountType = isOwner ? 'creator' : userProfile?.accountType || 'personal';
+  const accountType = isOwner ? 'creator' : userProfile?.category || userProfile?.accountType || 'personal';
 
-  // Auto-correct any legacy ID (such as ddkidcast-70319) so every regular user has KEMPO-[digits/letters]
+  // Auto-correct any legacy non-Kempo IDs so every regular user has Kempo Pro ID
   useEffect(() => {
-    if (!isOwner && userProfile?.kempoId && !userProfile.kempoId.toUpperCase().startsWith('KEMPO-')) {
-      const standardId = generateStandardUserKempoId();
+    if (!isOwner && userProfile?.kempoId && !isKempoFormatted(userProfile.kempoId)) {
+      const standardId = userProfile.countryCode
+        ? `Kempo Pro ${userProfile.countryCode} ${userProfile.phoneNumber || 'A5738'}`
+        : generateStandardUserKempoId();
       const updatedProfile = { ...userProfile, kempoId: standardId };
       saveFullUserProfile(updatedProfile);
       onUpdateProfile?.(updatedProfile);

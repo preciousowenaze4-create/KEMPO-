@@ -23,7 +23,7 @@ import { CameraModal } from './components/CameraModal';
 import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PhoneMissed, MessageCircle, ShieldAlert, Loader2 } from 'lucide-react';
-import { AuthScreen } from './components/AuthScreen';
+import { WelcomeScreen } from './components/WelcomeScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { isOwnerEmail, OWNER_FIXED_ID } from './lib/accountRules';
 import {
@@ -1193,12 +1193,12 @@ export default function App() {
     );
   }
 
-  // If not authenticated, render the clean, focused Auth screen
+  // If not authenticated, render the clean, focused Welcome Screen (matching Image 1)
   if (!isAuthenticated) {
     return (
       <div className="w-full h-full min-h-screen bg-black text-white flex flex-col relative overflow-hidden select-none">
         <OfflineIndicator />
-        <AuthScreen onAuthenticated={handleAuthenticated} />
+        <WelcomeScreen onAuthenticated={handleAuthenticated} />
       </div>
     );
   }
@@ -1235,7 +1235,7 @@ export default function App() {
     );
   }
 
-  // Post-Google / Post-Login Setup Screen (Requirements 1, 2, 3, 4)
+  // Post-Google / Post-Login Setup Screen (Requirements 1, 2, 3: Country, Phone/ID, Categories)
   if (showOnboarding) {
     return (
       <div className="w-full h-full min-h-screen bg-black text-white flex flex-col relative overflow-hidden select-none">
@@ -1246,6 +1246,7 @@ export default function App() {
           initialName={currentUserName}
           initialAvatar={userProfile?.avatarUrl}
           onComplete={handleOnboardingComplete}
+          onBackToWelcome={handleSignOut}
         />
       </div>
     );

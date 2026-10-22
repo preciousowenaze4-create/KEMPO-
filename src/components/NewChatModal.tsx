@@ -119,11 +119,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
             <form onSubmit={handleConnectById} className="p-3 bg-[#18181c] rounded-xl my-2 space-y-2 border border-red-900/50">
               <input
                 type="text"
-                placeholder="Enter KEMPO-XXXXXX"
+                placeholder="e.g. Kempo Pro +234 A5738 or KEMPO-XXXXXX"
                 value={targetId}
-                onChange={(e) => setTargetId(e.target.value.toUpperCase())}
+                onChange={(e) => setTargetId(e.target.value)}
                 required
-                className="w-full px-3 py-2 rounded-lg bg-[#222228] text-white text-sm font-mono focus:outline-none focus:ring-1 focus:ring-red-500 uppercase"
+                className="w-full px-3 py-2 rounded-lg bg-[#222228] text-white text-sm font-mono focus:outline-none focus:ring-1 focus:ring-red-500"
               />
               {idFeedback && (
                 <div className="text-xs text-red-400 flex items-center gap-1.5 py-1">
