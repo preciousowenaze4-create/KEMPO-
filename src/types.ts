@@ -6,7 +6,9 @@ export interface Message {
   mediaUrl?: string;
   mediaType?: 'image' | 'sticker' | 'audio' | 'document';
   timestamp: string;
-  status: 'sent' | 'delivered' | 'read';
+  status: 'pending' | 'sent' | 'delivered' | 'read';
+  localUrl?: string;
+  isPendingSync?: boolean;
   reaction?: string;
   isReactionPreview?: boolean;
   reactionTargetText?: string;
@@ -23,7 +25,7 @@ export interface Chat {
   hasStatusStory?: boolean;
   timestamp: string;
   lastMessage: string;
-  lastMessageStatus?: 'single_tick' | 'double_tick_grey' | 'double_tick_blue' | 'none';
+  lastMessageStatus?: 'pending_clock' | 'single_tick' | 'double_tick_grey' | 'double_tick_blue' | 'none';
   lastMessagePrefix?: 'none' | 'sticker' | 'reaction';
   reactionEmoji?: string;
   unreadCount?: number;

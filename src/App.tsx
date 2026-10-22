@@ -33,6 +33,7 @@ import {
   MissedCallEvent,
 } from './lib/realtimeService';
 import { usePWAInstall } from './hooks/usePWAInstall';
+import { offlineQueue } from './lib/offlineQueue';
 import {
   supabase,
   supabaseSignOut,
@@ -247,6 +248,71 @@ export default function App() {
 
   // PWA install hook
   const { isInstallable, isInstalled, install } = usePWAInstall();
+
+  // Listen for offline queue synchronizations and update message checkmarks smoothly (WhatsApp style)
+  useEffect(() => {
+    const unsub = offlineQueue.onStatusChange((item, newStatus) => {
+      setChats((prevChats) =>
+        prevChats.map((c) => {
+          if (c.id === item.chatId) {
+            const updatedMessages = c.messages.map((m) =>
+              m.id === item.message.id ? { ...m, status: newStatus, isPendingSync: false } : m
+            );
+            const isLast = c.messages[c.messages.length - 1]?.id === item.message.id;
+            return {
+              ...c,
+              lastMessageStatus: isLast ? 'single_tick' : c.lastMessageStatus,
+              messages: updatedMessages,
+            };
+          }
+          return c;
+        })
+      );
+
+      setSelectedChat((prev) => {
+        if (!prev || prev.id !== item.chatId) return prev;
+        const updatedMessages = prev.messages.map((m) =>
+          m.id === item.message.id ? { ...m, status: newStatus, isPendingSync: false } : m
+        );
+        const isLast = prev.messages[prev.messages.length - 1]?.id === item.message.id;
+        return {
+          ...prev,
+          lastMessageStatus: isLast ? 'single_tick' : prev.lastMessageStatus,
+          messages: updatedMessages,
+        };
+      });
+
+      // Transition to double tick (delivered to recipient device)
+      setTimeout(() => {
+        setChats((prevChats) =>
+          prevChats.map((c) => {
+            if (c.id === item.chatId) {
+              return {
+                ...c,
+                lastMessageStatus: 'double_tick_grey',
+                messages: c.messages.map((m) =>
+                  m.id === item.message.id ? { ...m, status: 'delivered' } : m
+                ),
+              };
+            }
+            return c;
+          })
+        );
+        setSelectedChat((prev) => {
+          if (!prev || prev.id !== item.chatId) return prev;
+          return {
+            ...prev,
+            lastMessageStatus: 'double_tick_grey',
+            messages: prev.messages.map((m) =>
+              m.id === item.message.id ? { ...m, status: 'delivered' } : m
+            ),
+          };
+        });
+      }, 1200);
+    });
+
+    return unsub;
+  }, []);
 
   // Supabase Auth listener & Session restore
   useEffect(() => {
@@ -636,7 +702,9 @@ export default function App() {
     mediaType?: 'image' | 'audio' | 'sticker' | 'document',
     mediaUrl?: string,
     senderId?: string,
-    timestamp?: string
+    timestamp?: string,
+    customMsgId?: string,
+    explicitStatus?: 'pending' | 'sent' | 'delivered' | 'read'
   ) => {
     const isIncoming = Boolean(senderId && senderId !== (userProfile?.kempoId || 'me') && !senderId.startsWith('me'));
     const cleanText = text.startsWith('[incoming]') ? text.replace('[incoming]', '') : text;
@@ -648,33 +716,68 @@ export default function App() {
     hours = hours % 12 || 12;
     const timeStr = timestamp || `${hours}:${minutes} ${ampm}`;
 
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+    const resolvedStatus: 'pending' | 'sent' | 'delivered' | 'read' = isIncoming
+      ? 'delivered'
+      : explicitStatus || (isOffline ? 'pending' : 'sent');
+
+    const msgId = customMsgId || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
     const newMsg: Message = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: msgId,
       senderId: senderId || userProfile?.kempoId || 'me',
       text: cleanText,
       mediaType: mediaType,
       mediaUrl,
       timestamp: timeStr,
-      status: isIncoming ? ('delivered' as const) : ('sent' as const),
+      status: resolvedStatus,
+      isPendingSync: resolvedStatus === 'pending',
     };
 
-    setChats((prevChats) =>
-      prevChats.map((c) => {
+    const targetChat = chats.find((c) => c.id === chatId);
+    const partnerId =
+      targetChat?.kempoId ||
+      targetChat?.about?.replace('KEMPO ID: ', '').trim() ||
+      targetChat?.phoneNumber ||
+      chatId;
+
+    // Enqueue locally if outgoing and currently offline
+    if (!isIncoming && resolvedStatus === 'pending') {
+      offlineQueue.enqueue(chatId, senderId || userProfile?.kempoId || 'me', partnerId, newMsg);
+    }
+
+    const newLastStatus = isIncoming
+      ? ('none' as const)
+      : resolvedStatus === 'pending'
+      ? ('pending_clock' as const)
+      : ('single_tick' as const);
+
+    setChats((prevChats) => {
+      const updated = prevChats.map((c) => {
         if (c.id === chatId) {
           const updatedChat = {
             ...c,
             lastMessage: cleanText,
-            lastMessageStatus: isIncoming ? ('none' as const) : ('single_tick' as const),
+            lastMessageStatus: newLastStatus,
             timestamp: timeStr,
             unreadCount: isIncoming ? (c.unreadCount || 0) + 1 : 0,
             messages: [...c.messages, newMsg],
           };
-          syncChatToSupabase(updatedChat);
+          if (!isOffline) {
+            syncChatToSupabase(updatedChat);
+          }
           return updatedChat;
         }
         return c;
-      })
-    );
+      });
+
+      try {
+        localStorage.setItem('kempo_user_chats', JSON.stringify(updated));
+      } catch (err) {
+        console.warn('Chat local storage safeguard:', err);
+      }
+      return updated;
+    });
 
     // Also update selectedChat if currently open
     if (selectedChat && selectedChat.id === chatId) {
@@ -683,7 +786,7 @@ export default function App() {
           ? {
               ...prev,
               lastMessage: cleanText,
-              lastMessageStatus: isIncoming ? ('none' as const) : ('single_tick' as const),
+              lastMessageStatus: newLastStatus,
               timestamp: timeStr,
               unreadCount: 0,
               messages: [...prev.messages, newMsg],
@@ -692,8 +795,8 @@ export default function App() {
       );
     }
 
-    // Double tick after 1s, blue tick after 2.5s for authentic WhatsApp experience
-    if (!isIncoming) {
+    // Double tick after 1.2s, blue tick after 2.8s for authentic WhatsApp experience ONLY when online & sent
+    if (!isIncoming && resolvedStatus === 'sent') {
       setTimeout(() => {
         setChats((prev) =>
           prev.map((c) => {
@@ -702,14 +805,24 @@ export default function App() {
                 ...c,
                 lastMessageStatus: 'double_tick_grey',
                 messages: c.messages.map((m) =>
-                  m.id === newMsg.id ? { ...m, status: 'delivered' } : m
+                  m.id === newMsg.id && m.status === 'sent' ? { ...m, status: 'delivered' } : m
                 ),
               };
             }
             return c;
           })
         );
-      }, 1000);
+        setSelectedChat((prev) => {
+          if (!prev || prev.id !== chatId) return prev;
+          return {
+            ...prev,
+            lastMessageStatus: 'double_tick_grey',
+            messages: prev.messages.map((m) =>
+              m.id === newMsg.id && m.status === 'sent' ? { ...m, status: 'delivered' } : m
+            ),
+          };
+        });
+      }, 1200);
 
       setTimeout(() => {
         setChats((prev) =>
@@ -719,14 +832,24 @@ export default function App() {
                 ...c,
                 lastMessageStatus: 'double_tick_blue',
                 messages: c.messages.map((m) =>
-                  m.id === newMsg.id ? { ...m, status: 'read' } : m
+                  m.id === newMsg.id && m.status === 'delivered' ? { ...m, status: 'read' } : m
                 ),
               };
             }
             return c;
           })
         );
-      }, 2500);
+        setSelectedChat((prev) => {
+          if (!prev || prev.id !== chatId) return prev;
+          return {
+            ...prev,
+            lastMessageStatus: 'double_tick_blue',
+            messages: prev.messages.map((m) =>
+              m.id === newMsg.id && m.status === 'delivered' ? { ...m, status: 'read' } : m
+            ),
+          };
+        });
+      }, 2800);
     }
   };
 

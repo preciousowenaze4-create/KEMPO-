@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, CheckCheck, Sticker, User } from 'lucide-react';
+import { Check, CheckCheck, Sticker, User, Clock } from 'lucide-react';
 import { Chat } from '../types';
 
 interface ChatListItemProps {
@@ -86,6 +86,9 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1 min-w-0 text-[14.5px] text-neutral-400 truncate">
             {/* Checkmark Status Icons */}
+            {chat.lastMessageStatus === 'pending_clock' && (
+              <Clock className="w-3.5 h-3.5 text-neutral-400 shrink-0 animate-pulse" />
+            )}
             {chat.lastMessageStatus === 'single_tick' && (
               <Check className="w-4 h-4 text-neutral-400 shrink-0 stroke-[2.2]" />
             )}

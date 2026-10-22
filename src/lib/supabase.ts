@@ -152,6 +152,38 @@ export async function uploadAvatarToSupabase(file: File | Blob, userId: string):
   });
 }
 
+// Upload chat media (image, voice, document) to Supabase Storage with graceful fallback
+export async function uploadChatMediaToSupabase(fileOrBlob: Blob, messageId: string): Promise<string> {
+  const ext = fileOrBlob.type.split('/')[1]?.split(';')[0] || 'jpg';
+  const fileName = `media-${messageId}-${Date.now()}.${ext}`;
+  const filePath = `chat-media/${fileName}`;
+
+  try {
+    const { error } = await supabase.storage.from('chat-media').upload(filePath, fileOrBlob, {
+      cacheControl: '3600',
+      upsert: true,
+    });
+
+    if (!error) {
+      const { data: publicUrlData } = supabase.storage.from('chat-media').getPublicUrl(filePath);
+      if (publicUrlData?.publicUrl) {
+        return publicUrlData.publicUrl;
+      }
+    }
+  } catch (err) {
+    console.info('Supabase chat-media upload note:', err);
+  }
+
+  // Graceful fallback to client-side data URL
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      resolve(reader.result as string);
+    };
+    reader.readAsDataURL(fileOrBlob);
+  });
+}
+
 // Save complete user profile to Supabase auth metadata and profiles table
 export async function saveFullUserProfile(profile: UserProfileData): Promise<void> {
   // Enforce account rules: owner always gets 'kempo pro', non-owners cannot mimic 'kempo pro'

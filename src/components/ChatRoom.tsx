@@ -10,6 +10,7 @@ import {
   Smile,
   Check,
   CheckCheck,
+  Clock,
   Image as ImageIcon,
   User,
   X,
@@ -19,7 +20,11 @@ import {
 } from 'lucide-react';
 import { Chat, Message } from '../types';
 import { VoiceNoteRecorder } from './VoiceNoteRecorder';
+import { ChatMessageMedia } from './ChatMessageMedia';
 import { realtimeService } from '../lib/realtimeService';
+import { compressImage, saveLocalMedia } from '../lib/mediaStorage';
+import { offlineQueue } from '../lib/offlineQueue';
+import { uploadChatMediaToSupabase } from '../lib/supabase';
 
 interface ChatRoomProps {
   chat: Chat;
@@ -33,7 +38,9 @@ interface ChatRoomProps {
     mediaType?: 'image' | 'audio' | 'sticker' | 'document',
     mediaUrl?: string,
     senderId?: string,
-    timestamp?: string
+    timestamp?: string,
+    messageId?: string,
+    initialStatus?: 'pending' | 'sent' | 'delivered' | 'read'
   ) => void;
   onStartCall?: (chat: Chat, isVideo: boolean) => void;
   onMarkRead?: (chatId: string) => void;
@@ -113,7 +120,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     setInputText('');
     setShowAttachMenu(false);
 
-    const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
+    const partnerId =
+      chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
     const now = new Date();
     let hours = now.getHours();
     const minutes = now.getMinutes().toString().padStart(2, '0');
@@ -121,25 +129,34 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     hours = hours % 12 || 12;
     const timeStr = `${hours}:${minutes} ${ampm}`;
 
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    const initialStatus: 'pending' | 'sent' = isOnline ? 'sent' : 'pending';
+    const msgId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
     const newMsg: Message = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: msgId,
       senderId: myId,
       recipientId: partnerId,
       text,
       timestamp: timeStr,
-      status: 'sent',
+      status: initialStatus,
+      isPendingSync: !isOnline,
     };
 
-    onSendMessage(chat.id, text, undefined, undefined, myId, timeStr);
+    onSendMessage(chat.id, text, undefined, undefined, myId, timeStr, msgId, initialStatus);
 
-    realtimeService.sendMessage(myId, partnerId, newMsg);
-    realtimeService.sendDirectMessage(partnerId, {
-      message: newMsg,
-      senderKempoId: myId,
-      senderName: currentUserName || myId,
-      senderAvatar: currentUserAvatar || '',
-      recipientKempoId: partnerId,
-    });
+    if (isOnline) {
+      realtimeService.sendMessage(myId, partnerId, newMsg);
+      realtimeService.sendDirectMessage(partnerId, {
+        message: newMsg,
+        senderKempoId: myId,
+        senderName: currentUserName || myId,
+        senderAvatar: currentUserAvatar || '',
+        recipientKempoId: partnerId,
+      });
+    } else {
+      offlineQueue.enqueue(chat.id, myId, partnerId, newMsg);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -154,11 +171,16 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
     const durationStr = `0:${durationSeconds.toString().padStart(2, '0')}`;
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onloadend = async () => {
       const base64Audio = reader.result as string;
       const text = `🎤 Voice Message (${durationStr})`;
+      const msgId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-      const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
+      // Save locally into IndexedDB and in-memory cache for instant replay
+      await saveLocalMedia(msgId, base64Audio);
+
+      const partnerId =
+        chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
       const now = new Date();
       let hours = now.getHours();
       const minutes = now.getMinutes().toString().padStart(2, '0');
@@ -166,27 +188,35 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       hours = hours % 12 || 12;
       const timeStr = `${hours}:${minutes} ${ampm}`;
 
+      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+      const initialStatus: 'pending' | 'sent' = isOnline ? 'sent' : 'pending';
+
       const newMsg: Message = {
-        id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        id: msgId,
         senderId: myId,
         recipientId: partnerId,
         text,
         mediaType: 'audio',
         mediaUrl: base64Audio,
         timestamp: timeStr,
-        status: 'sent',
+        status: initialStatus,
+        isPendingSync: !isOnline,
       };
 
-      onSendMessage(chat.id, text, 'audio', base64Audio, myId, timeStr);
+      onSendMessage(chat.id, text, 'audio', base64Audio, myId, timeStr, msgId, initialStatus);
 
-      realtimeService.sendMessage(myId, partnerId, newMsg);
-      realtimeService.sendDirectMessage(partnerId, {
-        message: newMsg,
-        senderKempoId: myId,
-        senderName: currentUserName || myId,
-        senderAvatar: currentUserAvatar || '',
-        recipientKempoId: partnerId,
-      });
+      if (isOnline) {
+        realtimeService.sendMessage(myId, partnerId, newMsg);
+        realtimeService.sendDirectMessage(partnerId, {
+          message: newMsg,
+          senderKempoId: myId,
+          senderName: currentUserName || myId,
+          senderAvatar: currentUserAvatar || '',
+          recipientKempoId: partnerId,
+        });
+      } else {
+        offlineQueue.enqueue(chat.id, myId, partnerId, newMsg);
+      }
     };
     reader.readAsDataURL(audioBlob);
   };
@@ -211,50 +241,76 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     }
   };
 
-  // Photo Attachment upload
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Photo Attachment upload: High quality, immediate local preview, and offline queueing
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (reader.result) {
-        const imgUrl = reader.result as string;
-        onSendMessage(chat.id, '📸 Photo', 'image', imgUrl);
-        setShowAttachMenu(false);
+    // Reset input so user can pick photos repeatedly
+    e.target.value = '';
+    setShowAttachMenu(false);
 
-        const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
-        const now = new Date();
-        let hours = now.getHours();
-        const minutes = now.getMinutes().toString().padStart(2, '0');
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        hours = hours % 12 || 12;
-        const timeStr = `${hours}:${minutes} ${ampm}`;
+    try {
+      // 1. Immediately compress image for crisp, full-quality visual preview
+      const { blob, dataUrl } = await compressImage(file);
+      const msgId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-        const newMsg: Message = {
-          id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          senderId: myId,
-          recipientId: partnerId,
-          text: '📸 Photo',
-          mediaType: 'image',
-          mediaUrl: imgUrl,
-          timestamp: timeStr,
-          status: 'sent',
-        };
+      // 2. Persist in memory + IndexedDB immediately so local preview is instant (0ms)
+      await saveLocalMedia(msgId, dataUrl);
 
-        onSendMessage(chat.id, '📸 Photo', 'image', imgUrl, myId, timeStr);
+      const partnerId =
+        chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
+      const now = new Date();
+      let hours = now.getHours();
+      const minutes = now.getMinutes().toString().padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12 || 12;
+      const timeStr = `${hours}:${minutes} ${ampm}`;
 
-        realtimeService.sendMessage(myId, partnerId, newMsg);
-        realtimeService.sendDirectMessage(partnerId, {
-          message: newMsg,
-          senderKempoId: myId,
-          senderName: currentUserName || myId,
-          senderAvatar: currentUserAvatar || '',
-          recipientKempoId: partnerId,
-        });
+      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+      const initialStatus: 'pending' | 'sent' = isOnline ? 'sent' : 'pending';
+
+      const newMsg: Message = {
+        id: msgId,
+        senderId: myId,
+        recipientId: partnerId,
+        text: '📸 Photo',
+        mediaType: 'image',
+        mediaUrl: dataUrl,
+        timestamp: timeStr,
+        status: initialStatus,
+        isPendingSync: !isOnline,
+      };
+
+      // Call onSendMessage ONCE with the exact message ID and status
+      onSendMessage(chat.id, '📸 Photo', 'image', dataUrl, myId, timeStr, msgId, initialStatus);
+
+      if (isOnline) {
+        // Upload to Supabase Storage in background and notify recipient
+        uploadChatMediaToSupabase(blob, msgId)
+          .then((publicUrl) => {
+            if (publicUrl && publicUrl !== dataUrl) {
+              newMsg.mediaUrl = publicUrl;
+            }
+            realtimeService.sendMessage(myId, partnerId, newMsg);
+            realtimeService.sendDirectMessage(partnerId, {
+              message: newMsg,
+              senderKempoId: myId,
+              senderName: currentUserName || myId,
+              senderAvatar: currentUserAvatar || '',
+              recipientKempoId: partnerId,
+            });
+          })
+          .catch(() => {
+            realtimeService.sendMessage(myId, partnerId, newMsg);
+          });
+      } else {
+        // Offline: Enqueue locally for automatic sync upon reconnect
+        offlineQueue.enqueue(chat.id, myId, partnerId, newMsg);
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.warn('Failed to process image attachment:', err);
+    }
   };
 
   return (
@@ -415,14 +471,18 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 ) : null}
 
                 {/* Photo Media content */}
-                {msg.mediaType === 'image' && msg.mediaUrl && (
-                  <div className="rounded-xl overflow-hidden mb-1 max-w-xs">
-                    <img src={msg.mediaUrl} alt="Attached Media" className="w-full h-auto object-cover max-h-64" />
-                  </div>
+                {msg.mediaType === 'image' && (
+                  <ChatMessageMedia
+                    messageId={msg.id}
+                    mediaUrl={msg.mediaUrl}
+                    mediaType={msg.mediaType}
+                    status={msg.status}
+                    isMe={isMe}
+                  />
                 )}
 
                 {/* Text content */}
-                {msg.text && msg.mediaType !== 'audio' && (
+                {msg.text && msg.mediaType !== 'audio' && (msg.mediaType !== 'image' || (msg.text !== '📸 Photo' && msg.text !== 'Photo')) && (
                   <div className="leading-relaxed break-words pr-2">
                     {msg.text}
                   </div>
@@ -436,15 +496,24 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 )}
 
                 {/* Time & WhatsApp double tick marks */}
-                <div className="flex items-center justify-end gap-1 mt-1 text-[10.5px] opacity-75">
+                <div className="flex items-center justify-end gap-1 mt-1 text-[10.5px] opacity-85">
                   <span className={`${isMe ? 'text-red-100' : 'text-neutral-400'}`}>
                     {msg.timestamp}
                   </span>
                   {isMe && (
-                    <span className="inline-flex">
-                      {msg.status === 'sent' && <Check className="w-3.5 h-3.5 stroke-[2.2]" />}
-                      {msg.status === 'delivered' && <CheckCheck className="w-3.5 h-3.5 stroke-[2]" />}
-                      {msg.status === 'read' && <CheckCheck className="w-3.5 h-3.5 text-sky-300 stroke-[2.4]" />}
+                    <span className="inline-flex items-center ml-0.5">
+                      {msg.status === 'pending' && (
+                        <Clock className="w-3.5 h-3.5 text-neutral-300 stroke-[2] animate-pulse" />
+                      )}
+                      {msg.status === 'sent' && (
+                        <Check className="w-3.5 h-3.5 text-neutral-300 stroke-[2.2]" />
+                      )}
+                      {msg.status === 'delivered' && (
+                        <CheckCheck className="w-3.5 h-3.5 text-neutral-300 stroke-[2]" />
+                      )}
+                      {msg.status === 'read' && (
+                        <CheckCheck className="w-3.5 h-3.5 text-[#38bdf8] stroke-[2.4]" />
+                      )}
                     </span>
                   )}
                 </div>
