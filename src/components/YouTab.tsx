@@ -54,6 +54,7 @@ interface YouTabProps {
   onUpdateProfile?: (profile: UserProfileData) => void;
   onAddContactById: (kempoId: string) => Promise<Chat | null>;
   onOpenChat: (chat: Chat) => void;
+  onOpenOnboarding?: () => void;
 }
 
 // Preset stylish avatars for quick selection
@@ -80,6 +81,7 @@ export const YouTab: React.FC<YouTabProps> = ({
   onUpdateProfile,
   onAddContactById,
   onOpenChat,
+  onOpenOnboarding,
 }) => {
   // Determine if this account is the recognized application owner
   const rawEmail = userProfile?.email || currentUserEmail || '';
@@ -524,6 +526,31 @@ export const YouTab: React.FC<YouTabProps> = ({
           )}
         </div>
       </div>
+
+      {/* Re-enter / Edit Profile, Country & ID Setup Flow */}
+      {onOpenOnboarding && (
+        <button
+          type="button"
+          onClick={onOpenOnboarding}
+          className="w-full p-3.5 rounded-2xl bg-gradient-to-r from-red-950/80 to-[#18181e] border border-red-600/50 hover:border-red-500 text-left transition flex items-center justify-between shadow-xl cursor-pointer active:scale-[0.99] group"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-red-600 flex items-center justify-center text-white shrink-0 shadow-md shadow-red-950 group-hover:scale-105 transition">
+              <Camera className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+                <span>Profile, Country & ID Setup</span>
+                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-md bg-red-600 text-white">3-Step</span>
+              </h4>
+              <p className="text-xs text-neutral-400 mt-0.5 truncate">
+                Update picture, country dial code & account category
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-neutral-400 group-hover:text-red-400 transition shrink-0" />
+        </button>
+      )}
 
       {/* WhatsApp-Style Group 1: Subscriptions, Lists, Broadcasts, Starred, Linked Devices */}
       <div className="rounded-2xl bg-[#161619] border border-neutral-800/80 overflow-hidden divide-y divide-[#222226]">

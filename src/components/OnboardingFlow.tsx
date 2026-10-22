@@ -14,6 +14,7 @@ import {
   Delete,
   Loader2,
   Sparkles,
+  Upload,
 } from 'lucide-react';
 import { COUNTRIES, Country, DEFAULT_COUNTRY } from '../data/countries';
 import { AccountType, AppPreferences, UserProfileData } from '../types';
@@ -241,8 +242,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               </p>
             </div>
 
-            {/* Avatar Upload Container */}
-            <div className="flex flex-col items-center mb-8">
+            {/* Real Picture Upload Straight Box Container ("Like a boss, make it straight, a box where you can upload") */}
+            <div className="flex flex-col items-center mb-6">
               <input
                 type="file"
                 ref={fileInputRef}
@@ -253,53 +254,73 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className="relative w-28 h-28 rounded-full bg-neutral-900 border-2 border-dashed border-neutral-700 hover:border-red-500 transition cursor-pointer flex items-center justify-center overflow-hidden shadow-2xl group"
+                className="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl bg-[#141419] border-2 border-dashed border-red-500/80 hover:border-red-400 transition cursor-pointer flex flex-col items-center justify-center p-3 overflow-hidden shadow-2xl group shadow-red-950/40"
               >
                 {avatarUrl ? (
-                  <img
-                    src={avatarUrl}
-                    alt="Profile Avatar"
-                    className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                  />
+                  <div className="w-full h-full relative rounded-2xl overflow-hidden group">
+                    <img
+                      src={avatarUrl}
+                      alt="Profile Avatar"
+                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent opacity-90 group-hover:opacity-100 transition flex items-end justify-center p-3">
+                      <div className="px-3.5 py-1.5 rounded-xl bg-red-600/90 text-white font-bold text-xs flex items-center gap-2 shadow-lg">
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Change Photo</span>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center text-neutral-400 group-hover:text-red-400 transition">
-                    <User className="w-12 h-12 stroke-[1.5]" />
+                  <div className="flex flex-col items-center justify-center text-center p-4">
+                    <div className="w-16 h-16 rounded-2xl bg-red-600/15 border border-red-500/40 text-red-500 flex items-center justify-center mb-3 shadow-lg group-hover:scale-110 group-hover:bg-red-600 group-hover:text-white transition duration-300">
+                      <Upload className="w-8 h-8 stroke-[2.2]" />
+                    </div>
+                    <span className="text-base font-extrabold text-white tracking-tight">
+                      Put Your Real Picture
+                    </span>
+                    <p className="text-xs text-neutral-400 mt-1 max-w-[210px] leading-relaxed">
+                      Tap anywhere to upload your photo straight from your device
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="mt-3.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-red-950 active:scale-95 transition cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Upload Picture</span>
+                    </button>
                   </div>
                 )}
 
                 {/* Upload Spinner */}
                 {isUploadingAvatar && (
-                  <div className="absolute inset-0 bg-black/75 flex items-center justify-center">
-                    <Loader2 className="w-6 h-6 text-red-500 animate-spin" />
+                  <div className="absolute inset-0 bg-black/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2 z-10">
+                    <Loader2 className="w-8 h-8 text-red-500 animate-spin" />
+                    <span className="text-xs font-bold text-white">Uploading picture...</span>
                   </div>
                 )}
 
-                {/* Camera Badge in Kempo Red */}
-                <div className="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-red-600 border-2 border-black flex items-center justify-center text-white shadow-lg shadow-red-950">
-                  <Camera className="w-4 h-4" />
+                {/* Boss Badge on Top Right */}
+                <div className="absolute top-3 right-3 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/40 text-[10px] font-black text-red-400 uppercase tracking-wider">
+                  Kempo Pro
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-3 text-xs font-bold text-red-400 hover:text-red-300 transition cursor-pointer"
-              >
-                {avatarUrl ? 'Change profile photo' : 'Add profile photo'}
-              </button>
-
               {/* Quick Preset Avatars Row */}
               <div className="mt-4 flex items-center gap-2">
-                <span className="text-[10px] text-neutral-500 font-medium">Or choose:</span>
+                <span className="text-[11px] text-neutral-400 font-semibold">Or pick instant avatar:</span>
                 {PRESET_AVATARS.map((preset, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => setAvatarUrl(preset)}
-                    className={`w-8 h-8 rounded-full overflow-hidden border-2 transition active:scale-95 cursor-pointer ${
+                    className={`w-9 h-9 rounded-xl overflow-hidden border-2 transition active:scale-95 cursor-pointer ${
                       avatarUrl === preset
-                        ? 'border-red-500 scale-110 shadow-md shadow-red-950'
-                        : 'border-neutral-700 opacity-70 hover:opacity-100'
+                        ? 'border-red-500 scale-110 shadow-lg shadow-red-950'
+                        : 'border-neutral-700 opacity-70 hover:opacity-100 hover:border-neutral-500'
                     }`}
                   >
                     <img src={preset} alt="preset" className="w-full h-full object-cover" />
@@ -443,24 +464,24 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               <div className="h-[1px] bg-neutral-800/80 mx-4" />
 
               {/* Row 2: Formatted Prefix & Entry Field */}
-              {/* User instruction: "that place that is show plus something, there will be the name of my app. Then after the name of my app, it will now show plus, if it's +234 Nigeria or any country, it will show the plus first, it will first show the number like what is start +23 after that one, you will now write put the number ID join it like the ID." */}
-              <div className="px-4 py-3 flex items-center gap-2.5">
-                <div className="flex items-center gap-1.5 shrink-0 bg-neutral-900/90 px-2.5 py-1.5 rounded-xl border border-neutral-750">
-                  <span className="text-xs font-black text-red-500 tracking-tight">Kempo Pro</span>
-                  <span className="text-sm font-bold text-white font-mono">
+              {/* User instruction: "after you select your country, it will now show the name of my app + 2 3, then you will now put some letter, which is the ID letter. Then if you still select on that country, that's how the + something something will still change." */}
+              <div className="px-4 py-3.5 flex items-center gap-2.5">
+                <div className="flex items-center gap-1.5 shrink-0 bg-red-950/70 border border-red-600/70 px-3 py-1.5 rounded-xl shadow-md">
+                  <span className="text-xs sm:text-sm font-black text-red-500 tracking-tight">Kempo Pro</span>
+                  <span className="text-sm sm:text-base font-black text-white font-mono">
                     {selectedCountry.dialCode}
                   </span>
                 </div>
 
-                <div className="h-6 w-[1px] bg-neutral-700/80" />
+                <div className="h-6 w-[1.5px] bg-neutral-750" />
 
                 <input
                   type="text"
                   value={phoneEntry}
                   onChange={(e) => setPhoneEntry(e.target.value)}
-                  placeholder="your phone number"
+                  placeholder="e.g. A5738 or 8012345678"
                   maxLength={18}
-                  className="flex-1 bg-transparent text-sm sm:text-base font-bold text-white placeholder-neutral-500 focus:outline-none font-mono"
+                  className="flex-1 bg-transparent text-sm sm:text-base font-black text-white placeholder-neutral-500 focus:outline-none font-mono"
                 />
 
                 {phoneEntry && (
@@ -476,16 +497,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             </div>
 
             {/* Live Shareable ID Preview Card */}
-            <div className="mt-4 p-3 rounded-2xl bg-neutral-900/60 border border-neutral-800/80 flex items-center justify-between">
-              <div>
+            <div className="mt-4 p-3.5 rounded-2xl bg-[#16161c] border border-red-900/40 flex items-center justify-between shadow-xl">
+              <div className="min-w-0 pr-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
                   Your Full Kempo Shareable ID
                 </span>
-                <span className="text-xs sm:text-sm font-black text-white font-mono tracking-wide mt-0.5 block">
-                  {formattedKempoId}
+                <span className="text-xs sm:text-sm font-black text-white font-mono tracking-wide mt-0.5 block truncate">
+                  Kempo Pro {selectedCountry.dialCode} {phoneEntry || 'A5738'}
                 </span>
               </div>
-              <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30">
+              <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30 shrink-0">
                 Official
               </span>
             </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Radio, Laptop, Star, Settings, Download, X } from 'lucide-react';
+import { Users, Radio, Laptop, Star, Settings, Download, X, User } from 'lucide-react';
 
 interface ActionMenuModalProps {
   isOpen: boolean;
@@ -15,11 +15,12 @@ export const ActionMenuModal: React.FC<ActionMenuModalProps> = ({
   if (!isOpen) return null;
 
   const options = [
+    { id: 'setup_profile', label: 'Profile & Country Setup', icon: User, highlight: true },
     { id: 'new_group', label: 'New group', icon: Users },
     { id: 'broadcast', label: 'New broadcast', icon: Radio },
     { id: 'linked', label: 'Linked devices', icon: Laptop },
     { id: 'starred', label: 'Starred messages', icon: Star },
-    { id: 'install', label: 'Install / Home Screen', icon: Download, highlight: true },
+    { id: 'install', label: 'Install / Home Screen', icon: Download },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
