@@ -439,7 +439,7 @@ export class KempoRealtimeService {
     });
 
     // When DB write settles or acknowledges, invoke delivered callback
-    insertPromise.then((inserted) => {
+    insertPromise.then((inserted: boolean) => {
       if (inserted) {
         updateSupabaseMessageStatus(message.id, 'delivered');
       }

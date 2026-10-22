@@ -635,3 +635,52 @@ export async function syncChatToSupabase(chat: any) {
     console.warn('Chat sync warning:', err);
   }
 }
+
+export interface SupabaseMessagePayload {
+  id?: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  media_type?: string | null;
+  media_url?: string | null;
+  timestamp: string;
+  status?: string;
+}
+
+// Automatically insert into the Supabase 'messages' table with required fields
+export async function insertSupabaseMessage(payload: SupabaseMessagePayload): Promise<boolean> {
+  try {
+    const { error } = await supabase.from('messages').insert({
+      id: payload.id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      sender_id: payload.sender_id,
+      receiver_id: payload.receiver_id,
+      content: payload.content,
+      media_type: payload.media_type,
+      media_url: payload.media_url,
+      timestamp: payload.timestamp,
+      status: payload.status || 'sent',
+      created_at: new Date().toISOString(),
+    });
+    if (error) {
+      console.info('Supabase messages table insert note:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('insertSupabaseMessage error:', err);
+    return false;
+  }
+}
+
+// Update message delivery or read status in Supabase messages table
+export async function updateSupabaseMessageStatus(
+  messageId: string,
+  status: 'sent' | 'delivered' | 'read'
+): Promise<void> {
+  try {
+    await supabase.from('messages').update({ status }).eq('id', messageId);
+  } catch (err) {
+    console.warn('updateSupabaseMessageStatus warning:', err);
+  }
+}
+
