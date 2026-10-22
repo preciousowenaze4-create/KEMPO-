@@ -20,6 +20,14 @@ import {
   Edit3,
   AlertCircle,
   Crown,
+  Search,
+  Star,
+  List,
+  Radio,
+  Sparkles,
+  Smartphone,
+  ExternalLink,
+  Smile,
 } from 'lucide-react';
 import { UserProfileData, Chat, AppPreferences } from '../types';
 import { uploadAvatarToSupabase, saveFullUserProfile } from '../lib/supabase';
@@ -127,6 +135,16 @@ export const YouTab: React.FC<YouTabProps> = ({
 
   // Copy ID state
   const [copiedId, setCopiedId] = useState(false);
+
+  // WhatsApp-style status / thought state
+  const [statusThought, setStatusThought] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('kempo_status_thought') || 'Available on Kempo Pro';
+    }
+    return 'Available on Kempo Pro';
+  });
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [statusInput, setStatusInput] = useState('');
 
   // Owner & Admin Console state
   const [showAdminConsole, setShowAdminConsole] = useState(false);
@@ -332,28 +350,57 @@ export const YouTab: React.FC<YouTabProps> = ({
       />
 
       {/* Top Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between pb-1">
         <h1 className="text-3xl font-extrabold tracking-tight text-white">Settings</h1>
-        <button
-          onClick={handleShareId}
-          className="w-10 h-10 rounded-full bg-[#1c1c1e] text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer"
-          title="Share My ID"
-        >
-          <QrCode className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleShareId}
+            className="w-9 h-9 rounded-full bg-[#1c1c1e] hover:bg-[#252528] text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer"
+            title="QR Code & Share ID"
+          >
+            <QrCode className="w-4.5 h-4.5" />
+          </button>
+          <button
+            onClick={() => setShowAvatarPicker(true)}
+            className="w-9 h-9 rounded-full bg-[#1c1c1e] hover:bg-[#252528] text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer"
+            title="Change Avatar"
+          >
+            <Edit3 className="w-4.5 h-4.5" />
+          </button>
+        </div>
       </div>
 
-      {/* Upgraded Centered User Profile Card */}
-      <div className="flex flex-col items-center text-center p-6 rounded-3xl bg-[#141417] shadow-xl relative overflow-hidden">
-        {/* Soft atmospheric ambient glow */}
-        <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-48 h-32 blur-3xl pointer-events-none rounded-full ${isOwner ? 'bg-amber-500/20' : 'bg-red-600/15'}`} />
+      {/* 1. Clean Profile Layout (Remove Background Cards) */}
+      {/* Avatar, display name, status, and profile header displayed directly on screen background */}
+      <div className="flex flex-col items-center text-center pt-2 pb-2 select-none relative">
+        {/* WhatsApp-Style Thought / Status Bubble */}
+        <button
+          type="button"
+          onClick={() => {
+            setStatusInput(statusThought);
+            setShowStatusModal(true);
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1 mb-2.5 rounded-full bg-[#1c1c20] hover:bg-[#242429] border border-neutral-800 text-[11px] text-neutral-300 shadow-md transition active:scale-95 cursor-pointer relative"
+          title="Tap to update status"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+          <span className="font-medium max-w-[200px] truncate">{statusThought}</span>
+          {/* Tail of speech bubble */}
+          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] border-t-[#1c1c20]" />
+        </button>
 
-        {/* Centered Circular Avatar with Camera Uploader */}
+        {/* Centered Circular Avatar with Camera Uploader (Directly on screen background) */}
         <div
-          className="relative mb-3.5 group cursor-pointer"
+          className="relative cursor-pointer group"
           onClick={() => setShowAvatarPicker(true)}
         >
-          <div className={`w-24 h-24 rounded-full overflow-hidden ring-4 ${isOwner ? 'ring-amber-500/80 shadow-amber-950/50' : 'ring-red-600/70 shadow-red-950/40'} bg-[#1e1e24] flex items-center justify-center shadow-xl transition`}>
+          <div
+            className={`w-24 h-24 rounded-full overflow-hidden ring-3 ${
+              isOwner
+                ? 'ring-amber-500/80 shadow-amber-950/40'
+                : 'ring-red-600/90 shadow-red-950/50'
+            } bg-[#161619] flex items-center justify-center shadow-2xl transition group-hover:scale-102`}
+          >
             {avatarUrl ? (
               <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
             ) : (
@@ -363,7 +410,7 @@ export const YouTab: React.FC<YouTabProps> = ({
             )}
           </div>
 
-          {/* Camera Edit Badge */}
+          {/* Camera Edit Badge in Signature Red */}
           <button
             type="button"
             onClick={(e) => {
@@ -374,28 +421,32 @@ export const YouTab: React.FC<YouTabProps> = ({
             className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg shadow-red-950 ring-2 ring-black active:scale-90 transition cursor-pointer"
           >
             {isUploadingAvatar ? (
-              <Loader2 className="w-4 h-4 animate-spin text-white" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
             ) : (
-              <Camera className="w-4 h-4" />
+              <Camera className="w-3.5 h-3.5" />
             )}
           </button>
         </div>
 
         {/* Centered Display Name */}
-        <h2 className="text-xl font-black text-white tracking-tight flex items-center gap-1.5 justify-center">
+        <h2 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-2 mt-2.5">
           <span>{displayName}</span>
-          {isOwner && <Crown className="w-4 h-4 text-amber-400 fill-amber-400" />}
+          {isOwner ? (
+            <Crown className="w-5 h-5 text-amber-400 fill-amber-400" />
+          ) : (
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black inline-block" title="Online"></span>
+          )}
         </h2>
 
-        {/* Centered Account Distinction Badge */}
-        <div className="mt-1.5 flex items-center justify-center">
+        {/* Account Badge */}
+        <div className="mt-1 flex items-center justify-center">
           {isOwner ? (
-            <span className="px-3.5 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 text-white shadow-lg shadow-red-950/50 border border-amber-400/40 flex items-center gap-1.5">
+            <span className="px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 text-white shadow-md shadow-red-950/50 border border-amber-400/40 flex items-center gap-1.5">
               <span>👑</span>
               <span>KEMPO PRO OWNER & ADMIN</span>
             </span>
           ) : (
-            <span className="px-3 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-red-950/80 text-red-300 border border-red-700/60 shadow-xs">
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-950/60 text-red-300 border border-red-800/40 shadow-xs">
               {accountType === 'personal' && 'Personal Account'}
               {accountType === 'business' && 'Business Account'}
               {accountType === 'creator' && 'Creator Profile'}
@@ -404,79 +455,168 @@ export const YouTab: React.FC<YouTabProps> = ({
           )}
         </div>
 
-        {/* Change Profile Picture Action Button */}
-        <button
-          type="button"
-          onClick={() => setShowAvatarPicker(true)}
-          className="mt-3 px-3.5 py-1 rounded-full bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 hover:text-white text-[12px] font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-        >
-          <Camera className="w-3.5 h-3.5 text-red-400" />
-          <span>Change Profile Picture</span>
-        </button>
-
-        <p className="text-[11px] text-neutral-500 mt-2 font-medium">
-          Saved offline &bull; Synced with Supabase
-        </p>
+        {/* 2. User ID Sizing & Copy Button (Small font, non-wrapping with quick one-tap copy button) */}
+        <div className="mt-2.5 inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-xl bg-[#141417]/90 border border-neutral-800 shadow-inner">
+          <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+            ID:
+          </span>
+          <span
+            className={`text-xs font-mono font-bold tracking-wide select-all ${
+              isOwner ? 'text-amber-400' : 'text-red-400'
+            }`}
+          >
+            {kempoId}
+          </span>
+          {/* Small Copy icon/button right next to User ID */}
+          <button
+            type="button"
+            onClick={handleCopyId}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white text-[10px] font-semibold transition active:scale-95 cursor-pointer ml-0.5"
+            title="Copy User ID"
+          >
+            {copiedId ? (
+              <>
+                <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                <span className="text-emerald-400 font-bold">Copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3 text-red-400 shrink-0" />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+          {/* Share Button */}
+          <button
+            type="button"
+            onClick={handleShareId}
+            className="p-1 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition active:scale-95 cursor-pointer"
+            title="Share ID"
+          >
+            <Share2 className="w-3 h-3" />
+          </button>
+          {/* Edit ID Button for regular users */}
+          {!isOwner && (
+            <button
+              type="button"
+              onClick={() => {
+                setCustomIdInput(kempoId);
+                setEditIdError('');
+                setEditIdSuccess('');
+                setShowEditIdModal(true);
+              }}
+              className="p-1 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition active:scale-95 cursor-pointer"
+              title="Customize ID"
+            >
+              <Edit3 className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Shareable User ID Banner */}
-      <div className="p-4 rounded-3xl bg-[#141417] shadow-lg flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-neutral-400 flex items-center gap-1">
-              {isOwner ? '👑 Official Owner User ID' : 'Your Shareable User ID'}
-            </span>
-            <div className={`text-xl font-black font-mono tracking-wider mt-0.5 ${isOwner ? 'text-amber-400' : 'text-red-400'}`}>
-              {kempoId}
+      {/* WhatsApp-Style Group 1: Subscriptions, Lists, Broadcasts, Starred, Linked Devices */}
+      <div className="rounded-2xl bg-[#161619] border border-neutral-800/80 overflow-hidden divide-y divide-[#222226]">
+        {/* 1. Subscriptions */}
+        <div
+          onClick={() => {
+            alert(
+              "KEMPO PRo Subscriptions:\n\nAll premium features, unlimited encrypted voice & video calls, end-to-end security, and real-time messaging are permanently active for your account."
+            );
+          }}
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-red-600/20 to-purple-600/20 text-red-400 flex items-center justify-center shrink-0">
+              <Sparkles className="w-4 h-4 text-red-500" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-[14px] font-semibold text-white">Subscriptions</h4>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {!isOwner && (
-              <button
-                onClick={() => {
-                  setCustomIdInput(kempoId);
-                  setEditIdError('');
-                  setEditIdSuccess('');
-                  setShowEditIdModal(true);
-                }}
-                className="px-2.5 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold flex items-center gap-1 transition active:scale-95 cursor-pointer"
-                title="Customize ID"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Edit</span>
-              </button>
-            )}
-            <button
-              onClick={handleCopyId}
-              className="px-3 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
-            >
-              {copiedId ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedId ? 'Copied' : 'Copy'}</span>
-            </button>
-            <button
-              onClick={handleShareId}
-              className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-red-950 transition active:scale-95 cursor-pointer"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>Share</span>
-            </button>
-          </div>
+          <ExternalLink className="w-4 h-4 text-neutral-500 shrink-0" />
         </div>
-        <p className="text-[11.5px] text-neutral-400 leading-snug">
-          {isOwner
-            ? "Fixed official User ID for the application owner. Non-owners are restricted from using this ID."
-            : "Give this ID to other people to connect and start messaging instantly in real-time."}
-        </p>
+
+        {/* 2. Lists */}
+        <div
+          onClick={() => {
+            alert("Lists: Organize custom contacts and group categories.");
+          }}
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-sky-600/20 text-sky-400 flex items-center justify-center shrink-0">
+              <List className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-[14px] font-semibold text-white">Lists</h4>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+        </div>
+
+        {/* 3. Broadcast messages */}
+        <div
+          onClick={() => {
+            alert("Broadcast Messages: Send announcements to multiple contacts simultaneously.");
+          }}
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-purple-600/20 text-purple-400 flex items-center justify-center shrink-0">
+              <Radio className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-[14px] font-semibold text-white">Broadcast messages</h4>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+        </div>
+
+        {/* 4. Starred */}
+        <div
+          onClick={() => {
+            alert("Starred Messages: View your saved messages and highlights.");
+          }}
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-amber-600/20 text-amber-400 flex items-center justify-center shrink-0">
+              <Star className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-[14px] font-semibold text-white">Starred</h4>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+        </div>
+
+        {/* 5. Linked devices */}
+        <div
+          onClick={() => {
+            alert("Linked Devices: 1 active browser session on this device. Real-time encryption active.");
+          }}
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center shrink-0">
+              <Smartphone className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-[14px] font-semibold text-white">Linked devices</h4>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+        </div>
       </div>
 
-      {/* Add Contact by ID Card */}
-      <div className="p-4 rounded-3xl bg-[#161619] shadow-md">
-        <div className="flex items-center gap-2 mb-2">
+      {/* Add Contact by ID Card (Compact, with signature red action button) */}
+      <div className="p-3.5 rounded-2xl bg-[#161619] border border-neutral-800/80 shadow-md">
+        <div className="flex items-center gap-2 mb-1.5">
           <UserPlus className="w-4 h-4 text-red-500" />
-          <h3 className="text-sm font-bold text-white">Add Contact by ID</h3>
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider">Add Contact by ID</h3>
         </div>
-        <p className="text-xs text-neutral-400 mb-3">
-          Enter another user's KEMPO ID to connect your accounts and chat.
+        <p className="text-[11.5px] text-neutral-400 mb-2.5">
+          Enter another user's KEMPO ID to connect and chat in real-time.
         </p>
 
         <form onSubmit={handleAddById} className="flex gap-2">
@@ -486,20 +626,20 @@ export const YouTab: React.FC<YouTabProps> = ({
             onChange={(e) => setTargetId(e.target.value.toUpperCase())}
             placeholder="e.g. KEMPO-XXXXXX or kempo pro"
             maxLength={22}
-            className="flex-1 h-11 px-3.5 rounded-xl bg-[#0e0e11] text-white placeholder-neutral-500 text-xs font-mono font-semibold focus:outline-none focus:ring-1 focus:ring-red-500 uppercase transition"
+            className="flex-1 h-9.5 px-3 rounded-xl bg-[#0e0e11] border border-neutral-800 text-white placeholder-neutral-500 text-xs font-mono font-semibold focus:outline-none focus:ring-1 focus:ring-red-500 uppercase transition"
           />
           <button
             type="submit"
             disabled={isSearching || !targetId.trim()}
-            className="px-4 h-11 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-red-950 transition active:scale-95 flex items-center gap-1.5 shrink-0 cursor-pointer"
+            className="px-3.5 h-9.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-bold shadow-md shadow-red-950 transition active:scale-95 flex items-center gap-1.5 shrink-0 cursor-pointer"
           >
-            {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Add Contact</span>}
+            {isSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Add Contact</span>}
           </button>
         </form>
 
         {searchFeedback && (
           <div
-            className={`mt-2.5 p-2 rounded-xl text-xs flex items-center gap-2 ${
+            className={`mt-2 p-2 rounded-xl text-xs flex items-center gap-2 ${
               searchFeedback.type === 'success'
                 ? 'bg-emerald-950/60 text-emerald-300'
                 : 'bg-red-950/60 text-red-300'
@@ -515,29 +655,48 @@ export const YouTab: React.FC<YouTabProps> = ({
         )}
       </div>
 
-      {/* Clean Straight Settings List (No white divider lines, no clutter) */}
-      <div className="space-y-2 pt-1">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400 px-1 mb-2">
-          Preferences & Security
-        </h3>
-
-        {/* 1. Privacy & Security (Strict backend privacy: email handled strictly on backend, not exposed) */}
+      {/* WhatsApp-Style Group 2: Account, Privacy, Chats, Appearance, Notifications, Install, Log Out */}
+      <div className="rounded-2xl bg-[#161619] border border-neutral-800/80 overflow-hidden divide-y divide-[#222226]">
+        {/* 1. Account */}
         <div
           onClick={() => {
             alert(
-              `Privacy & Account Security:\n\nAccount Status: Active & Encrypted\nUser ID: ${kempoId}\nAccount Type: ${isOwner ? '👑 Kempo Pro Owner / Admin' : 'Standard Account'}\n\nBackend Email Privacy: Active\nYour sign-in email is handled strictly by the backend server and is never exposed or visible on the app frontend.\n\nEnd-to-End Encryption: Enabled`
+              `Account Information:\n\nUser ID: ${kempoId}\nAccount Type: ${accountType.toUpperCase()}\nStatus: Active\n\nYour profile is safely stored offline and synced with Supabase.`
             );
           }}
-          className="p-3.5 rounded-2xl bg-[#161619] hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-99"
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
         >
           <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-red-600/20 text-red-500 flex items-center justify-center shrink-0">
+              <Shield className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-[14px] font-semibold text-white">Account</h4>
+              <p className="text-[11px] text-neutral-400 truncate">Security, passkeys & ID</p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+        </div>
+
+        {/* 2. Privacy */}
+        <div
+          onClick={() => {
+            alert(
+              `Privacy & Account Security:\n\nAccount Status: Active & Encrypted\nUser ID: ${kempoId}\nAccount Type: ${
+                isOwner ? '👑 Kempo Pro Owner / Admin' : 'Standard Account'
+              }\n\nBackend Email Privacy: Active\nYour sign-in email is handled strictly by the backend server and is never exposed or visible on the app frontend.\n\nEnd-to-End Encryption: Enabled`
+            );
+          }}
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center shrink-0">
               <Key className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h4 className="text-[15px] font-semibold text-white">Privacy & Security</h4>
-              <p className="text-[12px] text-neutral-400 truncate flex items-center gap-1.5">
-                <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0 inline" />
+              <h4 className="text-[14px] font-semibold text-white">Privacy</h4>
+              <p className="text-[11px] text-neutral-400 truncate flex items-center gap-1">
+                <Shield className="w-3 h-3 text-emerald-400 shrink-0 inline" />
                 <span>{getBackendPrivacyStatus(rawEmail)}</span>
               </p>
             </div>
@@ -545,43 +704,48 @@ export const YouTab: React.FC<YouTabProps> = ({
           <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
         </div>
 
-        {/* 2. App Color & Theme */}
-        <div
-          onClick={onOpenThemeSettings}
-          className="p-3.5 rounded-2xl bg-[#161619] hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-99"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-red-600/20 text-red-500 flex items-center justify-center shrink-0">
-              <Palette className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[15px] font-semibold text-white">App Color & Theme</h4>
-              <p className="text-[12px] text-neutral-400">Crimson Red (Active)</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-
-        {/* 3. Chats & Wallpaper */}
+        {/* 3. Chats */}
         <div
           onClick={() => {
             alert('Chats & Wallpaper settings: WhatsApp dark doodle wallpaper is active.');
           }}
-          className="p-3.5 rounded-2xl bg-[#161619] hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-99"
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
         >
           <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-teal-600/20 text-teal-400 flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-teal-600/20 text-teal-400 flex items-center justify-center shrink-0">
               <MessageCircle className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h4 className="text-[15px] font-semibold text-white">Chats & Wallpaper</h4>
-              <p className="text-[12px] text-neutral-400">Custom wallpapers, backup & chat history</p>
+              <h4 className="text-[14px] font-semibold text-white">Chats</h4>
+              <p className="text-[11px] text-neutral-400">Theme, wallpaper & chat history</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-neutral-800 text-neutral-300 text-[10px] font-bold flex items-center justify-center">
+              1
+            </span>
+            <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+          </div>
+        </div>
+
+        {/* 4. Appearance (App Color & Theme) */}
+        <div
+          onClick={onOpenThemeSettings}
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-red-600/20 text-red-500 flex items-center justify-center shrink-0">
+              <Palette className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-[14px] font-semibold text-white">Appearance</h4>
+              <p className="text-[11px] text-neutral-400">Crimson Red (Active)</p>
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
         </div>
 
-        {/* 4. Notifications & Sounds */}
+        {/* 5. Notifications */}
         <div
           onClick={() => {
             const nextPref = !userProfile?.preferences?.inAppSounds;
@@ -593,15 +757,15 @@ export const YouTab: React.FC<YouTabProps> = ({
               });
             }
           }}
-          className="p-3.5 rounded-2xl bg-[#161619] hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-99"
+          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
         >
           <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-amber-600/20 text-amber-400 flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-amber-600/20 text-amber-400 flex items-center justify-center shrink-0">
               <Bell className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h4 className="text-[15px] font-semibold text-white">Notifications & Sounds</h4>
-              <p className="text-[12px] text-neutral-400">
+              <h4 className="text-[14px] font-semibold text-white">Notifications</h4>
+              <p className="text-[11px] text-neutral-400">
                 {userProfile?.preferences?.messageTones !== false ? 'In-app sounds enabled' : 'Muted'}
               </p>
             </div>
@@ -609,68 +773,68 @@ export const YouTab: React.FC<YouTabProps> = ({
           <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
         </div>
 
-        {/* 5. Add to Home Screen (Clean Row ONLY shown in browser when NOT yet on Home Screen) */}
+        {/* 6. Add to Home Screen (shown when installable and not on home screen) */}
         {!isRunningOnHomeScreen && isInstallable && (
           <div
             onClick={onInstallPwa}
-            className="p-3.5 rounded-2xl bg-[#161619] hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-99"
+            className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center shrink-0">
                 <Download className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[15px] font-semibold text-white">Add to Home Screen</h4>
-                <p className="text-[12px] text-neutral-400">Install for full-screen standalone experience</p>
+                <h4 className="text-[14px] font-semibold text-white">Add to Home Screen</h4>
+                <p className="text-[11px] text-neutral-400">Install for full-screen standalone experience</p>
               </div>
             </div>
             <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
           </div>
         )}
 
-        {/* 6. Log Out (Arranged straight, clean red accent) */}
+        {/* 7. Log Out */}
         <div
           onClick={onSignOut}
-          className="p-3.5 rounded-2xl bg-[#161619] hover:bg-red-950/30 flex items-center justify-between cursor-pointer transition active:scale-99"
+          className="p-3.5 hover:bg-red-950/30 flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
         >
           <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-red-600/20 text-red-500 flex items-center justify-center shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-red-600/20 text-red-500 flex items-center justify-center shrink-0">
               <LogOut className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h4 className="text-[15px] font-bold text-red-400">Log Out</h4>
-              <p className="text-[12px] text-neutral-400">Sign out of this session</p>
+              <h4 className="text-[14px] font-bold text-red-400">Log Out</h4>
+              <p className="text-[11px] text-neutral-400">Sign out of this session</p>
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-neutral-600 shrink-0" />
         </div>
-
-        {/* 7. Owner & Admin Console Button (Visible ONLY to the owner) */}
-        {isOwner && (
-          <div
-            onClick={() => setShowAdminConsole(true)}
-            className="p-4 rounded-2xl bg-gradient-to-r from-red-950 via-[#1f1216] to-[#2a170d] border-2 border-amber-500/70 hover:border-amber-400 flex items-center justify-between cursor-pointer transition active:scale-99 shadow-2xl shadow-red-950/60 mt-2"
-          >
-            <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-400 via-amber-500 to-red-600 text-black flex items-center justify-center font-black shadow-lg shadow-amber-950/60 shrink-0">
-                <Crown className="w-5 h-5 text-black fill-black" />
-              </div>
-              <div className="min-w-0 text-left">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-[15px] font-black text-white">Owner & Admin Console</h4>
-                  <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider shadow-xs">
-                    Admin Only
-                  </span>
-                </div>
-                <p className="text-[12px] text-amber-200/90 font-medium truncate">
-                  View signed-in user emails, ban, suspend, verify & restrict accounts
-                </p>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 text-amber-300 shrink-0" />
-          </div>
-        )}
       </div>
+
+      {/* 8. Owner & Admin Console Button (Visible ONLY to the owner) */}
+      {isOwner && (
+        <div
+          onClick={() => setShowAdminConsole(true)}
+          className="p-4 rounded-2xl bg-gradient-to-r from-red-950 via-[#1f1216] to-[#2a170d] border-2 border-amber-500/70 hover:border-amber-400 flex items-center justify-between cursor-pointer transition active:scale-[0.99] shadow-2xl shadow-red-950/60"
+        >
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-400 via-amber-500 to-red-600 text-black flex items-center justify-center font-black shadow-lg shadow-amber-950/60 shrink-0">
+              <Crown className="w-5 h-5 text-black fill-black" />
+            </div>
+            <div className="min-w-0 text-left">
+              <div className="flex items-center gap-2">
+                <h4 className="text-[15px] font-black text-white">Owner & Admin Console</h4>
+                <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider shadow-xs">
+                  Admin Only
+                </span>
+              </div>
+              <p className="text-[12px] text-amber-200/90 font-medium truncate">
+                View signed-in user emails, ban, suspend, verify & restrict accounts
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-amber-300 shrink-0" />
+        </div>
+      )}
 
       {/* App Info Footer */}
       <div className="text-center pt-3 pb-6">
@@ -811,6 +975,83 @@ export const YouTab: React.FC<YouTabProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp-Style Status / Thought Modal */}
+      {showStatusModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-[#161619] border border-neutral-800 rounded-3xl p-5 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <Smile className="w-4 h-4 text-red-500" />
+                Update Status / Thought
+              </h3>
+              <button
+                onClick={() => setShowStatusModal(false)}
+                className="w-7 h-7 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={statusInput}
+                onChange={(e) => setStatusInput(e.target.value)}
+                placeholder="I'm feeling..."
+                maxLength={40}
+                className="w-full h-11 px-3.5 rounded-xl bg-[#0e0e11] text-white placeholder-neutral-500 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-red-500 transition"
+              />
+
+              <p className="text-xs font-semibold text-neutral-400">Quick options:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "Available on Kempo Pro",
+                  "I'm feeling great!",
+                  "At work",
+                  "Gaming & Streaming",
+                  "In a meeting",
+                  "Battery low",
+                  "Chilling",
+                ].map((suggestion, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setStatusInput(suggestion)}
+                    className="px-2.5 py-1 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[11px] font-medium transition cursor-pointer"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowStatusModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const val = statusInput.trim() || 'Available on Kempo Pro';
+                    setStatusThought(val);
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem('kempo_status_thought', val);
+                    }
+                    setShowStatusModal(false);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-950 active:scale-95 transition cursor-pointer"
+                >
+                  Save Status
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
