@@ -486,7 +486,6 @@ export default function App() {
       profile.kempoId = OWNER_FIXED_ID;
       profile.accountType = 'creator';
     }
-    // Mark onboarding as completed (is_profile_completed = true)
     profile.isOnboarded = true;
     profile.isProfileCompleted = true;
     profile.is_profile_completed = true;
@@ -499,6 +498,14 @@ export default function App() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('kempo_profile_completed', 'true');
       localStorage.setItem('kempo_onboarded_completed', 'true');
+      const email = (profile.email || currentUserEmail || '').trim().toLowerCase();
+      try {
+        const regRaw = localStorage.getItem('kempo_completed_accounts') || '{}';
+        const reg = JSON.parse(regRaw);
+        if (email) reg[email] = true;
+        if (profile.id) reg[profile.id] = true;
+        localStorage.setItem('kempo_completed_accounts', JSON.stringify(reg));
+      } catch {}
       sessionStorage.removeItem('kempo_google_auth_in_progress');
       if (window.location.hash || window.location.search.includes('code=')) {
         history.replaceState(null, '', window.location.pathname);

@@ -5,6 +5,7 @@ import {
   Mail,
   Lock,
   ArrowRight,
+  ChevronLeft,
   ChevronDown,
   ExternalLink,
   Sparkles,
@@ -13,6 +14,7 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react';
+import { FlowerIntroScreen } from './FlowerIntroScreen';
 import {
   supabaseSignInWithGoogle,
   supabaseSignIn,
@@ -24,6 +26,8 @@ interface WelcomeScreenProps {
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onAuthenticated }) => {
+  // Step 1: Flower Intro Design Screen -> Step 2: Login Screen (IMG_4725)
+  const [view, setView] = useState<'flower' | 'login'>('flower');
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
@@ -115,10 +119,23 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onAuthenticated })
     }
   };
 
+  if (view === 'flower') {
+    return <FlowerIntroScreen onContinue={() => setView('login')} />;
+  }
+
   return (
-    <div className="w-full h-full min-h-screen bg-black text-white flex flex-col justify-between items-center p-6 pt-[max(env(safe-area-inset-top),24px)] pb-[max(env(safe-area-inset-bottom),24px)] select-none overflow-y-auto">
-      {/* Top subtle language pill */}
-      <div className="w-full max-w-sm flex justify-center pt-2">
+    <div className="w-full h-full min-h-screen bg-black text-white flex flex-col justify-between items-center p-6 pt-[max(env(safe-area-inset-top),24px)] pb-[max(env(safe-area-inset-bottom),24px)] select-none overflow-y-auto animate-in slide-in-from-right duration-300">
+      {/* Top Header: Back to Flower Screen + Language Pill */}
+      <div className="w-full max-w-sm flex items-center justify-between pt-2">
+        <button
+          type="button"
+          onClick={() => setView('flower')}
+          className="flex items-center gap-1 text-xs text-neutral-400 hover:text-white transition py-1 -ml-1 cursor-pointer"
+        >
+          <ChevronLeft className="w-4 h-4 text-red-500" />
+          <span>Intro</span>
+        </button>
+
         <button
           type="button"
           onClick={() => {}}
@@ -127,6 +144,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onAuthenticated })
           <span>English</span>
           <ChevronDown className="w-3.5 h-3.5 text-neutral-400" />
         </button>
+
+        <div className="w-10" />
       </div>
 
       {/* Main Center Content */}
