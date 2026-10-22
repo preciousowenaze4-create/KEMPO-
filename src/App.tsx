@@ -63,19 +63,51 @@ const isGoogleRedirect = () => {
   );
 };
 
-// Helper to check if user has fully finished profile setup
-const hasCompletedOnboarding = () => {
+// Helper to check if user has fully finished profile setup (WhatsApp-style persistence)
+const hasCompletedOnboarding = (email?: string, userId?: string): boolean => {
   if (typeof window === 'undefined') return false;
+
+  const currentEmail = (email || localStorage.getItem('kempo_auth_user') || '').trim().toLowerCase();
+  if (isOwnerEmail(currentEmail)) return true;
+
   if (
     localStorage.getItem('kempo_profile_completed') === 'true' ||
     localStorage.getItem('kempo_onboarded_completed') === 'true'
   ) {
     return true;
   }
+
+  // Check persistent accounts registry (persists across logouts & app restarts)
+  try {
+    const regRaw = localStorage.getItem('kempo_completed_accounts');
+    if (regRaw) {
+      const reg = JSON.parse(regRaw);
+      if (currentEmail && reg[currentEmail]) return true;
+      if (userId && reg[userId]) return true;
+    }
+  } catch {}
+
+  // Check registered users directory
+  try {
+    const regUsersRaw = localStorage.getItem('kempo_registered_users');
+    if (regUsersRaw) {
+      const users: UserProfileData[] = JSON.parse(regUsersRaw);
+      const found = users.find(
+        (u) =>
+          (currentEmail && u.email && u.email.toLowerCase() === currentEmail) ||
+          (userId && u.id === userId)
+      );
+      if (found && (found.isOnboarded || found.isProfileCompleted || found.displayName)) {
+        return true;
+      }
+    }
+  } catch {}
+
+  // Check active cached profile
   try {
     const cached = localStorage.getItem('kempo_user_profile');
     if (cached) {
-      const parsed = JSON.parse(cached);
+      const parsed: UserProfileData = JSON.parse(cached);
       return Boolean(
         parsed.is_profile_completed ||
         parsed.isProfileCompleted ||
@@ -86,6 +118,7 @@ const hasCompletedOnboarding = () => {
   } catch (e) {
     console.error(e);
   }
+
   return false;
 };
 
@@ -125,22 +158,9 @@ export default function App() {
     return null;
   });
 
-  // Smart Routing: Returning users who completed profile bypass onboarding; new users go to setup
-  const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      if (hasCompletedOnboarding()) return false;
-      if (isGoogleRedirect()) return false; // Verify Supabase before showing onboarding
-      const isAuth = Boolean(localStorage.getItem('kempo_auth_user') || localStorage.getItem('sb-token'));
-      if (isAuth && !hasCompletedOnboarding()) return true;
-    }
-    return false;
-  });
-  const [isCheckingProfile, setIsCheckingProfile] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return isGoogleRedirect();
-    }
-    return false;
-  });
+  // WhatsApp-Style Smart Routing: Always default to false so returning users never see a flash of onboarding
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
+  const [isCheckingProfile, setIsCheckingProfile] = useState<boolean>(false);
   // Chats & app state (Empty by default for a fresh app experience)
   const [chats, setChats] = useState<Chat[]>(() => {
     if (typeof window !== 'undefined') {
@@ -235,11 +255,16 @@ export default function App() {
       if (session?.user) {
         setIsAuthenticated(true);
         setCurrentUserId(session.user.id);
-        const email = session.user.email || '';
+        const email = (session.user.email || localStorage.getItem('kempo_auth_user') || '').trim();
         setCurrentUserEmail(email);
         localStorage.setItem('kempo_auth_user', email);
 
-        // Smart Authentication Routing: Check profile completion status in Supabase
+        const isKnownCompleted = hasCompletedOnboarding(email, session.user.id);
+        if (isKnownCompleted) {
+          setShowOnboarding(false);
+        }
+
+        // Smart Authentication Routing: Check profile in Supabase & cache
         const { isCompleted, profile } = await checkUserProfileCompletion(session.user.id, email);
         if (isCompleted && profile) {
           if (isOwnerEmail(email)) {
@@ -249,8 +274,11 @@ export default function App() {
           setUserProfile(profile);
           setCurrentUserName(profile.displayName);
           setShowOnboarding(false); // RETURNING USER: Bypass setup completely!
+        } else if (isKnownCompleted) {
+          // Fallback: If device knows this user completed onboarding before, NEVER force back to onboarding!
+          setShowOnboarding(false);
         } else {
-          // NEW USER: Redirect to Complete Your Profile screen
+          // ONLY brand-new users who have never completed setup
           setShowOnboarding(true);
         }
 
@@ -282,7 +310,7 @@ export default function App() {
       if (session?.user) {
         setIsAuthenticated(true);
         setCurrentUserId(session.user.id);
-        const email = session.user.email || '';
+        const email = (session.user.email || localStorage.getItem('kempo_auth_user') || '').trim();
         setCurrentUserEmail(email);
         const isOwner = isOwnerEmail(email);
         const meta = session.user.user_metadata || {};
@@ -295,6 +323,11 @@ export default function App() {
         localStorage.setItem('kempo_auth_user', email);
         if (name) localStorage.setItem('kempo_auth_name', name);
 
+        const isKnownCompleted = hasCompletedOnboarding(email, session.user.id);
+        if (isKnownCompleted) {
+          setShowOnboarding(false);
+        }
+
         // Smart Authentication Routing: Check user's profile status in Supabase before navigating
         const { isCompleted, profile } = await checkUserProfileCompletion(session.user.id, email);
         if (isCompleted && profile) {
@@ -304,9 +337,10 @@ export default function App() {
           }
           setUserProfile(profile);
           setCurrentUserName(profile.displayName);
-          setShowOnboarding(false); // RETURNING USERS (Profile Completed): Bypass all setup/onboarding screens
+          setShowOnboarding(false); // RETURNING USERS: Bypass all setup/onboarding screens
+        } else if (isKnownCompleted) {
+          setShowOnboarding(false);
         } else {
-          // NEW USERS (Profile Incomplete): Redirect to Complete Your Profile screen
           setShowOnboarding(true);
         }
 
@@ -325,10 +359,7 @@ export default function App() {
         setShowOnboarding(false);
         localStorage.removeItem('kempo_auth_user');
         localStorage.removeItem('kempo_auth_name');
-        localStorage.removeItem('kempo_user_profile');
-        localStorage.removeItem('kempo_user_id');
-        localStorage.removeItem('kempo_onboarded_completed');
-        localStorage.removeItem('kempo_profile_completed');
+        // Do NOT delete kempo_completed_accounts or kempo_registered_users to remember returning users!
       }
     });
 
@@ -344,6 +375,20 @@ export default function App() {
     localStorage.setItem('kempo_auth_user', email);
     if (name) localStorage.setItem('kempo_auth_name', name);
 
+    // Fast-path: If user has already completed onboarding on this device or is owner, go straight in!
+    // NO BLINKING, NO ONBOARDING SCREEN!
+    if (isOwnerEmail(email) || hasCompletedOnboarding(email, currentUserId)) {
+      setShowOnboarding(false);
+      // Fetch/sync full profile smoothly in background
+      checkUserProfileCompletion(currentUserId || email, email).then(({ profile }) => {
+        if (profile) {
+          setUserProfile(profile);
+          if (profile.displayName) setCurrentUserName(profile.displayName);
+        }
+      });
+      return;
+    }
+
     setIsCheckingProfile(true);
     try {
       // Smart Authentication Routing: Check profile in Supabase before navigating
@@ -352,13 +397,15 @@ export default function App() {
         // RETURNING USERS: Bypass all setup/onboarding screens entirely
         setUserProfile(profile);
         setShowOnboarding(false);
+      } else if (hasCompletedOnboarding(email, currentUserId)) {
+        setShowOnboarding(false);
       } else {
-        // NEW USERS: Redirect to Complete Your Profile screen
+        // ONLY BRAND-NEW USERS: Redirect to Complete Your Profile screen
         setShowOnboarding(true);
       }
     } catch (err) {
       console.warn('Auth routing error:', err);
-      if (hasCompletedOnboarding()) {
+      if (hasCompletedOnboarding(email, currentUserId)) {
         setShowOnboarding(false);
       } else {
         setShowOnboarding(true);
@@ -373,7 +420,7 @@ export default function App() {
       profile.kempoId = OWNER_FIXED_ID;
       profile.accountType = 'creator';
     }
-    // Requirement 1: Mark onboarding as completed (is_profile_completed = true)
+    // Mark onboarding as completed (is_profile_completed = true)
     profile.isOnboarded = true;
     profile.isProfileCompleted = true;
     profile.is_profile_completed = true;
@@ -403,10 +450,8 @@ export default function App() {
     setShowOnboarding(false);
     localStorage.removeItem('kempo_auth_user');
     localStorage.removeItem('kempo_auth_name');
-    localStorage.removeItem('kempo_user_profile');
-    localStorage.removeItem('kempo_user_id');
-    localStorage.removeItem('kempo_onboarded_completed');
-    localStorage.removeItem('kempo_profile_completed');
+    // Notice: Do NOT delete kempo_completed_accounts or kempo_registered_users!
+    // This ensures that when the user logs back in, Kempo Pro remembers they have already registered!
   };
 
   // Add Contact by shareable KEMPO-ID

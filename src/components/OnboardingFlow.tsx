@@ -64,6 +64,45 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [copiedId, setCopiedId] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
 
+  // Self-healing: If user is owner or already completed profile, bypass onboarding instantly
+  React.useEffect(() => {
+    if (isOwner) {
+      onComplete({
+        id: userId,
+        email: userEmail,
+        displayName: 'Precious Ddkid',
+        avatarUrl: initialAvatar || '',
+        accountType: 'creator',
+        kempoId: OWNER_FIXED_ID,
+        preferences,
+        isOnboarded: true,
+        isProfileCompleted: true,
+        is_profile_completed: true,
+        status: 'verified',
+        isVerified: true,
+        isAdmin: true,
+      });
+      return;
+    }
+
+    try {
+      if (typeof window !== 'undefined') {
+        const cached = localStorage.getItem('kempo_user_profile');
+        if (cached) {
+          const parsed: UserProfileData = JSON.parse(cached);
+          if (
+            parsed.is_profile_completed ||
+            parsed.isProfileCompleted ||
+            parsed.isOnboarded ||
+            (parsed.displayName && parsed.displayName !== 'Kempo User')
+          ) {
+            onComplete(parsed);
+          }
+        }
+      }
+    } catch {}
+  }, [isOwner]);
+
   // Synchronize initialName and initialAvatar from Google OAuth account
   React.useEffect(() => {
     if (initialName && (!displayName || displayName === 'Kempo User')) {
