@@ -63,12 +63,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Country & Phone/ID state (Step 2)
+  // Country & Auto-Generated Read-Only ID state (Step 2)
   const [selectedCountry, setSelectedCountry] = useState<Country>(DEFAULT_COUNTRY);
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
-  const [phoneEntry, setPhoneEntry] = useState(isOwner ? 'OWNER' : 'A5738');
-  const [inputMode, setInputMode] = useState<'keypad' | 'text'>('keypad');
+  const [idSuffix] = useState<string>(isOwner ? 'OWNER' : 'A5738');
   const [showMenuOptions, setShowMenuOptions] = useState(false);
 
   // Account Type Selection state (Step 3 - IMG_4722)
@@ -121,21 +120,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
   };
 
-  // Virtual Keypad handlers (Step 2)
-  const handleKeypadPress = (val: string) => {
-    if (phoneEntry.length < 16) {
-      setPhoneEntry((prev) => prev + val);
-    }
-  };
-
-  const handleKeypadBackspace = () => {
-    setPhoneEntry((prev) => prev.slice(0, -1));
-  };
-
-  // Formatted ID
+  // Auto-formatted read-only Kempo ID (e.g. Kempo Pro +234A5738)
   const formattedKempoId = isOwner
     ? OWNER_FIXED_ID
-    : formatKempoUserPhoneId(selectedCountry.dialCode, phoneEntry || 'A5738');
+    : formatKempoUserPhoneId(selectedCountry.dialCode, idSuffix);
 
   // Step 1 -> Step 2
   const handleNextFromProfile = () => {
@@ -145,11 +133,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     setStep(2);
   };
 
-  // Step 2 -> Step 3
+  // Step 2 -> Step 3 (Streamlined: one tap on Next > proceeds immediately)
   const handleNextFromPhone = () => {
-    if (!phoneEntry.trim() && !isOwner) {
-      setPhoneEntry('A5738');
-    }
     setStep(3);
   };
 
@@ -159,7 +144,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
     const finalKempoId = isOwner
       ? OWNER_FIXED_ID
-      : formatKempoUserPhoneId(selectedCountry.dialCode, phoneEntry.trim() || 'A5738');
+      : formatKempoUserPhoneId(selectedCountry.dialCode, idSuffix);
 
     const finalProfile: UserProfileData = {
       id: userId,
@@ -175,10 +160,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           : selectedAccountType === 'business'
           ? 'business'
           : 'personal',
-      phoneNumber: phoneEntry.trim(),
+      phoneNumber: `${selectedCountry.dialCode}${idSuffix}`,
       countryCode: selectedCountry.dialCode,
       countryName: selectedCountry.name,
-      rawIdEntry: phoneEntry.trim(),
+      rawIdEntry: idSuffix,
       kempoId: finalKempoId,
       preferences,
       isOnboarded: true,
@@ -402,39 +387,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setShowMenuOptions(!showMenuOptions)}
+                  onClick={() => setShowCountryModal(true)}
                   className="p-2 -mr-2 text-white hover:text-neutral-300 active:scale-95 transition cursor-pointer"
+                  title="Change Country"
                 >
                   <MoreVertical className="w-5 h-5" />
                 </button>
-                {showMenuOptions && (
-                  <div className="absolute right-0 top-10 w-44 rounded-2xl bg-[#1c1c20] border border-neutral-800 shadow-2xl py-1 z-50 animate-in fade-in">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowMenuOptions(false);
-                        setShowCountryModal(true);
-                      }}
-                      className="w-full px-4 py-2.5 text-left text-xs text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition"
-                    >
-                      Change Country
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowMenuOptions(false);
-                        setInputMode(inputMode === 'keypad' ? 'text' : 'keypad');
-                      }}
-                      className="w-full px-4 py-2.5 text-left text-xs text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition"
-                    >
-                      Switch Keyboard Mode
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
 
-            {/* Title & Subtitle matching IMG_4726 */}
+            {/* Title & Subtitle matching IMG_4729 */}
             <div className="text-center pt-2 mb-6">
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
                 Enter your phone number
@@ -444,7 +406,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               </p>
             </div>
 
-            {/* iOS WhatsApp Style Input Card matching IMG_4726 */}
+            {/* iOS WhatsApp Style Card matching IMG_4729 */}
             <div className="bg-[#18181c] border border-neutral-800/90 rounded-2xl overflow-hidden shadow-2xl">
               {/* Row 1: Country Selector */}
               <button
@@ -463,9 +425,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
               <div className="h-[1px] bg-neutral-800/80 mx-4" />
 
-              {/* Row 2: Formatted Prefix & Entry Field */}
-              {/* User instruction: "after you select your country, it will now show the name of my app + 2 3, then you will now put some letter, which is the ID letter. Then if you still select on that country, that's how the + something something will still change." */}
-              <div className="px-4 py-3.5 flex items-center gap-2.5">
+              {/* Row 2: Read-Only Auto-Generated ID Row */}
+              {/* Country code prefix directly adjacent to auto-generated ID without excessive spacing */}
+              <div className="px-4 py-3.5 flex items-center gap-3 select-none">
                 <div className="flex items-center gap-1.5 shrink-0 bg-red-950/70 border border-red-600/70 px-3 py-1.5 rounded-xl shadow-md">
                   <span className="text-xs sm:text-sm font-black text-red-500 tracking-tight">Kempo Pro</span>
                   <span className="text-sm sm:text-base font-black text-white font-mono">
@@ -473,123 +435,42 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   </span>
                 </div>
 
-                <div className="h-6 w-[1.5px] bg-neutral-750" />
-
-                <input
-                  type="text"
-                  value={phoneEntry}
-                  onChange={(e) => setPhoneEntry(e.target.value)}
-                  placeholder="e.g. A5738 or 8012345678"
-                  maxLength={18}
-                  className="flex-1 bg-transparent text-sm sm:text-base font-black text-white placeholder-neutral-500 focus:outline-none font-mono"
-                />
-
-                {phoneEntry && (
-                  <button
-                    type="button"
-                    onClick={() => setPhoneEntry('')}
-                    className="p-1 rounded-full bg-neutral-800 text-neutral-400 hover:text-white text-xs"
-                  >
-                    ✕
-                  </button>
-                )}
+                <span className="text-base sm:text-lg font-black text-white font-mono tracking-wider">
+                  {idSuffix}
+                </span>
               </div>
             </div>
 
-            {/* Live Shareable ID Preview Card */}
-            <div className="mt-4 p-3.5 rounded-2xl bg-[#16161c] border border-red-900/40 flex items-center justify-between shadow-xl">
+            {/* Live Shareable ID Preview Card matching IMG_4729 */}
+            <div className="mt-4 p-4 rounded-2xl bg-[#16161c] border border-red-900/40 flex items-center justify-between shadow-xl">
               <div className="min-w-0 pr-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
                   Your Full Kempo Shareable ID
                 </span>
-                <span className="text-xs sm:text-sm font-black text-white font-mono tracking-wide mt-0.5 block truncate">
-                  Kempo Pro {selectedCountry.dialCode} {phoneEntry || 'A5738'}
+                <span className="text-sm sm:text-base font-black text-white font-mono tracking-wide mt-1 block truncate">
+                  Kempo Pro {selectedCountry.dialCode}{idSuffix}
                 </span>
               </div>
-              <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30 shrink-0">
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30 shrink-0">
                 Official
               </span>
             </div>
           </div>
 
-          {/* Bottom Area: Next Button & iOS Number Keypad matching IMG_4726 */}
-          <div className="mt-6 space-y-4">
+          {/* Bottom Area: Prominent Red "Next >" Button (Onscreen keypad removed completely) */}
+          <div className="mt-8 space-y-3">
             <button
               type="button"
-              disabled={!phoneEntry.trim() && !isOwner}
               onClick={handleNextFromPhone}
-              className={`w-full h-12 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition active:scale-[0.98] cursor-pointer shadow-lg ${
-                phoneEntry.trim() || isOwner
-                  ? 'bg-red-600 hover:bg-red-500 text-white shadow-red-950/60'
-                  : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
-              }`}
+              className="w-full h-13 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-black text-base shadow-xl shadow-red-950/70 flex items-center justify-center gap-2 transition cursor-pointer"
             >
               <span>Next</span>
-              <ChevronRight className="w-4 h-4 stroke-[3]" />
+              <ChevronRight className="w-5 h-5 stroke-[2.5]" />
             </button>
 
-            {/* WhatsApp / iOS Style Number Keypad */}
-            {inputMode === 'keypad' && (
-              <div className="bg-[#151518] rounded-3xl p-3 border border-neutral-850 shadow-2xl">
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { num: '1', letters: '' },
-                    { num: '2', letters: 'ABC' },
-                    { num: '3', letters: 'DEF' },
-                    { num: '4', letters: 'GHI' },
-                    { num: '5', letters: 'JKL' },
-                    { num: '6', letters: 'MNO' },
-                    { num: '7', letters: 'PQRS' },
-                    { num: '8', letters: 'TUV' },
-                    { num: '9', letters: 'WXYZ' },
-                  ].map(({ num, letters }) => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => handleKeypadPress(num)}
-                      className="h-12 rounded-2xl bg-[#222227] hover:bg-[#2c2c34] active:bg-red-600/20 active:border-red-500/50 border border-neutral-750 flex flex-col items-center justify-center transition cursor-pointer select-none"
-                    >
-                      <span className="text-lg font-bold text-white leading-none">{num}</span>
-                      {letters && (
-                        <span className="text-[9px] font-semibold text-neutral-400 tracking-widest mt-0.5">
-                          {letters}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-
-                  {/* Alphanumeric mode toggle */}
-                  <button
-                    type="button"
-                    onClick={() => setInputMode('text')}
-                    className="h-12 rounded-2xl bg-[#1c1c20] hover:bg-neutral-800 text-neutral-300 font-bold text-xs flex items-center justify-center transition cursor-pointer"
-                  >
-                    ABC / 123
-                  </button>
-
-                  {/* 0 Key */}
-                  <button
-                    type="button"
-                    onClick={() => handleKeypadPress('0')}
-                    className="h-12 rounded-2xl bg-[#222227] hover:bg-[#2c2c34] active:bg-red-600/20 border border-neutral-750 flex flex-col items-center justify-center transition cursor-pointer select-none"
-                  >
-                    <span className="text-lg font-bold text-white leading-none">0</span>
-                    <span className="text-[9px] font-semibold text-neutral-400 tracking-widest mt-0.5">
-                      +
-                    </span>
-                  </button>
-
-                  {/* Backspace Key */}
-                  <button
-                    type="button"
-                    onClick={handleKeypadBackspace}
-                    className="h-12 rounded-2xl bg-[#1c1c20] hover:bg-neutral-800 text-neutral-300 flex items-center justify-center transition cursor-pointer active:scale-95"
-                  >
-                    <Delete className="w-5 h-5 text-neutral-300" />
-                  </button>
-                </div>
-              </div>
-            )}
+            <p className="text-[11px] text-neutral-500 text-center font-medium">
+              Step 2 of 3 • Country & ID Setup
+            </p>
           </div>
         </div>
       )}

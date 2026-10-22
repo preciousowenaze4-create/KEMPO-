@@ -125,8 +125,8 @@ export function getBackendPrivacyStatus(email?: string): string {
 }
 
 /**
- * Formats user phone or custom ID with the required 'Kempo Pro +[code] [entry]' format
- * Example: Kempo Pro +234 A5738 or Kempo Pro +234 8012345678
+ * Formats user phone or custom ID with the required 'Kempo Pro +[code][entry]' format
+ * Example: Kempo Pro +234A5738 (seamlessly combining prefix directly adjacent to ID without excessive spacing)
  */
 export function formatKempoUserPhoneId(countryDialCode: string, entry: string): string {
   const cleanCode = countryDialCode.startsWith('+') ? countryDialCode : `+${countryDialCode}`;
@@ -134,6 +134,6 @@ export function formatKempoUserPhoneId(countryDialCode: string, entry: string): 
   if (!cleanEntry) {
     return `Kempo Pro ${cleanCode}`;
   }
-  return `Kempo Pro ${cleanCode} ${cleanEntry}`;
+  return `Kempo Pro ${cleanCode}${cleanEntry}`;
 }
 
