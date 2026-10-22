@@ -195,6 +195,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       }
       localStorage.setItem('kempo_country_code', selectedCountry.dialCode);
       localStorage.setItem('kempo_user_id', finalKempoId);
+      localStorage.setItem('kempo_profile_completed', 'true');
+      localStorage.setItem('kempo_onboarded_completed', 'true');
+      sessionStorage.setItem('kempo_dashboard_active', 'true');
+      try {
+        const regRaw = localStorage.getItem('kempo_completed_accounts') || '{}';
+        const reg = JSON.parse(regRaw);
+        if (userEmail) reg[userEmail.toLowerCase().trim()] = true;
+        if (userId) reg[userId] = true;
+        localStorage.setItem('kempo_completed_accounts', JSON.stringify(reg));
+      } catch {}
     }
 
     try {

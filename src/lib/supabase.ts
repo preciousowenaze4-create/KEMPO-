@@ -186,13 +186,13 @@ export async function uploadChatMediaToSupabase(fileOrBlob: Blob, messageId: str
 
 // Save complete user profile to Supabase auth metadata and profiles table
 export async function saveFullUserProfile(profile: UserProfileData): Promise<void> {
-  // Enforce account rules: owner always gets 'kempo pro', non-owners cannot mimic 'kempo pro'
+  // Preserve full Kempo Pro format (e.g. Kempo Pro +234A5738)
   let normalizedKempoId = profile.kempoId;
   const isOwner = isOwnerEmail(profile.email);
-  if (isOwner) {
-    normalizedKempoId = OWNER_FIXED_ID;
-  } else if (!normalizedKempoId || !normalizedKempoId.toUpperCase().startsWith('KEMPO-') || normalizedKempoId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
-    normalizedKempoId = generateStandardUserKempoId();
+  if (!normalizedKempoId || normalizedKempoId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
+    const code = profile.countryCode || '+234';
+    const cleanCode = code.startsWith('+') ? code : `+${code}`;
+    normalizedKempoId = `Kempo Pro ${cleanCode}${profile.rawIdEntry || (isOwner ? 'OWNER' : 'A5738')}`;
   }
 
   // Ensure ID aligns with Supabase Auth UID if available
@@ -310,15 +310,20 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
   const cleanEmail = (userEmail || '').trim().toLowerCase();
   const isOwner = isOwnerEmail(cleanEmail) || (userId && isOwnerEmail(userId));
 
-  // 1. Owner fast-track: owner is ALWAYS completed, fixed ID 'kempo pro'
+  // 1. Owner fast-track: owner is ALWAYS completed
   if (isOwner) {
+    const savedCountry = (typeof window !== 'undefined' ? localStorage.getItem('kempo_country_code') : '') || '+234';
+    const cleanCountry = savedCountry.startsWith('+') ? savedCountry : `+${savedCountry}`;
+    const savedId = (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_id') : '') || `Kempo Pro ${cleanCountry}A5738`;
+
     const ownerProfile: UserProfileData = {
       id: userId || 'usr-owner-kempo',
       email: cleanEmail || 'preciousowenaze4@gmail.com',
       displayName: 'Precious Ddkid',
       avatarUrl: (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_avatar') : '') || '',
       accountType: 'creator',
-      kempoId: OWNER_FIXED_ID,
+      kempoId: savedId,
+      countryCode: cleanCountry,
       preferences: DEFAULT_PREFERENCES,
       isOnboarded: true,
       isProfileCompleted: true,
@@ -331,6 +336,13 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
       localStorage.setItem('kempo_user_profile', JSON.stringify(ownerProfile));
       localStorage.setItem('kempo_profile_completed', 'true');
       localStorage.setItem('kempo_onboarded_completed', 'true');
+      try {
+        const regRaw = localStorage.getItem('kempo_completed_accounts') || '{}';
+        const reg = JSON.parse(regRaw);
+        if (cleanEmail) reg[cleanEmail] = true;
+        if (userId) reg[userId] = true;
+        localStorage.setItem('kempo_completed_accounts', JSON.stringify(reg));
+      } catch {}
     }
     return ownerProfile;
   }
@@ -401,10 +413,10 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
       const email = data.email || cleanEmail;
       const isRecordOwner = isOwnerEmail(email);
       let assignedId = data.kempo_id;
-      if (isRecordOwner) {
-        assignedId = OWNER_FIXED_ID;
-      } else if (!assignedId || !assignedId.toUpperCase().startsWith('KEMPO-') || assignedId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
-        assignedId = generateStandardUserKempoId();
+      if (!assignedId || assignedId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
+        const code = data.country_code || (typeof window !== 'undefined' ? localStorage.getItem('kempo_country_code') : '') || '+234';
+        const cleanCode = code.startsWith('+') ? code : `+${code}`;
+        assignedId = `Kempo Pro ${cleanCode}${isRecordOwner ? 'OWNER' : 'A5738'}`;
       }
 
       const isCompleted = Boolean(
