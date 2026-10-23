@@ -30,7 +30,7 @@ import {
   Smile,
 } from 'lucide-react';
 import { UserProfileData, Chat, AppPreferences } from '../types';
-import { uploadAvatarToSupabase, saveFullUserProfile } from '../lib/supabase';
+import { uploadAvatarToSupabase, saveFullUserProfile, isVideoMediaUrl } from '../lib/supabase';
 import {
   isOwnerEmail,
   OWNER_FIXED_ID,
@@ -151,7 +151,7 @@ export const YouTab: React.FC<YouTabProps> = ({
     }
   }, [userProfile?.avatarUrl]);
 
-  // Cover photo / header background state (WhatsApp Business Style)
+  // Cover photo / video header background state (Supports Images & Videos)
   const [coverUrl, setCoverUrl] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return (
@@ -162,13 +162,24 @@ export const YouTab: React.FC<YouTabProps> = ({
     }
     return userProfile?.coverUrl || '';
   });
+  const [coverType, setCoverType] = useState<'image' | 'video'>(() => {
+    if (userProfile?.coverType) return userProfile.coverType;
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('kempo_user_cover_type');
+      if (cached === 'video' || cached === 'image') return cached;
+      const url = localStorage.getItem('kempo_user_cover');
+      if (isVideoMediaUrl(url || '')) return 'video';
+    }
+    return isVideoMediaUrl(userProfile?.coverUrl) ? 'video' : 'image';
+  });
 
-  // Sync cover photo if userProfile changes
+  // Sync cover photo/video if userProfile changes
   useEffect(() => {
     if (userProfile?.coverUrl !== undefined) {
       setCoverUrl(userProfile.coverUrl || '');
+      setCoverType(userProfile.coverType || (isVideoMediaUrl(userProfile.coverUrl) ? 'video' : 'image'));
     }
-  }, [userProfile?.coverUrl]);
+  }, [userProfile?.coverUrl, userProfile?.coverType]);
 
   // Copy ID state
   const [copiedId, setCopiedId] = useState(false);
@@ -335,18 +346,29 @@ export const YouTab: React.FC<YouTabProps> = ({
 
       {/* 1. WhatsApp Business-Style Header Cover Banner & Profile */}
       <div className="relative rounded-3xl overflow-hidden bg-[#161619] border border-neutral-800/80 shadow-2xl pb-4">
-        {/* Cover Photo Header */}
+        {/* Cover Photo / Video Header */}
         <div
           onClick={() => setShowProfileEdit(true)}
           className="relative w-full h-28 sm:h-36 bg-gradient-to-r from-[#17171d] via-[#22222a] to-[#16161c] cursor-pointer group overflow-hidden"
-          title="Tap to edit profile & cover photo"
+          title="Tap to edit profile & cover photo or video"
         >
           {coverUrl ? (
-            <img
-              src={coverUrl}
-              alt="Profile Cover Background"
-              className="w-full h-full object-cover group-hover:scale-102 transition duration-500"
-            />
+            isVideoMediaUrl(coverUrl) || coverType === 'video' ? (
+              <video
+                src={coverUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="w-full h-full object-cover group-hover:scale-102 transition duration-500 pointer-events-none"
+              />
+            ) : (
+              <img
+                src={coverUrl}
+                alt="Profile Cover Background"
+                className="w-full h-full object-cover group-hover:scale-102 transition duration-500 pointer-events-none"
+              />
+            )
           ) : (
             <div className="w-full h-full flex items-center justify-end p-3 text-neutral-600 group-hover:text-neutral-400 transition bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neutral-800/40 via-transparent to-transparent">
               <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500/70 mr-1">
@@ -929,6 +951,7 @@ export const YouTab: React.FC<YouTabProps> = ({
             }
             if (updated.coverUrl !== undefined) {
               setCoverUrl(updated.coverUrl);
+              setCoverType(updated.coverType || (isVideoMediaUrl(updated.coverUrl) ? 'video' : 'image'));
             }
           }}
         />

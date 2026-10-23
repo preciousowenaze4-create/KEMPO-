@@ -15,7 +15,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { UserProfileData } from '../types';
-import { uploadAvatarToSupabase, uploadCoverToSupabase, saveFullUserProfile } from '../lib/supabase';
+import { uploadAvatarToSupabase, uploadCoverToSupabase, saveFullUserProfile, isVideoMediaUrl } from '../lib/supabase';
 import { isOwnerEmail, OWNER_FIXED_ID } from '../lib/accountRules';
 
 interface ProfileEditScreenProps {
@@ -113,7 +113,7 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
   });
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
 
-  // Cover photo / header background state (WhatsApp Business Style)
+  // Cover photo / video header background state (Supports Images & Videos)
   const [coverUrl, setCoverUrl] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return (
@@ -123,6 +123,16 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
       );
     }
     return userProfile?.coverUrl || '';
+  });
+  const [coverType, setCoverType] = useState<'image' | 'video'>(() => {
+    if (userProfile?.coverType) return userProfile.coverType;
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('kempo_user_cover_type');
+      if (cached === 'video' || cached === 'image') return cached;
+      const url = localStorage.getItem('kempo_user_cover');
+      if (isVideoMediaUrl(url || '')) return 'video';
+    }
+    return isVideoMediaUrl(userProfile?.coverUrl) ? 'video' : 'image';
   });
   const [coverFile, setCoverFile] = useState<File | null>(null);
 
@@ -162,7 +172,7 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     e.target.value = '';
   };
 
-  // Handle cover / header background upload from device
+  // Handle cover / header background upload from device (Image or Video)
   const handleCoverFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -170,12 +180,17 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     setCoverFile(file);
     setShowCoverOptions(false);
 
+    const isVideo = file.type.startsWith('video/');
+    const detectedType: 'image' | 'video' = isVideo ? 'video' : 'image';
+    setCoverType(detectedType);
+
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
       setCoverUrl(dataUrl);
       if (typeof window !== 'undefined') {
         localStorage.setItem('kempo_user_cover', dataUrl);
+        localStorage.setItem('kempo_user_cover_type', detectedType);
       }
     };
     reader.readAsDataURL(file);
@@ -236,6 +251,9 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
       }
     }
 
+    const effectiveCoverType: 'image' | 'video' =
+      coverType === 'video' || isVideoMediaUrl(finalCoverUrl) ? 'video' : 'image';
+
     // 3. Build full updated profile object
     const finalProfile: UserProfileData = {
       id: userProfile?.id || 'user',
@@ -244,6 +262,7 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
       displayName: displayName.trim() || (isOwner ? 'Precious Ddkid' : 'Kempo User'),
       avatarUrl: finalAvatarUrl,
       coverUrl: finalCoverUrl,
+      coverType: effectiveCoverType,
       kempoId: shareableKempoId,
       countryCode: cleanCode,
       phoneNumber: userProfile?.phoneNumber || `${cleanCode}${rawSuffix}`,
@@ -269,8 +288,10 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
       }
       if (finalCoverUrl) {
         localStorage.setItem('kempo_user_cover', finalCoverUrl);
+        localStorage.setItem('kempo_user_cover_type', effectiveCoverType);
       } else {
         localStorage.removeItem('kempo_user_cover');
+        localStorage.removeItem('kempo_user_cover_type');
       }
       localStorage.setItem('kempo_user_profile', JSON.stringify(finalProfile));
       localStorage.setItem('kempo_auth_name', finalProfile.displayName);
@@ -320,11 +341,11 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
         className="hidden"
       />
 
-      {/* Hidden file input for Cover Photo upload */}
+      {/* Hidden file input for Cover Photo & Video upload */}
       <input
         type="file"
         ref={coverInputRef}
-        accept="image/*"
+        accept="image/*,video/*"
         onChange={handleCoverFileChange}
         className="hidden"
       />
@@ -347,25 +368,36 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
           <div className="w-7" />
         </div>
 
-        {/* WhatsApp Business-Style Cover Photo & Profile Picture Section */}
+        {/* WhatsApp Business-Style Cover Photo/Video & Profile Picture Section */}
         <div className="relative w-full rounded-3xl overflow-hidden mb-6 bg-[#16161a] border border-neutral-800/90 shadow-2xl">
-          {/* Header Cover Background Banner */}
+          {/* Header Cover Background Banner (Supports Images & Motion Videos) */}
           <div
             onClick={() => coverInputRef.current?.click()}
             className="relative w-full h-36 sm:h-44 bg-gradient-to-r from-[#17171d] via-[#22222a] to-[#16161c] cursor-pointer group overflow-hidden"
-            title="Tap to change cover photo from gallery"
+            title="Tap to change header cover photo or video from gallery"
           >
             {coverUrl ? (
-              <img
-                src={coverUrl}
-                alt="Header Cover Background"
-                className="w-full h-full object-cover group-hover:scale-102 transition duration-500"
-              />
+              isVideoMediaUrl(coverUrl) || coverType === 'video' ? (
+                <video
+                  src={coverUrl}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover group-hover:scale-102 transition duration-500 pointer-events-none"
+                />
+              ) : (
+                <img
+                  src={coverUrl}
+                  alt="Header Cover Background"
+                  className="w-full h-full object-cover group-hover:scale-102 transition duration-500 pointer-events-none"
+                />
+              )
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center text-neutral-500 group-hover:text-neutral-400 transition bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neutral-800/40 via-transparent to-transparent">
                 <ImageIcon className="w-8 h-8 mb-1.5 opacity-35 group-hover:opacity-60 transition" />
                 <span className="text-[11px] font-bold tracking-wider uppercase text-neutral-400/80">
-                  Add Cover Photo
+                  Add Cover Photo or Video
                 </span>
               </div>
             )}
@@ -373,16 +405,16 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
             {/* Subtle Gradient Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
 
-            {/* Camera badge on the right side of the cover area (marked in IMG_4750) - Triggers native phone media picker */}
+            {/* Camera badge on the right side of the cover area - Triggers native phone media picker for header photo/video */}
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                fileInputRef.current?.click();
+                coverInputRef.current?.click();
               }}
               className="absolute right-3.5 bottom-3.5 w-10 h-10 rounded-full bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700/80 text-white flex items-center justify-center shadow-xl shadow-black/80 active:scale-90 transition cursor-pointer group"
-              title="Pick profile picture from phone gallery or camera"
-              aria-label="Pick photo"
+              title="Pick header cover photo or video from gallery"
+              aria-label="Pick cover photo or video"
             >
               <Camera className="w-5 h-5 text-neutral-200 group-hover:text-red-400 transition" />
             </button>
@@ -536,7 +568,7 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
           >
             <div className="flex items-center justify-between pb-3.5 border-b border-neutral-800 mb-4">
               <div>
-                <h3 className="text-base font-black text-white">Header Cover Photo</h3>
+                <h3 className="text-base font-black text-white">Header Cover Photo or Video</h3>
                 <p className="text-xs text-neutral-400">Customize your background banner</p>
               </div>
               <button
@@ -556,25 +588,27 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
               className="w-full py-3.5 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-red-950/50 mb-3 cursor-pointer active:scale-98 transition"
             >
               <Upload className="w-4 h-4" />
-              <span>Upload from Device / Gallery</span>
+              <span>Upload from Device (Photo or Video)</span>
             </button>
 
-            {/* Remove cover photo button if active */}
+            {/* Remove cover photo/video button if active */}
             {coverUrl && (
               <button
                 type="button"
                 onClick={() => {
                   setCoverUrl('');
+                  setCoverType('image');
                   setCoverFile(null);
                   if (typeof window !== 'undefined') {
                     localStorage.removeItem('kempo_user_cover');
+                    localStorage.removeItem('kempo_user_cover_type');
                   }
                   setShowCoverOptions(false);
                 }}
                 className="w-full py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-red-400 font-bold text-xs flex items-center justify-center gap-2 mb-3 cursor-pointer transition"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Remove Cover Photo</span>
+                <span>Remove Cover Background</span>
               </button>
             )}
 
@@ -590,9 +624,11 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
                     type="button"
                     onClick={() => {
                       setCoverUrl(preset.url);
+                      setCoverType('image');
                       setCoverFile(null);
                       if (typeof window !== 'undefined') {
                         localStorage.setItem('kempo_user_cover', preset.url);
+                        localStorage.setItem('kempo_user_cover_type', 'image');
                       }
                       setShowCoverOptions(false);
                     }}

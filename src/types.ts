@@ -84,6 +84,7 @@ export interface UserProfileData {
   displayName: string;
   avatarUrl: string;
   coverUrl?: string;
+  coverType?: 'image' | 'video';
   about?: string;
   username?: string;
   links?: string;

@@ -152,22 +152,61 @@ export async function uploadAvatarToSupabase(file: File | Blob, userId: string):
   });
 }
 
-// Upload cover / header background photo to Supabase Storage with resilient fallback
+// Helper to detect if a URL or data URI represents video media
+export function isVideoMediaUrl(url?: string): boolean {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return (
+    lower.startsWith('data:video/') ||
+    lower.endsWith('.mp4') ||
+    lower.endsWith('.webm') ||
+    lower.endsWith('.mov') ||
+    lower.endsWith('.m4v') ||
+    lower.endsWith('.ogg') ||
+    lower.includes('.mp4?') ||
+    lower.includes('.webm?') ||
+    lower.includes('.mov?') ||
+    lower.includes('.webm;') ||
+    (lower.includes('/covers/cover-') && (lower.includes('.mp4') || lower.includes('.mov') || lower.includes('.webm')))
+  );
+}
+
+// Upload cover / header background photo or video to Supabase Storage with resilient fallback
 export async function uploadCoverToSupabase(file: File | Blob, userId: string): Promise<string> {
-  const ext = file.type.split('/')[1] || 'jpg';
+  const isVideo = file.type.startsWith('video/');
+  let ext = file.type.split('/')[1]?.split(';')[0] || (isVideo ? 'mp4' : 'jpg');
+  if (ext === 'quicktime') ext = 'mov';
   const fileName = `cover-${userId}-${Date.now()}.${ext}`;
   const filePath = `covers/${fileName}`;
+  const contentType = file.type || (isVideo ? 'video/mp4' : 'image/jpeg');
 
   try {
-    const { error } = await supabase.storage.from('avatars').upload(filePath, file, {
+    // For video and media, try chat-media first then avatars bucket
+    const targetBucket = isVideo ? 'chat-media' : 'avatars';
+    const { error } = await supabase.storage.from(targetBucket).upload(filePath, file, {
       cacheControl: '3600',
+      contentType,
       upsert: true,
     });
 
     if (!error) {
-      const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      const { data: publicUrlData } = supabase.storage.from(targetBucket).getPublicUrl(filePath);
       if (publicUrlData?.publicUrl) {
         return publicUrlData.publicUrl;
+      }
+    } else {
+      // Try fallback bucket
+      const altBucket = isVideo ? 'avatars' : 'chat-media';
+      const { error: altError } = await supabase.storage.from(altBucket).upload(filePath, file, {
+        cacheControl: '3600',
+        contentType,
+        upsert: true,
+      });
+      if (!altError) {
+        const { data: publicUrlData } = supabase.storage.from(altBucket).getPublicUrl(filePath);
+        if (publicUrlData?.publicUrl) {
+          return publicUrlData.publicUrl;
+        }
       }
     }
   } catch (err) {
@@ -248,6 +287,10 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
     isAdmin: isOwner,
   };
 
+  const effectiveCoverType: 'image' | 'video' =
+    securedProfile.coverType ||
+    (isVideoMediaUrl(securedProfile.coverUrl) ? 'video' : 'image');
+
   try {
     // 1. Update Supabase Auth user metadata
     await supabase.auth.updateUser({
@@ -256,6 +299,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
         full_name: securedProfile.displayName,
         avatar_url: securedProfile.avatarUrl,
         cover_url: securedProfile.coverUrl,
+        cover_type: effectiveCoverType,
         kempo_id: securedProfile.kempoId,
         account_type: securedProfile.accountType,
         category: securedProfile.category || securedProfile.accountType,
@@ -277,6 +321,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
       display_name: securedProfile.displayName,
       avatar_url: securedProfile.avatarUrl,
       cover_url: securedProfile.coverUrl,
+      cover_type: effectiveCoverType,
       account_type: securedProfile.accountType,
       kempo_id: securedProfile.kempoId,
       preferences: securedProfile.preferences,
@@ -297,7 +342,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
 
   // 3. Cache locally for instant loading, offline capability & permanent memory
   if (typeof window !== 'undefined') {
-    localStorage.setItem('kempo_user_profile', JSON.stringify(securedProfile));
+    localStorage.setItem('kempo_user_profile', JSON.stringify({ ...securedProfile, coverType: effectiveCoverType }));
     localStorage.setItem('kempo_onboarded_completed', 'true');
     localStorage.setItem('kempo_profile_completed', 'true');
     localStorage.setItem('kempo_auth_user', securedProfile.email);
@@ -308,6 +353,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
     }
     if (securedProfile.coverUrl) {
       localStorage.setItem('kempo_user_cover', securedProfile.coverUrl);
+      localStorage.setItem('kempo_user_cover_type', effectiveCoverType);
     }
 
     // WhatsApp-Style Permanent Accounts Registry (NEVER deleted on logout)
@@ -460,12 +506,19 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
         data.kempo_id
       );
 
+      const fetchedCover = data.cover_url || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : '');
+      const fetchedCoverType: 'image' | 'video' =
+        data.cover_type ||
+        (typeof window !== 'undefined' ? (localStorage.getItem('kempo_user_cover_type') as 'image' | 'video') : null) ||
+        (isVideoMediaUrl(fetchedCover) ? 'video' : 'image');
+
       const profile: UserProfileData = {
         id: data.id || userId || 'user',
         email,
         displayName: data.display_name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
         avatarUrl: data.avatar_url || '',
-        coverUrl: data.cover_url || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : ''),
+        coverUrl: fetchedCover,
+        coverType: fetchedCoverType,
         accountType: data.account_type || (isRecordOwner ? 'creator' : 'personal'),
         category: data.category || data.account_type,
         phoneNumber: data.phone_number,
@@ -484,6 +537,10 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
       if (typeof window !== 'undefined') {
         localStorage.setItem('kempo_user_profile', JSON.stringify(profile));
         localStorage.setItem('kempo_user_id', profile.kempoId);
+        if (profile.coverUrl) {
+          localStorage.setItem('kempo_user_cover', profile.coverUrl);
+          localStorage.setItem('kempo_user_cover_type', fetchedCoverType);
+        }
         if (isCompleted) {
           localStorage.setItem('kempo_onboarded_completed', 'true');
           localStorage.setItem('kempo_profile_completed', 'true');
@@ -548,12 +605,19 @@ export async function checkUserProfileCompletion(
 
       if (isCompletedInDb) {
         const isRecordOwner = isOwnerEmail(data.email || cleanEmail);
+        const checkCover = data.cover_url || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : '');
+        const checkCoverType: 'image' | 'video' =
+          data.cover_type ||
+          (typeof window !== 'undefined' ? (localStorage.getItem('kempo_user_cover_type') as 'image' | 'video') : null) ||
+          (isVideoMediaUrl(checkCover) ? 'video' : 'image');
+
         const profile: UserProfileData = {
           id: data.id || userId || 'user',
           email: data.email || cleanEmail,
           displayName: data.display_name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
           avatarUrl: data.avatar_url || '',
-          coverUrl: data.cover_url || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : ''),
+          coverUrl: checkCover,
+          coverType: checkCoverType,
           accountType: data.account_type || (isRecordOwner ? 'creator' : 'personal'),
           category: data.category || data.account_type,
           phoneNumber: data.phone_number,
@@ -575,6 +639,10 @@ export async function checkUserProfileCompletion(
           }
           localStorage.setItem('kempo_profile_completed', 'true');
           localStorage.setItem('kempo_user_profile', JSON.stringify(profile));
+          if (profile.coverUrl) {
+            localStorage.setItem('kempo_user_cover', profile.coverUrl);
+            localStorage.setItem('kempo_user_cover_type', checkCoverType);
+          }
         }
 
         return { isCompleted: true, profile };
