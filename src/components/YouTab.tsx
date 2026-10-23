@@ -354,8 +354,8 @@ export const YouTab: React.FC<YouTabProps> = ({
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-[#0c0c10] via-[#15151c] to-[#0a0a0d]" />
         )}
-        {/* Dark translucent gradient overlay: balances rich contrast with seeing the live motion video/photo right through */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/65 to-black/85 backdrop-blur-[1px]" />
+        {/* Subtle translucent vignette so the live video remains completely clear and visible */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/60 pointer-events-none" />
       </div>
 
       {/* Hidden File Input for Avatar Upload */}
@@ -371,20 +371,20 @@ export const YouTab: React.FC<YouTabProps> = ({
       <div className="relative z-10 flex-1 overflow-y-auto px-4 pt-[max(env(safe-area-inset-top),12px)] select-none space-y-4 pb-28">
         {/* Top Header */}
         <div className="flex items-center justify-between pb-1">
-          <h1 className="text-3xl font-extrabold tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)]">
+          <h1 className="text-3xl font-extrabold tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,1)]">
             Settings
           </h1>
           <div className="flex items-center gap-2">
             <button
               onClick={handleShareId}
-              className="w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/10 text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer shadow-lg"
+              className="w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 border border-white/20 text-white flex items-center justify-center active:scale-95 transition cursor-pointer shadow-lg drop-shadow"
               title="QR Code & Share ID"
             >
               <QrCode className="w-4.5 h-4.5" />
             </button>
             <button
               onClick={() => setShowProfileEdit(true)}
-              className="w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/10 text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer shadow-lg"
+              className="w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 border border-white/20 text-white flex items-center justify-center active:scale-95 transition cursor-pointer shadow-lg drop-shadow"
               title="Edit Profile"
               aria-label="Edit Profile"
             >
@@ -393,37 +393,24 @@ export const YouTab: React.FC<YouTabProps> = ({
           </div>
         </div>
 
-        {/* Profile Card Overlay (Semi-transparent Glassmorphism showing full background behind) */}
-        <div
-          onClick={() => setShowProfileEdit(true)}
-          className="relative rounded-3xl overflow-hidden bg-black/35 hover:bg-black/45 backdrop-blur-md border border-white/15 p-5 shadow-2xl flex flex-col items-center text-center cursor-pointer group transition duration-300"
-          title="Tap to customize profile & cover video"
-        >
-          {/* Subtle top badge indicating tap to customize */}
-          <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[10px] text-neutral-300 group-hover:text-white transition">
-            <Edit3 className="w-3 h-3 text-red-400" />
-            <span>Edit</span>
-          </div>
-
+        {/* Profile Section (Direct Overlay on Live Video - No Dark Box Container) */}
+        <div className="relative flex flex-col items-center text-center pt-1 pb-2">
           {/* Centered Circular Avatar with Camera Uploader */}
           <div
-            className="relative group mb-2"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowProfileEdit(true);
-            }}
+            className="relative group mb-2 cursor-pointer"
+            onClick={() => setShowProfileEdit(true)}
           >
             <div
-              className={`w-24 h-24 rounded-full overflow-hidden ring-4 ${
+              className={`w-28 h-28 rounded-full overflow-hidden ring-4 ${
                 isOwner
-                  ? 'ring-amber-500 shadow-amber-950/60'
-                  : 'ring-red-600 shadow-red-950/60'
-              } bg-black/50 backdrop-blur-sm flex items-center justify-center shadow-2xl transition group-hover:scale-102`}
+                  ? 'ring-amber-500 shadow-amber-950/70'
+                  : 'ring-red-600 shadow-red-950/70'
+              } bg-black/30 shadow-2xl flex items-center justify-center transition group-hover:scale-102`}
             >
               {avatarUrl ? (
                 <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
               ) : (
-                <span className="text-3xl text-white font-black drop-shadow">
+                <span className="text-4xl text-white font-black drop-shadow-md">
                   {displayName.charAt(0).toUpperCase() || 'U'}
                 </span>
               )}
@@ -437,7 +424,7 @@ export const YouTab: React.FC<YouTabProps> = ({
                 setShowProfileEdit(true);
               }}
               aria-label="Edit Profile"
-              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-xl shadow-black/80 ring-2 ring-black active:scale-90 transition cursor-pointer"
+              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-xl shadow-black/90 ring-2 ring-black active:scale-90 transition cursor-pointer"
             >
               {isUploadingAvatar ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
@@ -450,23 +437,22 @@ export const YouTab: React.FC<YouTabProps> = ({
           {/* Thought / Status Bubble */}
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={() => {
               setStatusInput(statusThought);
               setShowStatusModal(true);
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1 mb-1.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/15 text-[11px] text-white shadow-lg transition active:scale-95 cursor-pointer relative"
+            className="inline-flex items-center gap-1.5 px-3 py-1 mb-1.5 rounded-full bg-black/50 hover:bg-black/70 border border-white/20 text-[11px] text-white shadow-lg transition active:scale-95 cursor-pointer relative drop-shadow"
             title="Tap to update status"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-            <span className="font-medium max-w-[200px] truncate drop-shadow-sm">{statusThought}</span>
+            <span className="font-semibold max-w-[200px] truncate drop-shadow-sm">{statusThought}</span>
           </button>
 
           {/* Centered Display Name with Clean Drop Shadow */}
-          <h2 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-2 mt-1 drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
+          <h2 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-2 mt-1 drop-shadow-[0_2px_10px_rgba(0,0,0,1)]">
             <span>{displayName}</span>
             {isOwner ? (
-              <Crown className="w-5 h-5 text-amber-400 fill-amber-400 drop-shadow" />
+              <Crown className="w-5 h-5 text-amber-400 fill-amber-400 drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]" />
             ) : (
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black inline-block shadow-sm" title="Online"></span>
             )}
@@ -475,12 +461,12 @@ export const YouTab: React.FC<YouTabProps> = ({
           {/* Account Badge */}
           <div className="mt-1 flex items-center justify-center">
             {isOwner ? (
-              <span className="px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 text-white shadow-lg shadow-black/60 border border-amber-400/40 flex items-center gap-1.5 backdrop-blur-xs">
+              <span className="px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 text-white shadow-xl shadow-black/80 border border-amber-400/50 flex items-center gap-1.5 drop-shadow">
                 <span>👑</span>
                 <span>KEMPO PRO OWNER & ADMIN</span>
               </span>
             ) : (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-black/60 backdrop-blur-md text-red-300 border border-red-800/50 shadow-md">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-black/50 text-red-300 border border-red-700/60 shadow-lg drop-shadow">
                 {accountType === 'personal' && 'Personal Account'}
                 {accountType === 'business' && 'Business Account'}
                 {accountType === 'creator' && 'Creator Profile'}
@@ -490,7 +476,7 @@ export const YouTab: React.FC<YouTabProps> = ({
           </div>
 
           {/* User ID Sizing & Copy Button */}
-          <div className="mt-2.5 inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-xl bg-black/65 backdrop-blur-md border border-white/15 shadow-lg">
+          <div className="mt-2.5 inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-xl bg-black/50 border border-white/20 shadow-xl drop-shadow">
             <span className="text-[10px] uppercase font-bold text-neutral-300 tracking-wider drop-shadow-xs">
               ID:
             </span>
@@ -504,11 +490,8 @@ export const YouTab: React.FC<YouTabProps> = ({
             {/* Small Copy icon/button right next to User ID */}
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleCopyId();
-              }}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/20 text-neutral-200 hover:text-white text-[10px] font-semibold transition active:scale-95 cursor-pointer ml-0.5"
+              onClick={handleCopyId}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/15 hover:bg-white/25 text-neutral-200 hover:text-white text-[10px] font-semibold transition active:scale-95 cursor-pointer ml-0.5"
               title="Copy User ID"
             >
               {copiedId ? (
@@ -526,11 +509,8 @@ export const YouTab: React.FC<YouTabProps> = ({
             {/* Share Button */}
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleShareId();
-              }}
-              className="p-1 rounded-md bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white transition active:scale-95 cursor-pointer"
+              onClick={handleShareId}
+              className="p-1 rounded-md bg-white/15 hover:bg-white/25 text-neutral-300 hover:text-white transition active:scale-95 cursor-pointer"
               title="Share ID"
             >
               <Share2 className="w-3 h-3" />
@@ -538,8 +518,8 @@ export const YouTab: React.FC<YouTabProps> = ({
           </div>
         </div>
 
-        {/* WhatsApp-Style Group 1: Subscriptions, Lists, Broadcasts, Starred, Linked Devices (Glassmorphic) */}
-        <div className="rounded-2xl bg-black/35 backdrop-blur-md border border-white/10 overflow-hidden divide-y divide-white/10 shadow-2xl">
+        {/* WhatsApp-Style Group 1: Subscriptions, Lists, Broadcasts, Starred, Linked Devices (Direct Overlay, No Dark Box) */}
+        <div className="divide-y divide-white/15">
           {/* 1. Subscriptions */}
           <div
             onClick={() => {
@@ -547,17 +527,19 @@ export const YouTab: React.FC<YouTabProps> = ({
                 "KEMPO PRo Subscriptions:\n\nAll premium features, unlimited encrypted voice & video calls, end-to-end security, and real-time messaging are permanently active for your account."
               );
             }}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-red-600/25 border border-red-500/30 text-red-400 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-red-600/35 border border-red-500/40 text-red-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <Sparkles className="w-4 h-4 text-red-400" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Subscriptions</h4>
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Subscriptions
+                </h4>
               </div>
             </div>
-            <ExternalLink className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            <ExternalLink className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
 
           {/* 2. Lists */}
@@ -565,17 +547,19 @@ export const YouTab: React.FC<YouTabProps> = ({
             onClick={() => {
               alert("Lists: Organize custom contacts and group categories.");
             }}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-sky-600/25 border border-sky-500/30 text-sky-400 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-sky-600/35 border border-sky-500/40 text-sky-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <List className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Lists</h4>
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Lists
+                </h4>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
 
           {/* 3. Broadcast messages */}
@@ -583,17 +567,19 @@ export const YouTab: React.FC<YouTabProps> = ({
             onClick={() => {
               alert("Broadcast Messages: Send announcements to multiple contacts simultaneously.");
             }}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-purple-600/25 border border-purple-500/30 text-purple-400 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-purple-600/35 border border-purple-500/40 text-purple-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <Radio className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Broadcast messages</h4>
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Broadcast messages
+                </h4>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
 
           {/* 4. Starred */}
@@ -601,17 +587,19 @@ export const YouTab: React.FC<YouTabProps> = ({
             onClick={() => {
               alert("Starred Messages: View your saved messages and highlights.");
             }}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-amber-600/25 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-amber-600/35 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <Star className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Starred</h4>
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Starred
+                </h4>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
 
           {/* 5. Linked devices */}
@@ -619,22 +607,24 @@ export const YouTab: React.FC<YouTabProps> = ({
             onClick={() => {
               alert("Linked Devices: 1 active browser session on this device. Real-time encryption active.");
             }}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-emerald-600/25 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-emerald-600/35 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <Smartphone className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Linked devices</h4>
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Linked devices
+                </h4>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
         </div>
 
-        {/* WhatsApp-Style Group 2: Account, Privacy, Chats, Appearance, Notifications, Install, Log Out (Glassmorphic) */}
-        <div className="rounded-2xl bg-black/35 backdrop-blur-md border border-white/10 overflow-hidden divide-y divide-white/10 shadow-2xl">
+        {/* WhatsApp-Style Group 2: Account, Privacy, Chats, Appearance, Notifications, Install, Log Out (Direct Overlay, No Dark Box) */}
+        <div className="divide-y divide-white/15 pt-2">
           {/* 1. Account */}
           <div
             onClick={() => {
@@ -642,18 +632,22 @@ export const YouTab: React.FC<YouTabProps> = ({
                 `Account Information:\n\nUser ID: ${kempoId}\nAccount Type: ${accountType.toUpperCase()}\nStatus: Active\n\nYour profile is safely stored offline and synced with Supabase.`
               );
             }}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-red-600/25 border border-red-500/30 text-red-500 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-red-600/35 border border-red-500/40 text-red-500 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <Shield className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Account</h4>
-                <p className="text-[11px] text-neutral-300 truncate drop-shadow-xs">Security, passkeys & ID</p>
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Account
+                </h4>
+                <p className="text-[12px] text-neutral-200 truncate drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
+                  Security, passkeys & ID
+                </p>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
 
           {/* 2. Privacy */}
@@ -665,21 +659,23 @@ export const YouTab: React.FC<YouTabProps> = ({
                 }\n\nBackend Email Privacy: Active\nYour sign-in email is handled strictly by the backend server and is never exposed or visible on the app frontend.\n\nEnd-to-End Encryption: Enabled`
               );
             }}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-blue-600/25 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-blue-600/35 border border-blue-500/40 text-blue-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <Key className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Privacy</h4>
-                <p className="text-[11px] text-neutral-300 truncate flex items-center gap-1 drop-shadow-xs">
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Privacy
+                </h4>
+                <p className="text-[12px] text-neutral-200 truncate flex items-center gap-1 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
                   <Shield className="w-3 h-3 text-emerald-400 shrink-0 inline" />
                   <span>{getBackendPrivacyStatus(rawEmail)}</span>
                 </p>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
 
           {/* 3. Chats */}
@@ -687,40 +683,48 @@ export const YouTab: React.FC<YouTabProps> = ({
             onClick={() => {
               alert('Chats & Wallpaper settings: WhatsApp dark doodle wallpaper is active.');
             }}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-teal-600/25 border border-teal-500/30 text-teal-400 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-teal-600/35 border border-teal-500/40 text-teal-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <MessageCircle className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Chats</h4>
-                <p className="text-[11px] text-neutral-300 drop-shadow-xs">Theme, wallpaper & chat history</p>
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Chats
+                </h4>
+                <p className="text-[12px] text-neutral-200 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
+                  Theme, wallpaper & chat history
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-5 h-5 rounded-full bg-black/60 text-neutral-200 text-[10px] font-bold flex items-center justify-center border border-white/10 shadow-xs">
+              <span className="w-5 h-5 rounded-full bg-black/60 text-white text-[10px] font-bold flex items-center justify-center border border-white/20 shadow-xs drop-shadow">
                 1
               </span>
-              <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+              <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
             </div>
           </div>
 
           {/* 4. Appearance (App Color & Theme) */}
           <div
             onClick={onOpenThemeSettings}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-red-600/25 border border-red-500/30 text-red-500 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-red-600/35 border border-red-500/40 text-red-500 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <Palette className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Appearance</h4>
-                <p className="text-[11px] text-neutral-300 drop-shadow-xs">Crimson Red (Active)</p>
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Appearance
+                </h4>
+                <p className="text-[12px] text-neutral-200 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
+                  Crimson Red (Active)
+                </p>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
 
           {/* 5. Notifications */}
@@ -735,64 +739,74 @@ export const YouTab: React.FC<YouTabProps> = ({
                 });
               }
             }}
-            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-amber-600/25 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-amber-600/35 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <Bell className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Notifications</h4>
-                <p className="text-[11px] text-neutral-300 drop-shadow-xs">
+                <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Notifications
+                </h4>
+                <p className="text-[12px] text-neutral-200 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
                   {userProfile?.preferences?.messageTones !== false ? 'In-app sounds enabled' : 'Muted'}
                 </p>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
 
           {/* 6. Add to Home Screen (shown when installable and not on home screen) */}
           {!isRunningOnHomeScreen && isInstallable && (
             <div
               onClick={onInstallPwa}
-              className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+              className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
             >
               <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-8 h-8 rounded-xl bg-emerald-600/25 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0 shadow-md">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600/35 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                   <Download className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
-                  <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Add to Home Screen</h4>
-                  <p className="text-[11px] text-neutral-300 drop-shadow-xs">Install for full-screen standalone experience</p>
+                  <h4 className="text-[15px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                    Add to Home Screen
+                  </h4>
+                  <p className="text-[12px] text-neutral-200 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
+                    Install for full-screen standalone experience
+                  </p>
                 </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+              <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
             </div>
           )}
 
           {/* 7. Log Out */}
           <div
             onClick={onSignOut}
-            className="p-3.5 hover:bg-red-950/40 active:bg-red-900/50 flex items-center justify-between cursor-pointer transition"
+            className="p-3.5 hover:bg-red-950/40 active:bg-red-900/50 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-red-600/25 border border-red-500/30 text-red-500 flex items-center justify-center shrink-0 shadow-md">
+              <div className="w-8 h-8 rounded-xl bg-red-600/35 border border-red-500/40 text-red-500 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <LogOut className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-bold text-red-400 drop-shadow-sm">Log Out</h4>
-                <p className="text-[11px] text-red-200/80 drop-shadow-xs">Sign out of this session</p>
+                <h4 className="text-[15px] font-bold text-red-400 drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  Log Out
+                </h4>
+                <p className="text-[12px] text-red-200/90 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
+                  Sign out of this session
+                </p>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-red-400/70 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-4 h-4 text-red-400/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
         </div>
 
-        {/* 8. Owner & Admin Console Button (Visible ONLY to the owner) */}
+        {/* 8. Owner & Admin Console Button (Direct Overlay, Visible ONLY to the owner) */}
         {isOwner && (
           <div
             onClick={() => setShowAdminConsole(true)}
-            className="p-4 rounded-2xl bg-black/45 backdrop-blur-md border-2 border-amber-500/80 hover:border-amber-400 flex items-center justify-between cursor-pointer transition active:scale-[0.99] shadow-2xl shadow-amber-950/40"
+            className="p-4 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 border-2 border-amber-400 flex items-center justify-between cursor-pointer transition active:scale-[0.99] shadow-2xl shadow-amber-950/50"
           >
             <div className="flex items-center gap-3.5 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-400 via-amber-500 to-red-600 text-black flex items-center justify-center font-black shadow-lg shadow-amber-950/60 shrink-0">
@@ -800,26 +814,28 @@ export const YouTab: React.FC<YouTabProps> = ({
               </div>
               <div className="min-w-0 text-left">
                 <div className="flex items-center gap-2">
-                  <h4 className="text-[15px] font-black text-white drop-shadow-sm">Owner & Admin Console</h4>
+                  <h4 className="text-[15px] font-black text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                    Owner & Admin Console
+                  </h4>
                   <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider shadow-xs">
                     Admin Only
                   </span>
                 </div>
-                <p className="text-[12px] text-amber-200/90 font-medium truncate drop-shadow-xs">
+                <p className="text-[12px] text-amber-200 font-medium truncate drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
                   View signed-in user emails, ban, suspend, verify & restrict accounts
                 </p>
               </div>
             </div>
-            <ChevronRight className="w-5 h-5 text-amber-300 shrink-0 drop-shadow-xs" />
+            <ChevronRight className="w-5 h-5 text-amber-300 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
           </div>
         )}
 
         {/* App Info Footer */}
         <div className="text-center pt-3 pb-6">
-          <p className="text-[13px] font-bold text-white drop-shadow-sm">
+          <p className="text-[13px] font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
             KEMPO <span className="text-red-500">PRo</span>
           </p>
-          <p className="text-[11px] text-neutral-300 mt-0.5 drop-shadow-xs">
+          <p className="text-[11px] text-white/80 mt-0.5 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
             Version 2.5.0 &bull; Real-Time Encrypted Calls & Chats
           </p>
         </div>

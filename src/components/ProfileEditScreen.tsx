@@ -355,7 +355,33 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0c0c0e] text-white flex flex-col justify-between overflow-y-auto select-none animate-in slide-in-from-right duration-200">
+    <div className="fixed inset-0 z-50 bg-black text-white flex flex-col overflow-hidden select-none animate-in slide-in-from-right duration-200">
+      {/* 1. Full-Height Background Video or Picture Stretching Full Width & Height */}
+      <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
+        {coverUrl ? (
+          isVideoMediaUrl(coverUrl) || coverType === 'video' ? (
+            <video
+              src={coverUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <img
+              src={coverUrl}
+              alt="Header Cover Background"
+              className="w-full h-full object-cover"
+            />
+          )
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-[#0c0c10] via-[#15151c] to-[#0a0a0d]" />
+        )}
+        {/* Subtle translucent vignette ensuring video clarity and text contrast */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/60 pointer-events-none" />
+      </div>
+
       {/* Hidden file input for Avatar upload */}
       <input
         type="file"
@@ -374,163 +400,121 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
         className="hidden"
       />
 
-      {/* Main Container */}
-      <div className="w-full max-w-lg mx-auto flex-1 flex flex-col px-4 pt-[max(env(safe-area-inset-top),16px)] pb-6">
-        {/* Navigation Bar */}
-        <div className="h-12 flex items-center justify-between mb-2">
-          <button
-            type="button"
-            onClick={onBack}
-            className="p-2 -ml-2 text-white hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center"
-            aria-label="Back to Settings"
-          >
-            <ChevronLeft className="w-7 h-7 stroke-[2.5]" />
-          </button>
+      {/* Pinned Top Navigation Bar */}
+      <div className="relative z-20 h-14 flex items-center justify-between px-4 pt-[max(env(safe-area-inset-top),12px)] shrink-0">
+        <button
+          type="button"
+          onClick={onBack}
+          className="p-2 -ml-2 text-white hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center drop-shadow"
+          aria-label="Back to Settings"
+        >
+          <ChevronLeft className="w-7 h-7 stroke-[2.5]" />
+        </button>
 
-          <h1 className="text-lg font-black tracking-tight text-white">Profile</h1>
+        <h1 className="text-lg font-black tracking-tight text-white drop-shadow-[0_2px_8px_rgba(0,0,0,1)]">
+          Profile
+        </h1>
 
-          <div className="w-7" />
-        </div>
+        {/* Change Cover Photo or Video button */}
+        <button
+          type="button"
+          onClick={() => coverInputRef.current?.click()}
+          className="w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 border border-white/20 text-white flex items-center justify-center shadow-lg active:scale-95 transition cursor-pointer drop-shadow"
+          title="Change background cover photo or video"
+          aria-label="Change cover media"
+        >
+          <Camera className="w-4.5 h-4.5 text-neutral-200" />
+        </button>
+      </div>
 
-        {/* Full-Bleed Cover Photo/Video & Profile Picture Hero (No Dark Box) */}
-        <div className="relative w-full rounded-3xl overflow-hidden mb-6 border border-neutral-800/80 shadow-2xl min-h-[260px] sm:min-h-[290px] flex flex-col justify-end">
-          {/* Full-Bleed Background Video / Cover Image Stretching Full-Width & Full-Height */}
+      {/* Middle Scrollable Content (Direct Overlay on Live Video - No Dark Boxes) */}
+      <div className="relative z-10 flex-1 overflow-y-auto px-4 pt-1 pb-4 select-none space-y-4">
+        {/* Overlaid Profile Avatar & "EDIT PHOTO" Action (Directly on top of full-bleed cover) */}
+        <div className="flex flex-col items-center pt-2 pb-2">
           <div
-            onClick={() => coverInputRef.current?.click()}
-            className="absolute inset-0 w-full h-full cursor-pointer group overflow-hidden bg-gradient-to-br from-[#17171d] via-[#22222a] to-[#121216]"
-            title="Tap to change header cover photo or video"
+            onClick={() => fileInputRef.current?.click()}
+            className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600 shadow-2xl shadow-black/90 cursor-pointer group flex items-center justify-center transition active:scale-98 bg-black/35"
+            title="Tap to select photo from phone gallery or camera"
           >
-            {coverUrl ? (
-              isVideoMediaUrl(coverUrl) || coverType === 'video' ? (
-                <video
-                  src={coverUrl}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="w-full h-full object-cover group-hover:scale-102 transition duration-500 pointer-events-none"
-                />
-              ) : (
-                <img
-                  src={coverUrl}
-                  alt="Header Cover Background"
-                  className="w-full h-full object-cover group-hover:scale-102 transition duration-500 pointer-events-none"
-                />
-              )
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={displayName}
+                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+              />
             ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-neutral-500 group-hover:text-neutral-400 transition bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neutral-800/40 via-transparent to-transparent">
-                <ImageIcon className="w-8 h-8 mb-1.5 opacity-35 group-hover:opacity-60 transition" />
-                <span className="text-[11px] font-bold tracking-wider uppercase text-neutral-400/80 drop-shadow">
-                  Add Cover Photo or Video
-                </span>
-              </div>
+              <span className="text-4xl font-black text-white drop-shadow-md">
+                {displayName.charAt(0).toUpperCase() || 'U'}
+              </span>
             )}
 
-            {/* Dark Gradient Overlay for optimal legibility and cinematic depth */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/20 pointer-events-none" />
-
-            {/* Camera badge on the bottom-right of the full-bleed cover area */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                coverInputRef.current?.click();
-              }}
-              className="absolute right-3.5 bottom-3.5 z-20 w-10 h-10 rounded-full bg-black/70 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-xl shadow-black/80 active:scale-90 transition cursor-pointer group"
-              title="Pick header cover photo or video from gallery"
-              aria-label="Pick cover photo or video"
-            >
-              <Camera className="w-5 h-5 text-neutral-200 group-hover:text-red-400 transition" />
-            </button>
-          </div>
-
-          {/* Overlaid Profile Avatar & "EDIT PHOTO" Action (Directly on top of full-bleed cover) */}
-          <div className="relative z-10 flex flex-col items-center py-6 pointer-events-auto">
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-[#18181c]/80 backdrop-blur-xs ring-4 ring-red-600 shadow-2xl shadow-black/90 cursor-pointer group flex items-center justify-center transition active:scale-98"
-              title="Tap to select photo from phone gallery or camera"
-            >
-              {avatarUrl ? (
-                <img
-                  src={avatarUrl}
-                  alt={displayName}
-                  className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                />
-              ) : (
-                <span className="text-4xl font-black text-neutral-300">
-                  {displayName.charAt(0).toUpperCase() || 'U'}
-                </span>
-              )}
-
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-                <Camera className="w-7 h-7 text-white drop-shadow-md" />
-              </div>
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+              <Camera className="w-7 h-7 text-white drop-shadow-md" />
             </div>
-
-            {/* "Edit photo" Option in Kempo Pro Red with drop-shadow */}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="mt-2.5 text-xs font-black uppercase tracking-wider text-red-500 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center gap-1.5 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
-            >
-              <span>Edit photo</span>
-            </button>
           </div>
+
+          {/* "Edit photo" Option in Kempo Pro Red with drop-shadow */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="mt-2 text-xs font-black uppercase tracking-wider text-red-500 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center gap-1.5 drop-shadow-[0_2px_6px_rgba(0,0,0,1)]"
+          >
+            <span>Edit photo</span>
+          </button>
         </div>
 
-        {/* iOS / WhatsApp Style Profile Items Card (Matching Image 2) */}
-        <div className="bg-[#18181c] border border-neutral-800/90 rounded-2xl overflow-hidden shadow-2xl divide-y divide-neutral-800/80 mb-6">
+        {/* Direct Overlay Profile Items (No Dark Box Container) */}
+        <div className="divide-y divide-white/15">
           {/* Row 1: Name */}
           <div
             onClick={() => openFieldEditor('name')}
-            className="px-4 py-3.5 flex items-center justify-between hover:bg-neutral-800/40 active:bg-neutral-800/70 transition cursor-pointer"
+            className="px-3 py-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
           >
-            <span className="text-sm font-bold text-white">Name</span>
+            <span className="text-sm font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">Name</span>
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-semibold text-neutral-300 truncate max-w-[180px]">
+              <span className="text-sm font-semibold text-white truncate max-w-[180px] drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
                 {displayName}
               </span>
-              <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+              <ChevronRight className="w-4 h-4 text-white/70 shrink-0 drop-shadow" />
             </div>
           </div>
 
           {/* Row 2: About (Status) */}
           <div
             onClick={() => openFieldEditor('about')}
-            className="px-4 py-3.5 flex items-center justify-between hover:bg-neutral-800/40 active:bg-neutral-800/70 transition cursor-pointer"
+            className="px-3 py-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
           >
-            <span className="text-sm font-bold text-white">About</span>
+            <span className="text-sm font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">About</span>
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-bold text-red-500 truncate max-w-[180px]">
+              <span className="text-sm font-bold text-red-400 truncate max-w-[180px] drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
                 {statusThought}
               </span>
-              <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+              <ChevronRight className="w-4 h-4 text-white/70 shrink-0 drop-shadow" />
             </div>
           </div>
 
           {/* Row 3: Username */}
           <div
             onClick={() => openFieldEditor('username')}
-            className="px-4 py-3.5 flex items-center justify-between hover:bg-neutral-800/40 active:bg-neutral-800/70 transition cursor-pointer"
+            className="px-3 py-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
           >
-            <span className="text-sm font-bold text-white">Username</span>
+            <span className="text-sm font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">Username</span>
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-bold text-red-500 truncate max-w-[180px]">
+              <span className="text-sm font-bold text-red-400 truncate max-w-[180px] drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
                 {username ? `@${username}` : 'Reserve username'}
               </span>
-              <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+              <ChevronRight className="w-4 h-4 text-white/70 shrink-0 drop-shadow" />
             </div>
           </div>
 
           {/* Row 4: Phone number / Permanent Shareable ID Format (Strictly Read-Only) */}
-          <div className="px-4 py-3.5 flex items-center justify-between select-text cursor-default">
-            <span className="text-sm font-bold text-white">Phone number</span>
+          <div className="px-3 py-3.5 flex items-center justify-between select-text cursor-default rounded-xl">
+            <span className="text-sm font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">Phone number</span>
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-black text-neutral-200 font-mono tracking-wide truncate max-w-[210px]">
+              <span className="text-sm font-black text-white font-mono tracking-wide truncate max-w-[210px] drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
                 {shareableKempoId}
               </span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-800">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-200 bg-black/50 px-1.5 py-0.5 rounded border border-white/20 drop-shadow">
                 Permanent
               </span>
             </div>
@@ -539,30 +523,32 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
           {/* Row 5: Links */}
           <div
             onClick={() => openFieldEditor('links')}
-            className="px-4 py-3.5 flex items-center justify-between hover:bg-neutral-800/40 active:bg-neutral-800/70 transition cursor-pointer"
+            className="px-3 py-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
           >
-            <span className="text-sm font-bold text-white">Links</span>
+            <span className="text-sm font-bold text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">Links</span>
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-sm font-bold text-red-500 truncate max-w-[180px]">
+              <span className="text-sm font-bold text-red-400 truncate max-w-[180px] drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
                 {links || 'Add links'}
               </span>
-              <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+              <ChevronRight className="w-4 h-4 text-white/70 shrink-0 drop-shadow" />
             </div>
           </div>
         </div>
 
         {/* Live ID Summary Tag */}
-        <div className="px-4 py-3 rounded-xl bg-red-950/20 border border-red-900/30 flex items-center justify-between text-xs mb-4">
-          <span className="text-neutral-400 font-medium">Permanent Kempo ID:</span>
-          <span className="text-red-400 font-mono font-bold">{shareableKempoId}</span>
+        <div className="px-3 py-2.5 flex items-center justify-between text-xs">
+          <span className="text-white/80 font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Permanent Kempo ID:</span>
+          <span className="text-red-400 font-mono font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">{shareableKempoId}</span>
         </div>
+      </div>
 
-        {/* Prominent Red Save Profile Button (Matching Image 2) */}
+      {/* Pinned Bottom "Save Profile" Action Bar (Always Visible & Accessible Above Tab Bar) */}
+      <div className="relative z-20 w-full p-4 bg-gradient-to-t from-black via-black/95 to-transparent pb-[max(env(safe-area-inset-bottom),16px)] shrink-0">
         <button
           type="button"
           onClick={handleSaveProfile}
           disabled={isSaving}
-          className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-98 text-white font-extrabold text-base shadow-xl shadow-red-950/60 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-98 text-white font-extrabold text-base shadow-2xl shadow-red-950/80 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 drop-shadow-md"
         >
           {isSaving ? (
             <>
@@ -571,7 +557,7 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
             </>
           ) : saveSuccessNotice ? (
             <>
-              <Check className="w-5 h-5" />
+              <Check className="w-5 h-5 stroke-[2.5]" />
               <span>Profile Saved!</span>
             </>
           ) : (
