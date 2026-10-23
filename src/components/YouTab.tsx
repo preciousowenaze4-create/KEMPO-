@@ -331,7 +331,33 @@ export const YouTab: React.FC<YouTabProps> = ({
 
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pt-[max(env(safe-area-inset-top),10px)] select-none space-y-4 pb-24">
+    <div className="relative flex-1 overflow-hidden flex flex-col select-none">
+      {/* 1. Full-Height Vertical Stretch for Cover Media (Live Video or Photo) */}
+      <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
+        {coverUrl ? (
+          isVideoMediaUrl(coverUrl) || coverType === 'video' ? (
+            <video
+              src={coverUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <img
+              src={coverUrl}
+              alt="Settings Background Cover"
+              className="w-full h-full object-cover"
+            />
+          )
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-[#0c0c10] via-[#15151c] to-[#0a0a0d]" />
+        )}
+        {/* Dark translucent gradient overlay: balances rich contrast with seeing the live motion video/photo right through */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/65 to-black/85 backdrop-blur-[1px]" />
+      </div>
+
       {/* Hidden File Input for Avatar Upload */}
       <input
         type="file"
@@ -341,82 +367,63 @@ export const YouTab: React.FC<YouTabProps> = ({
         className="hidden"
       />
 
-      {/* Top Header */}
-      <div className="flex items-center justify-between pb-1">
-        <h1 className="text-3xl font-extrabold tracking-tight text-white">Settings</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleShareId}
-            className="w-9 h-9 rounded-full bg-[#1c1c1e] hover:bg-[#252528] text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer"
-            title="QR Code & Share ID"
-          >
-            <QrCode className="w-4.5 h-4.5" />
-          </button>
-          <button
-            onClick={() => setShowProfileEdit(true)}
-            className="w-9 h-9 rounded-full bg-[#1c1c1e] hover:bg-[#252528] text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer"
-            title="Edit Profile"
-            aria-label="Edit Profile"
-          >
-            <Edit3 className="w-4.5 h-4.5" />
-          </button>
+      {/* Scrollable Content Overlaid Directly on Top of Full-Bleed Video/Picture */}
+      <div className="relative z-10 flex-1 overflow-y-auto px-4 pt-[max(env(safe-area-inset-top),12px)] select-none space-y-4 pb-28">
+        {/* Top Header */}
+        <div className="flex items-center justify-between pb-1">
+          <h1 className="text-3xl font-extrabold tracking-tight text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)]">
+            Settings
+          </h1>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleShareId}
+              className="w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/10 text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer shadow-lg"
+              title="QR Code & Share ID"
+            >
+              <QrCode className="w-4.5 h-4.5" />
+            </button>
+            <button
+              onClick={() => setShowProfileEdit(true)}
+              className="w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-md border border-white/10 text-neutral-200 hover:text-white flex items-center justify-center active:scale-95 transition cursor-pointer shadow-lg"
+              title="Edit Profile"
+              aria-label="Edit Profile"
+            >
+              <Edit3 className="w-4.5 h-4.5" />
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* 1. Full-Bleed Cover Photo/Video & Profile Hero (No Dark Box) */}
-      <div className="relative rounded-3xl overflow-hidden border border-neutral-800/80 shadow-2xl min-h-[310px] sm:min-h-[340px] flex flex-col justify-end">
-        {/* Full-Bleed Cover Background Video or Picture Stretching Full Width & Height */}
+        {/* Profile Card Overlay (Semi-transparent Glassmorphism showing full background behind) */}
         <div
           onClick={() => setShowProfileEdit(true)}
-          className="absolute inset-0 w-full h-full cursor-pointer group overflow-hidden bg-gradient-to-br from-[#17171d] via-[#22222a] to-[#16161c]"
-          title="Tap to edit profile & cover photo or video"
+          className="relative rounded-3xl overflow-hidden bg-black/35 hover:bg-black/45 backdrop-blur-md border border-white/15 p-5 shadow-2xl flex flex-col items-center text-center cursor-pointer group transition duration-300"
+          title="Tap to customize profile & cover video"
         >
-          {coverUrl ? (
-            isVideoMediaUrl(coverUrl) || coverType === 'video' ? (
-              <video
-                src={coverUrl}
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="w-full h-full object-cover group-hover:scale-102 transition duration-500 pointer-events-none"
-              />
-            ) : (
-              <img
-                src={coverUrl}
-                alt="Profile Cover Background"
-                className="w-full h-full object-cover group-hover:scale-102 transition duration-500 pointer-events-none"
-              />
-            )
-          ) : (
-            <div className="w-full h-full flex items-center justify-end p-3 text-neutral-600 group-hover:text-neutral-400 transition bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neutral-800/40 via-transparent to-transparent">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500/70 mr-1 drop-shadow">
-                Kempo Pro
-              </span>
-            </div>
-          )}
-          {/* Seamless gradient overlay ensuring user details & text remain ultra-readable */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/55 to-black/25 pointer-events-none" />
-        </div>
+          {/* Subtle top badge indicating tap to customize */}
+          <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-[10px] text-neutral-300 group-hover:text-white transition">
+            <Edit3 className="w-3 h-3 text-red-400" />
+            <span>Edit</span>
+          </div>
 
-        {/* User Details Overlaid Directly on Top of Full-Bleed Cover */}
-        <div className="relative z-10 flex flex-col items-center text-center px-4 pt-8 pb-5 select-none">
           {/* Centered Circular Avatar with Camera Uploader */}
           <div
-            className="relative cursor-pointer group mb-2"
-            onClick={() => setShowProfileEdit(true)}
+            className="relative group mb-2"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowProfileEdit(true);
+            }}
           >
             <div
               className={`w-24 h-24 rounded-full overflow-hidden ring-4 ${
                 isOwner
-                  ? 'ring-amber-500/80 shadow-amber-950/40'
-                  : 'ring-red-600 shadow-red-950/50'
-              } bg-[#161619]/80 backdrop-blur-xs flex items-center justify-center shadow-2xl transition group-hover:scale-102`}
+                  ? 'ring-amber-500 shadow-amber-950/60'
+                  : 'ring-red-600 shadow-red-950/60'
+              } bg-black/50 backdrop-blur-sm flex items-center justify-center shadow-2xl transition group-hover:scale-102`}
             >
               {avatarUrl ? (
                 <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
               ) : (
-                <span className="text-3xl text-neutral-200 font-black">
+                <span className="text-3xl text-white font-black drop-shadow">
                   {displayName.charAt(0).toUpperCase() || 'U'}
                 </span>
               )}
@@ -430,7 +437,7 @@ export const YouTab: React.FC<YouTabProps> = ({
                 setShowProfileEdit(true);
               }}
               aria-label="Edit Profile"
-              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg shadow-black/80 ring-2 ring-black active:scale-90 transition cursor-pointer"
+              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-xl shadow-black/80 ring-2 ring-black active:scale-90 transition cursor-pointer"
             >
               {isUploadingAvatar ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
@@ -443,11 +450,12 @@ export const YouTab: React.FC<YouTabProps> = ({
           {/* Thought / Status Bubble */}
           <button
             type="button"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setStatusInput(statusThought);
               setShowStatusModal(true);
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1 mb-1.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/10 text-[11px] text-neutral-200 shadow-lg transition active:scale-95 cursor-pointer relative"
+            className="inline-flex items-center gap-1.5 px-3 py-1 mb-1.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/15 text-[11px] text-white shadow-lg transition active:scale-95 cursor-pointer relative"
             title="Tap to update status"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
@@ -455,7 +463,7 @@ export const YouTab: React.FC<YouTabProps> = ({
           </button>
 
           {/* Centered Display Name with Clean Drop Shadow */}
-          <h2 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-2 mt-1 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
+          <h2 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-2 mt-1 drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
             <span>{displayName}</span>
             {isOwner ? (
               <Crown className="w-5 h-5 text-amber-400 fill-amber-400 drop-shadow" />
@@ -481,13 +489,13 @@ export const YouTab: React.FC<YouTabProps> = ({
             )}
           </div>
 
-          {/* 2. User ID Sizing & Copy Button */}
-          <div className="mt-2.5 inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-xl bg-black/65 backdrop-blur-md border border-white/10 shadow-lg">
-            <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+          {/* User ID Sizing & Copy Button */}
+          <div className="mt-2.5 inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-xl bg-black/65 backdrop-blur-md border border-white/15 shadow-lg">
+            <span className="text-[10px] uppercase font-bold text-neutral-300 tracking-wider drop-shadow-xs">
               ID:
             </span>
             <span
-              className={`text-xs font-mono font-bold tracking-wide select-all ${
+              className={`text-xs font-mono font-bold tracking-wide select-all drop-shadow-sm ${
                 isOwner ? 'text-amber-400' : 'text-red-400'
               }`}
             >
@@ -496,8 +504,11 @@ export const YouTab: React.FC<YouTabProps> = ({
             {/* Small Copy icon/button right next to User ID */}
             <button
               type="button"
-              onClick={handleCopyId}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-800/80 hover:bg-neutral-700 text-neutral-200 hover:text-white text-[10px] font-semibold transition active:scale-95 cursor-pointer ml-0.5"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopyId();
+              }}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/20 text-neutral-200 hover:text-white text-[10px] font-semibold transition active:scale-95 cursor-pointer ml-0.5"
               title="Copy User ID"
             >
               {copiedId ? (
@@ -515,301 +526,303 @@ export const YouTab: React.FC<YouTabProps> = ({
             {/* Share Button */}
             <button
               type="button"
-              onClick={handleShareId}
-              className="p-1 rounded-md bg-neutral-800/80 hover:bg-neutral-700 text-neutral-400 hover:text-white transition active:scale-95 cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleShareId();
+              }}
+              className="p-1 rounded-md bg-white/10 hover:bg-white/20 text-neutral-300 hover:text-white transition active:scale-95 cursor-pointer"
               title="Share ID"
             >
               <Share2 className="w-3 h-3" />
             </button>
           </div>
         </div>
-      </div>
 
-      {/* WhatsApp-Style Group 1: Subscriptions, Lists, Broadcasts, Starred, Linked Devices */}
-      <div className="rounded-2xl bg-[#161619] border border-neutral-800/80 overflow-hidden divide-y divide-[#222226]">
-        {/* 1. Subscriptions */}
-        <div
-          onClick={() => {
-            alert(
-              "KEMPO PRo Subscriptions:\n\nAll premium features, unlimited encrypted voice & video calls, end-to-end security, and real-time messaging are permanently active for your account."
-            );
-          }}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-red-600/20 to-purple-600/20 text-red-400 flex items-center justify-center shrink-0">
-              <Sparkles className="w-4 h-4 text-red-500" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Subscriptions</h4>
-            </div>
-          </div>
-          <ExternalLink className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-
-        {/* 2. Lists */}
-        <div
-          onClick={() => {
-            alert("Lists: Organize custom contacts and group categories.");
-          }}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-sky-600/20 text-sky-400 flex items-center justify-center shrink-0">
-              <List className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Lists</h4>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-
-        {/* 3. Broadcast messages */}
-        <div
-          onClick={() => {
-            alert("Broadcast Messages: Send announcements to multiple contacts simultaneously.");
-          }}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-purple-600/20 text-purple-400 flex items-center justify-center shrink-0">
-              <Radio className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Broadcast messages</h4>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-
-        {/* 4. Starred */}
-        <div
-          onClick={() => {
-            alert("Starred Messages: View your saved messages and highlights.");
-          }}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-amber-600/20 text-amber-400 flex items-center justify-center shrink-0">
-              <Star className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Starred</h4>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-
-        {/* 5. Linked devices */}
-        <div
-          onClick={() => {
-            alert("Linked Devices: 1 active browser session on this device. Real-time encryption active.");
-          }}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center shrink-0">
-              <Smartphone className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Linked devices</h4>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-      </div>
-
-      {/* WhatsApp-Style Group 2: Account, Privacy, Chats, Appearance, Notifications, Install, Log Out */}
-      <div className="rounded-2xl bg-[#161619] border border-neutral-800/80 overflow-hidden divide-y divide-[#222226]">
-        {/* 1. Account */}
-        <div
-          onClick={() => {
-            alert(
-              `Account Information:\n\nUser ID: ${kempoId}\nAccount Type: ${accountType.toUpperCase()}\nStatus: Active\n\nYour profile is safely stored offline and synced with Supabase.`
-            );
-          }}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-red-600/20 text-red-500 flex items-center justify-center shrink-0">
-              <Shield className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Account</h4>
-              <p className="text-[11px] text-neutral-400 truncate">Security, passkeys & ID</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-
-        {/* 2. Privacy */}
-        <div
-          onClick={() => {
-            alert(
-              `Privacy & Account Security:\n\nAccount Status: Active & Encrypted\nUser ID: ${kempoId}\nAccount Type: ${
-                isOwner ? '👑 Kempo Pro Owner / Admin' : 'Standard Account'
-              }\n\nBackend Email Privacy: Active\nYour sign-in email is handled strictly by the backend server and is never exposed or visible on the app frontend.\n\nEnd-to-End Encryption: Enabled`
-            );
-          }}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center shrink-0">
-              <Key className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Privacy</h4>
-              <p className="text-[11px] text-neutral-400 truncate flex items-center gap-1">
-                <Shield className="w-3 h-3 text-emerald-400 shrink-0 inline" />
-                <span>{getBackendPrivacyStatus(rawEmail)}</span>
-              </p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-
-        {/* 3. Chats */}
-        <div
-          onClick={() => {
-            alert('Chats & Wallpaper settings: WhatsApp dark doodle wallpaper is active.');
-          }}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-teal-600/20 text-teal-400 flex items-center justify-center shrink-0">
-              <MessageCircle className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Chats</h4>
-              <p className="text-[11px] text-neutral-400">Theme, wallpaper & chat history</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-neutral-800 text-neutral-300 text-[10px] font-bold flex items-center justify-center">
-              1
-            </span>
-            <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-          </div>
-        </div>
-
-        {/* 4. Appearance (App Color & Theme) */}
-        <div
-          onClick={onOpenThemeSettings}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-red-600/20 text-red-500 flex items-center justify-center shrink-0">
-              <Palette className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Appearance</h4>
-              <p className="text-[11px] text-neutral-400">Crimson Red (Active)</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-
-        {/* 5. Notifications */}
-        <div
-          onClick={() => {
-            const nextPref = !userProfile?.preferences?.inAppSounds;
-            if (onUpdatePreferences && userProfile) {
-              onUpdatePreferences({
-                ...userProfile.preferences,
-                inAppSounds: nextPref,
-                messageTones: nextPref,
-              });
-            }
-          }}
-          className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-amber-600/20 text-amber-400 flex items-center justify-center shrink-0">
-              <Bell className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-semibold text-white">Notifications</h4>
-              <p className="text-[11px] text-neutral-400">
-                {userProfile?.preferences?.messageTones !== false ? 'In-app sounds enabled' : 'Muted'}
-              </p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
-
-        {/* 6. Add to Home Screen (shown when installable and not on home screen) */}
-        {!isRunningOnHomeScreen && isInstallable && (
+        {/* WhatsApp-Style Group 1: Subscriptions, Lists, Broadcasts, Starred, Linked Devices (Glassmorphic) */}
+        <div className="rounded-2xl bg-black/35 backdrop-blur-md border border-white/10 overflow-hidden divide-y divide-white/10 shadow-2xl">
+          {/* 1. Subscriptions */}
           <div
-            onClick={onInstallPwa}
-            className="p-3.5 hover:bg-[#1c1c20] flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
+            onClick={() => {
+              alert(
+                "KEMPO PRo Subscriptions:\n\nAll premium features, unlimited encrypted voice & video calls, end-to-end security, and real-time messaging are permanently active for your account."
+              );
+            }}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
           >
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center shrink-0">
-                <Download className="w-4 h-4" />
+              <div className="w-8 h-8 rounded-xl bg-red-600/25 border border-red-500/30 text-red-400 flex items-center justify-center shrink-0 shadow-md">
+                <Sparkles className="w-4 h-4 text-red-400" />
               </div>
               <div className="min-w-0">
-                <h4 className="text-[14px] font-semibold text-white">Add to Home Screen</h4>
-                <p className="text-[11px] text-neutral-400">Install for full-screen standalone experience</p>
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Subscriptions</h4>
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+            <ExternalLink className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+          </div>
+
+          {/* 2. Lists */}
+          <div
+            onClick={() => {
+              alert("Lists: Organize custom contacts and group categories.");
+            }}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-sky-600/25 border border-sky-500/30 text-sky-400 flex items-center justify-center shrink-0 shadow-md">
+                <List className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Lists</h4>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+          </div>
+
+          {/* 3. Broadcast messages */}
+          <div
+            onClick={() => {
+              alert("Broadcast Messages: Send announcements to multiple contacts simultaneously.");
+            }}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-purple-600/25 border border-purple-500/30 text-purple-400 flex items-center justify-center shrink-0 shadow-md">
+                <Radio className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Broadcast messages</h4>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+          </div>
+
+          {/* 4. Starred */}
+          <div
+            onClick={() => {
+              alert("Starred Messages: View your saved messages and highlights.");
+            }}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-600/25 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0 shadow-md">
+                <Star className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Starred</h4>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+          </div>
+
+          {/* 5. Linked devices */}
+          <div
+            onClick={() => {
+              alert("Linked Devices: 1 active browser session on this device. Real-time encryption active.");
+            }}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-600/25 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0 shadow-md">
+                <Smartphone className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Linked devices</h4>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+          </div>
+        </div>
+
+        {/* WhatsApp-Style Group 2: Account, Privacy, Chats, Appearance, Notifications, Install, Log Out (Glassmorphic) */}
+        <div className="rounded-2xl bg-black/35 backdrop-blur-md border border-white/10 overflow-hidden divide-y divide-white/10 shadow-2xl">
+          {/* 1. Account */}
+          <div
+            onClick={() => {
+              alert(
+                `Account Information:\n\nUser ID: ${kempoId}\nAccount Type: ${accountType.toUpperCase()}\nStatus: Active\n\nYour profile is safely stored offline and synced with Supabase.`
+              );
+            }}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-red-600/25 border border-red-500/30 text-red-500 flex items-center justify-center shrink-0 shadow-md">
+                <Shield className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Account</h4>
+                <p className="text-[11px] text-neutral-300 truncate drop-shadow-xs">Security, passkeys & ID</p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+          </div>
+
+          {/* 2. Privacy */}
+          <div
+            onClick={() => {
+              alert(
+                `Privacy & Account Security:\n\nAccount Status: Active & Encrypted\nUser ID: ${kempoId}\nAccount Type: ${
+                  isOwner ? '👑 Kempo Pro Owner / Admin' : 'Standard Account'
+                }\n\nBackend Email Privacy: Active\nYour sign-in email is handled strictly by the backend server and is never exposed or visible on the app frontend.\n\nEnd-to-End Encryption: Enabled`
+              );
+            }}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-blue-600/25 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 shadow-md">
+                <Key className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Privacy</h4>
+                <p className="text-[11px] text-neutral-300 truncate flex items-center gap-1 drop-shadow-xs">
+                  <Shield className="w-3 h-3 text-emerald-400 shrink-0 inline" />
+                  <span>{getBackendPrivacyStatus(rawEmail)}</span>
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+          </div>
+
+          {/* 3. Chats */}
+          <div
+            onClick={() => {
+              alert('Chats & Wallpaper settings: WhatsApp dark doodle wallpaper is active.');
+            }}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-teal-600/25 border border-teal-500/30 text-teal-400 flex items-center justify-center shrink-0 shadow-md">
+                <MessageCircle className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Chats</h4>
+                <p className="text-[11px] text-neutral-300 drop-shadow-xs">Theme, wallpaper & chat history</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-black/60 text-neutral-200 text-[10px] font-bold flex items-center justify-center border border-white/10 shadow-xs">
+                1
+              </span>
+              <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            </div>
+          </div>
+
+          {/* 4. Appearance (App Color & Theme) */}
+          <div
+            onClick={onOpenThemeSettings}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-red-600/25 border border-red-500/30 text-red-500 flex items-center justify-center shrink-0 shadow-md">
+                <Palette className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Appearance</h4>
+                <p className="text-[11px] text-neutral-300 drop-shadow-xs">Crimson Red (Active)</p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+          </div>
+
+          {/* 5. Notifications */}
+          <div
+            onClick={() => {
+              const nextPref = !userProfile?.preferences?.inAppSounds;
+              if (onUpdatePreferences && userProfile) {
+                onUpdatePreferences({
+                  ...userProfile.preferences,
+                  inAppSounds: nextPref,
+                  messageTones: nextPref,
+                });
+              }
+            }}
+            className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-amber-600/25 border border-amber-500/30 text-amber-400 flex items-center justify-center shrink-0 shadow-md">
+                <Bell className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Notifications</h4>
+                <p className="text-[11px] text-neutral-300 drop-shadow-xs">
+                  {userProfile?.preferences?.messageTones !== false ? 'In-app sounds enabled' : 'Muted'}
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+          </div>
+
+          {/* 6. Add to Home Screen (shown when installable and not on home screen) */}
+          {!isRunningOnHomeScreen && isInstallable && (
+            <div
+              onClick={onInstallPwa}
+              className="p-3.5 hover:bg-white/10 active:bg-white/15 flex items-center justify-between cursor-pointer transition"
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600/25 border border-emerald-500/30 text-emerald-400 flex items-center justify-center shrink-0 shadow-md">
+                  <Download className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h4 className="text-[14px] font-semibold text-white drop-shadow-sm">Add to Home Screen</h4>
+                  <p className="text-[11px] text-neutral-300 drop-shadow-xs">Install for full-screen standalone experience</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-neutral-400 shrink-0 drop-shadow-xs" />
+            </div>
+          )}
+
+          {/* 7. Log Out */}
+          <div
+            onClick={onSignOut}
+            className="p-3.5 hover:bg-red-950/40 active:bg-red-900/50 flex items-center justify-between cursor-pointer transition"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-red-600/25 border border-red-500/30 text-red-500 flex items-center justify-center shrink-0 shadow-md">
+                <LogOut className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-[14px] font-bold text-red-400 drop-shadow-sm">Log Out</h4>
+                <p className="text-[11px] text-red-200/80 drop-shadow-xs">Sign out of this session</p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-red-400/70 shrink-0 drop-shadow-xs" />
+          </div>
+        </div>
+
+        {/* 8. Owner & Admin Console Button (Visible ONLY to the owner) */}
+        {isOwner && (
+          <div
+            onClick={() => setShowAdminConsole(true)}
+            className="p-4 rounded-2xl bg-black/45 backdrop-blur-md border-2 border-amber-500/80 hover:border-amber-400 flex items-center justify-between cursor-pointer transition active:scale-[0.99] shadow-2xl shadow-amber-950/40"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-400 via-amber-500 to-red-600 text-black flex items-center justify-center font-black shadow-lg shadow-amber-950/60 shrink-0">
+                <Crown className="w-5 h-5 text-black fill-black" />
+              </div>
+              <div className="min-w-0 text-left">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-[15px] font-black text-white drop-shadow-sm">Owner & Admin Console</h4>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider shadow-xs">
+                    Admin Only
+                  </span>
+                </div>
+                <p className="text-[12px] text-amber-200/90 font-medium truncate drop-shadow-xs">
+                  View signed-in user emails, ban, suspend, verify & restrict accounts
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-amber-300 shrink-0 drop-shadow-xs" />
           </div>
         )}
 
-        {/* 7. Log Out */}
-        <div
-          onClick={onSignOut}
-          className="p-3.5 hover:bg-red-950/30 flex items-center justify-between cursor-pointer transition active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-red-600/20 text-red-500 flex items-center justify-center shrink-0">
-              <LogOut className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <h4 className="text-[14px] font-bold text-red-400">Log Out</h4>
-              <p className="text-[11px] text-neutral-400">Sign out of this session</p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 text-neutral-600 shrink-0" />
+        {/* App Info Footer */}
+        <div className="text-center pt-3 pb-6">
+          <p className="text-[13px] font-bold text-white drop-shadow-sm">
+            KEMPO <span className="text-red-500">PRo</span>
+          </p>
+          <p className="text-[11px] text-neutral-300 mt-0.5 drop-shadow-xs">
+            Version 2.5.0 &bull; Real-Time Encrypted Calls & Chats
+          </p>
         </div>
-      </div>
-
-      {/* 8. Owner & Admin Console Button (Visible ONLY to the owner) */}
-      {isOwner && (
-        <div
-          onClick={() => setShowAdminConsole(true)}
-          className="p-4 rounded-2xl bg-gradient-to-r from-red-950 via-[#1f1216] to-[#2a170d] border-2 border-amber-500/70 hover:border-amber-400 flex items-center justify-between cursor-pointer transition active:scale-[0.99] shadow-2xl shadow-red-950/60"
-        >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-400 via-amber-500 to-red-600 text-black flex items-center justify-center font-black shadow-lg shadow-amber-950/60 shrink-0">
-              <Crown className="w-5 h-5 text-black fill-black" />
-            </div>
-            <div className="min-w-0 text-left">
-              <div className="flex items-center gap-2">
-                <h4 className="text-[15px] font-black text-white">Owner & Admin Console</h4>
-                <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider shadow-xs">
-                  Admin Only
-                </span>
-              </div>
-              <p className="text-[12px] text-amber-200/90 font-medium truncate">
-                View signed-in user emails, ban, suspend, verify & restrict accounts
-              </p>
-            </div>
-          </div>
-          <ChevronRight className="w-5 h-5 text-amber-300 shrink-0" />
-        </div>
-      )}
-
-      {/* App Info Footer */}
-      <div className="text-center pt-3 pb-6">
-        <p className="text-[13px] font-bold text-neutral-400">
-          KEMPO <span className="text-red-500">PRo</span>
-        </p>
-        <p className="text-[11px] text-neutral-500 mt-0.5">
-          Version 2.5.0 &bull; Real-Time Encrypted Calls & Chats
-        </p>
-      </div>
 
       {/* Change Profile Picture Modal (Preset Avatars + File/Camera Upload) */}
       {showAvatarPicker && (
@@ -976,6 +989,7 @@ export const YouTab: React.FC<YouTabProps> = ({
           }}
         />
       )}
+      </div>
     </div>
   );
 };

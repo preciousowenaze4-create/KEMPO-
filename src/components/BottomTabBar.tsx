@@ -16,7 +16,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
   userAvatarUrl = '',
 }) => {
   return (
-    <div className="w-full bg-[#161618]/95 backdrop-blur-xl border-t border-[#262628] select-none z-30 pb-[max(env(safe-area-inset-bottom),8px)]">
+    <div className="w-full bg-black/60 backdrop-blur-xl border-t border-white/10 select-none z-30 pb-[max(env(safe-area-inset-bottom),8px)] shadow-2xl">
       <div className="flex items-center justify-around h-14 pt-1 px-1">
         {/* Tab 1: Updates */}
         <button
