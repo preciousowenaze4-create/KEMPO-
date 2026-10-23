@@ -189,12 +189,6 @@ export const YouTab: React.FC<YouTabProps> = ({
   // Dedicated Profile Editing Screen state (IMG_4734 & IMG_4733)
   const [showProfileEdit, setShowProfileEdit] = useState(false);
 
-  // Edit / Customize ID modal state
-  const [showEditIdModal, setShowEditIdModal] = useState(false);
-  const [customIdInput, setCustomIdInput] = useState('');
-  const [editIdError, setEditIdError] = useState('');
-  const [editIdSuccess, setEditIdSuccess] = useState('');
-
   // Check if running on home screen as standalone app
   const isRunningOnHomeScreen =
     isInstalled ||
@@ -304,37 +298,7 @@ export const YouTab: React.FC<YouTabProps> = ({
     }
   };
 
-  // Handle User ID customization attempt (Enforces non-owner restriction on 'kempo pro')
-  const handleSaveCustomId = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setEditIdError('');
-    setEditIdSuccess('');
 
-    if (!customIdInput.trim()) {
-      setEditIdError('Please enter a desired ID.');
-      return;
-    }
-
-    const result = validateAndFormatUserId(customIdInput, rawEmail);
-    if (!result.valid) {
-      setEditIdError(result.error || "Cannot use this User ID.");
-      return;
-    }
-
-    if (userProfile) {
-      const updatedProfile: UserProfileData = {
-        ...userProfile,
-        kempoId: result.formattedId,
-      };
-      await saveFullUserProfile(updatedProfile);
-      onUpdateProfile?.(updatedProfile);
-      setEditIdSuccess(`User ID updated to: ${result.formattedId}`);
-      setTimeout(() => {
-        setShowEditIdModal(false);
-        setEditIdSuccess('');
-      }, 1200);
-    }
-  };
 
   return (
     <div className="flex-1 overflow-y-auto px-4 pt-[max(env(safe-area-inset-top),10px)] select-none space-y-4 pb-24">
@@ -515,22 +479,6 @@ export const YouTab: React.FC<YouTabProps> = ({
           >
             <Share2 className="w-3 h-3" />
           </button>
-          {/* Edit ID Button for regular users */}
-          {!isOwner && (
-            <button
-              type="button"
-              onClick={() => {
-                setCustomIdInput(kempoId);
-                setEditIdError('');
-                setEditIdSuccess('');
-                setShowEditIdModal(true);
-              }}
-              className="p-1 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition active:scale-95 cursor-pointer"
-              title="Customize ID"
-            >
-              <Edit3 className="w-3 h-3" />
-            </button>
-          )}
         </div>
       </div>
     </div>
@@ -881,78 +829,6 @@ export const YouTab: React.FC<YouTabProps> = ({
         </div>
       )}
 
-      {/* Edit User ID Modal (Enforcing non-owner restriction on 'kempo pro') */}
-      {showEditIdModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-[#161619] border border-neutral-800 rounded-3xl p-5 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-200">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-red-500" />
-                Customize User ID
-              </h3>
-              <button
-                onClick={() => setShowEditIdModal(false)}
-                className="w-7 h-7 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-neutral-400 mb-3 leading-relaxed">
-              Standard User IDs always start with the app name <strong className="text-white">"KEMPO-"</strong> followed by numbers or letters. The fixed ID <strong className="text-white">"kempo pro"</strong> is reserved exclusively for the system owner.
-            </p>
-
-            <form onSubmit={handleSaveCustomId} className="space-y-3">
-              <div>
-                <label className="text-[11px] font-semibold text-neutral-300 block mb-1">
-                  Desired Handle or ID (e.g. KEMPO-728193 or KEMPO-HERO)
-                </label>
-                <input
-                  type="text"
-                  value={customIdInput}
-                  onChange={(e) => {
-                    setCustomIdInput(e.target.value.toUpperCase());
-                    setEditIdError('');
-                  }}
-                  placeholder="e.g. KEMPO-728193 or KEMPO-HERO"
-                  maxLength={22}
-                  className="w-full h-11 px-3.5 rounded-xl bg-[#0e0e11] text-white placeholder-neutral-500 text-xs font-mono font-bold focus:outline-none focus:ring-1 focus:ring-red-500 transition uppercase"
-                />
-              </div>
-
-              {editIdError && (
-                <div className="p-2.5 rounded-xl bg-red-950/80 border border-red-700/60 text-red-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-                  <span>{editIdError}</span>
-                </div>
-              )}
-
-              {editIdSuccess && (
-                <div className="p-2.5 rounded-xl bg-emerald-950/80 border border-emerald-700/60 text-emerald-300 text-xs flex items-center gap-2">
-                  <Check className="w-4 h-4 shrink-0 text-emerald-400" />
-                  <span>{editIdSuccess}</span>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowEditIdModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-950 active:scale-95 transition"
-                >
-                  Save ID
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* WhatsApp-Style Status / Thought Modal */}
       {showStatusModal && (

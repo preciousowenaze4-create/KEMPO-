@@ -159,6 +159,7 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   // Handle cover / header background upload from device
@@ -178,6 +179,7 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   // Open modal to edit specific text field
@@ -349,8 +351,9 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
         <div className="relative w-full rounded-3xl overflow-hidden mb-6 bg-[#16161a] border border-neutral-800/90 shadow-2xl">
           {/* Header Cover Background Banner */}
           <div
-            onClick={() => setShowCoverOptions(true)}
+            onClick={() => coverInputRef.current?.click()}
             className="relative w-full h-36 sm:h-44 bg-gradient-to-r from-[#17171d] via-[#22222a] to-[#16161c] cursor-pointer group overflow-hidden"
+            title="Tap to change cover photo from gallery"
           >
             {coverUrl ? (
               <img
@@ -370,16 +373,16 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
             {/* Subtle Gradient Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
 
-            {/* Camera badge on the right side of the cover area (where marked in green circle in IMG_4749) */}
+            {/* Camera badge on the right side of the cover area (marked in IMG_4750) - Triggers native phone media picker */}
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setShowCoverOptions(true);
+                fileInputRef.current?.click();
               }}
               className="absolute right-3.5 bottom-3.5 w-10 h-10 rounded-full bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700/80 text-white flex items-center justify-center shadow-xl shadow-black/80 active:scale-90 transition cursor-pointer group"
-              title="Edit header cover background"
-              aria-label="Edit cover photo"
+              title="Pick profile picture from phone gallery or camera"
+              aria-label="Pick photo"
             >
               <Camera className="w-5 h-5 text-neutral-200 group-hover:text-red-400 transition" />
             </button>
@@ -388,8 +391,9 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
           {/* Centered Circular Avatar (Overlapping cover banner) */}
           <div className="flex flex-col items-center -mt-16 sm:-mt-18 pb-4 relative z-10">
             <div
-              onClick={() => setShowPhotoOptions(true)}
+              onClick={() => fileInputRef.current?.click()}
               className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-[#18181c] ring-4 ring-red-600 shadow-2xl shadow-black/90 cursor-pointer group flex items-center justify-center transition active:scale-98"
+              title="Tap to select photo from phone gallery or camera"
             >
               {avatarUrl ? (
                 <img
@@ -411,7 +415,7 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
             {/* "Edit photo" Option in Kempo Pro Red */}
             <button
               type="button"
-              onClick={() => setShowPhotoOptions(true)}
+              onClick={() => fileInputRef.current?.click()}
               className="mt-2.5 text-xs font-black uppercase tracking-wider text-red-500 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center gap-1.5"
             >
               <span>Edit photo</span>
@@ -463,14 +467,16 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
             </div>
           </div>
 
-          {/* Row 4: Phone number / Permanent Shareable ID Format (e.g. Kempo Pro +234A5738) */}
-          <div className="px-4 py-3.5 flex items-center justify-between select-text">
+          {/* Row 4: Phone number / Permanent Shareable ID Format (Strictly Read-Only) */}
+          <div className="px-4 py-3.5 flex items-center justify-between select-text cursor-default">
             <span className="text-sm font-bold text-white">Phone number</span>
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-sm font-black text-neutral-200 font-mono tracking-wide truncate max-w-[210px]">
                 {shareableKempoId}
               </span>
-              <ChevronRight className="w-4 h-4 text-neutral-500 shrink-0" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-800">
+                Permanent
+              </span>
             </div>
           </div>
 
