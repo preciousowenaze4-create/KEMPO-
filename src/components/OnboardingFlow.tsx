@@ -197,6 +197,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       localStorage.setItem('kempo_user_id', finalKempoId);
       localStorage.setItem('kempo_profile_completed', 'true');
       localStorage.setItem('kempo_onboarded_completed', 'true');
+      localStorage.setItem('kempo_user_profile', JSON.stringify(finalProfile));
+      if (userEmail) {
+        localStorage.setItem('kempo_completed_' + userEmail.toLowerCase().trim(), 'true');
+      }
       sessionStorage.setItem('kempo_dashboard_active', 'true');
       try {
         const regRaw = localStorage.getItem('kempo_completed_accounts') || '{}';

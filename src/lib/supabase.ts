@@ -310,41 +310,38 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
   const cleanEmail = (userEmail || '').trim().toLowerCase();
   const isOwner = isOwnerEmail(cleanEmail) || (userId && isOwnerEmail(userId));
 
-  // 1. Owner fast-track: owner is ALWAYS completed
-  if (isOwner) {
-    const savedCountry = (typeof window !== 'undefined' ? localStorage.getItem('kempo_country_code') : '') || '+234';
-    const cleanCountry = savedCountry.startsWith('+') ? savedCountry : `+${savedCountry}`;
-    const savedId = (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_id') : '') || `Kempo Pro ${cleanCountry}A5738`;
-
-    const ownerProfile: UserProfileData = {
-      id: userId || 'usr-owner-kempo',
-      email: cleanEmail || 'preciousowenaze4@gmail.com',
-      displayName: 'Precious Ddkid',
-      avatarUrl: (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_avatar') : '') || '',
-      accountType: 'creator',
-      kempoId: savedId,
-      countryCode: cleanCountry,
-      preferences: DEFAULT_PREFERENCES,
-      isOnboarded: true,
-      isProfileCompleted: true,
-      is_profile_completed: true,
-      status: 'verified',
-      isVerified: true,
-      isAdmin: true,
-    };
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('kempo_user_profile', JSON.stringify(ownerProfile));
-      localStorage.setItem('kempo_profile_completed', 'true');
-      localStorage.setItem('kempo_onboarded_completed', 'true');
-      try {
-        const regRaw = localStorage.getItem('kempo_completed_accounts') || '{}';
+  // 1. Check local persistent caches first for returning users
+  if (typeof window !== 'undefined') {
+    // 1a. Check completed accounts registry for this specific email
+    try {
+      const regRaw = localStorage.getItem('kempo_completed_accounts');
+      if (regRaw) {
         const reg = JSON.parse(regRaw);
-        if (cleanEmail) reg[cleanEmail] = true;
-        if (userId) reg[userId] = true;
-        localStorage.setItem('kempo_completed_accounts', JSON.stringify(reg));
-      } catch {}
+        const match = (cleanEmail && reg[cleanEmail]) || (userId && reg[userId]);
+        if (match && typeof match === 'object') {
+          return match as UserProfileData;
+        }
+      }
+    } catch {}
+
+    // 1b. Check current active profile cache if it matches this email
+    const cached = localStorage.getItem('kempo_user_profile');
+    if (cached) {
+      try {
+        const parsed: UserProfileData = JSON.parse(cached);
+        const cachedEmail = (parsed.email || '').trim().toLowerCase();
+        if (
+          (cleanEmail && cachedEmail === cleanEmail) ||
+          (userId && parsed.id === userId)
+        ) {
+          if (parsed.isProfileCompleted || parsed.isOnboarded) {
+            return parsed;
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
     }
-    return ownerProfile;
   }
 
   // 2. Try persistent local caches first for instant 0ms UI response (prevents blinking!)
@@ -470,32 +467,82 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
   return null;
 }
 
-// Check profile status in Supabase before routing (Bypasses setup for returning users)
+// Check profile status in Supabase before routing (Bypasses setup ONLY for users who have completed before)
 export async function checkUserProfileCompletion(
   userId: string,
   userEmail?: string
 ): Promise<{ isCompleted: boolean; profile: UserProfileData | null }> {
   const cleanEmail = (userEmail || '').trim().toLowerCase();
 
-  // 1. Owner fast-track
-  if (isOwnerEmail(cleanEmail) || isOwnerEmail(userId)) {
-    const ownerProfile = await fetchUserProfile(userId, cleanEmail);
-    return { isCompleted: true, profile: ownerProfile };
+  // 1. Check local persistent cache for this email first
+  if (typeof window !== 'undefined' && cleanEmail) {
+    const isPerEmailDone = localStorage.getItem('kempo_completed_' + cleanEmail) === 'true';
+    if (isPerEmailDone) {
+      const cached = localStorage.getItem('kempo_user_profile');
+      if (cached) {
+        try {
+          const parsed: UserProfileData = JSON.parse(cached);
+          if (parsed.email && parsed.email.toLowerCase() === cleanEmail) {
+            return { isCompleted: true, profile: parsed };
+          }
+        } catch {}
+      }
+    }
   }
 
-  // 2. Fetch from cache or Supabase
-  const profile = await fetchUserProfile(userId, cleanEmail);
-  if (profile) {
-    const isCompleted = Boolean(
-      profile.isProfileCompleted ||
-      profile.is_profile_completed ||
-      profile.isOnboarded ||
-      (profile.displayName && profile.displayName !== 'Kempo User') ||
-      (typeof window !== 'undefined' && localStorage.getItem('kempo_profile_completed') === 'true')
-    );
-    if (isCompleted) {
-      return { isCompleted: true, profile };
+  // 2. Query Supabase database 'profiles' table (True Cloud Authority)
+  try {
+    let query = supabase.from('profiles').select('*');
+    if (userId && cleanEmail) {
+      query = query.or(`id.eq.${userId},email.ilike.${cleanEmail}`);
+    } else if (userId) {
+      query = query.eq('id', userId);
+    } else if (cleanEmail) {
+      query = query.ilike('email', cleanEmail);
     }
+
+    const { data, error } = await query.maybeSingle();
+    if (!error && data) {
+      const isCompletedInDb = Boolean(
+        data.is_profile_completed === true ||
+        data.is_onboarded === true
+      );
+
+      if (isCompletedInDb) {
+        const isRecordOwner = isOwnerEmail(data.email || cleanEmail);
+        const profile: UserProfileData = {
+          id: data.id || userId || 'user',
+          email: data.email || cleanEmail,
+          displayName: data.display_name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
+          avatarUrl: data.avatar_url || '',
+          accountType: data.account_type || (isRecordOwner ? 'creator' : 'personal'),
+          category: data.category || data.account_type,
+          phoneNumber: data.phone_number,
+          countryCode: data.country_code,
+          countryName: data.country_name,
+          kempoId: data.kempo_id || `Kempo Pro ${data.country_code || '+234'}A5738`,
+          preferences: data.preferences || DEFAULT_PREFERENCES,
+          isOnboarded: true,
+          isProfileCompleted: true,
+          is_profile_completed: true,
+          status: data.status || (isRecordOwner ? 'verified' : 'active'),
+          isVerified: Boolean(data.is_verified || isRecordOwner),
+          isAdmin: isRecordOwner,
+        };
+
+        if (typeof window !== 'undefined') {
+          if (cleanEmail) {
+            localStorage.setItem('kempo_completed_' + cleanEmail, 'true');
+          }
+          localStorage.setItem('kempo_profile_completed', 'true');
+          localStorage.setItem('kempo_user_profile', JSON.stringify(profile));
+        }
+
+        return { isCompleted: true, profile };
+      }
+    }
+  } catch (err) {
+    console.warn('Supabase profile query check notice:', err);
   }
 
   // 3. Check Supabase Auth user metadata
@@ -505,24 +552,25 @@ export async function checkUserProfileCompletion(
       const meta = authData.user.user_metadata || {};
       const hasMetaOnboarded = Boolean(
         meta.is_profile_completed === true ||
-        meta.is_onboarded === true ||
-        meta.full_name ||
-        meta.name ||
-        meta.display_name
+        meta.is_onboarded === true
       );
       if (hasMetaOnboarded) {
+        const isRecordOwner = isOwnerEmail(authData.user.email || cleanEmail);
         const fallbackProfile: UserProfileData = {
           id: authData.user.id,
           email: authData.user.email || cleanEmail || '',
-          displayName: meta.display_name || meta.full_name || meta.name || 'Kempo User',
+          displayName: meta.display_name || meta.full_name || meta.name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
           avatarUrl: meta.avatar_url || meta.picture || '',
-          accountType: meta.account_type || 'personal',
-          kempoId: meta.kempo_id || generateStandardUserKempoId(),
+          accountType: meta.account_type || (isRecordOwner ? 'creator' : 'personal'),
+          kempoId: meta.kempo_id || `Kempo Pro +234A5738`,
           preferences: meta.preferences || DEFAULT_PREFERENCES,
           isOnboarded: true,
           isProfileCompleted: true,
           is_profile_completed: true,
         };
+        if (typeof window !== 'undefined' && cleanEmail) {
+          localStorage.setItem('kempo_completed_' + cleanEmail, 'true');
+        }
         return { isCompleted: true, profile: fallbackProfile };
       }
     }
@@ -530,22 +578,8 @@ export async function checkUserProfileCompletion(
     console.warn('Profile completion check warning:', err);
   }
 
-  // 4. Check if local cache has evidence of completion on this device
-  if (typeof window !== 'undefined') {
-    const isLocalDone =
-      localStorage.getItem('kempo_profile_completed') === 'true' ||
-      localStorage.getItem('kempo_onboarded_completed') === 'true';
-    if (isLocalDone) {
-      const cached = localStorage.getItem('kempo_user_profile');
-      if (cached) {
-        try {
-          const parsed = JSON.parse(cached);
-          return { isCompleted: true, profile: parsed };
-        } catch {}
-      }
-    }
-  }
-
+  // 4. If Supabase or local device has NO verified completion for this email:
+  // This is a FIRST-TIME email! Return isCompleted: false so the 3-step setup is displayed!
   return { isCompleted: false, profile: null };
 }
 

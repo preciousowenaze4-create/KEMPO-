@@ -70,12 +70,12 @@ const hasCompletedOnboarding = (email?: string, userId?: string): boolean => {
 
   const cleanEmail = (email || '').trim().toLowerCase();
   const storedUser = (localStorage.getItem('kempo_auth_user') || '').trim().toLowerCase();
+  const targetEmail = cleanEmail || storedUser;
 
-  // 1. Owner fast-track: owner accounts are always registered & verified
-  if (cleanEmail && isOwnerEmail(cleanEmail)) {
-    return true;
-  }
-  if (storedUser && isOwnerEmail(storedUser)) {
+  if (!targetEmail && !userId) return false;
+
+  // 1. Check per-email completed flag in localStorage
+  if (targetEmail && localStorage.getItem('kempo_completed_' + targetEmail) === 'true') {
     return true;
   }
 
@@ -84,13 +84,12 @@ const hasCompletedOnboarding = (email?: string, userId?: string): boolean => {
     const regRaw = localStorage.getItem('kempo_completed_accounts');
     if (regRaw) {
       const reg = JSON.parse(regRaw);
-      if (cleanEmail && reg[cleanEmail]) return true;
+      if (targetEmail && reg[targetEmail]) return true;
       if (userId && reg[userId]) return true;
-      if (storedUser && reg[storedUser]) return true;
     }
   } catch {}
 
-  // 3. Check persistent profile completed flags & cached profile
+  // 3. Check persistent profile completed flags & cached profile for this specific email
   if (
     localStorage.getItem('kempo_profile_completed') === 'true' ||
     localStorage.getItem('kempo_onboarded_completed') === 'true'
@@ -99,20 +98,15 @@ const hasCompletedOnboarding = (email?: string, userId?: string): boolean => {
     if (cachedProfile) {
       try {
         const parsed = JSON.parse(cachedProfile);
-        if (parsed.isProfileCompleted || parsed.isOnboarded || parsed.is_profile_completed) {
-          if (!cleanEmail || !parsed.email || parsed.email.toLowerCase() === cleanEmail) {
-            return true;
-          }
+        const pEmail = (parsed.email || '').trim().toLowerCase();
+        if (
+          (parsed.isProfileCompleted || parsed.isOnboarded || parsed.is_profile_completed) &&
+          (!targetEmail || pEmail === targetEmail)
+        ) {
+          return true;
         }
       } catch {}
-    } else {
-      return true;
     }
-  }
-
-  // 4. Check active browser session
-  if (sessionStorage.getItem('kempo_dashboard_active') === 'true') {
-    return true;
   }
 
   return false;
@@ -529,10 +523,14 @@ export default function App() {
     setShowOnboarding(false);
 
     if (typeof window !== 'undefined') {
+      const email = (profile.email || currentUserEmail || '').trim().toLowerCase();
+      if (email) {
+        localStorage.setItem('kempo_completed_' + email, 'true');
+      }
       sessionStorage.setItem('kempo_dashboard_active', 'true');
       localStorage.setItem('kempo_profile_completed', 'true');
       localStorage.setItem('kempo_onboarded_completed', 'true');
-      const email = (profile.email || currentUserEmail || '').trim().toLowerCase();
+      localStorage.setItem('kempo_user_profile', JSON.stringify(profile));
       try {
         const regRaw = localStorage.getItem('kempo_completed_accounts') || '{}';
         const reg = JSON.parse(regRaw);
