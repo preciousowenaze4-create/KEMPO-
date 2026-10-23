@@ -1484,6 +1484,14 @@ export default function App() {
             onSendMessage={handleSendMessage}
             onStartCall={(chat, isVideo) => handleStartCall(chat, isVideo)}
             onMarkRead={handleMarkRead}
+            onClearChat={(chatId) => {
+              setChats((prev) =>
+                prev.map((c) => (c.id === chatId ? { ...c, messages: [], lastMessage: '' } : c))
+              );
+              setSelectedChat((prev) =>
+                prev && prev.id === chatId ? { ...prev, messages: [], lastMessage: '' } : prev
+              );
+            }}
           />
         )}
 

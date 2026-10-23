@@ -17,10 +17,12 @@ import {
   Play,
   Pause,
   Paperclip,
+  Search,
 } from 'lucide-react';
 import { Chat, Message } from '../types';
 import { VoiceNoteRecorder } from './VoiceNoteRecorder';
 import { ChatMessageMedia } from './ChatMessageMedia';
+import { ContactInfoScreen } from './ContactInfoScreen';
 import { realtimeService } from '../lib/realtimeService';
 import { compressImage, saveLocalMedia } from '../lib/mediaStorage';
 import { offlineQueue } from '../lib/offlineQueue';
@@ -44,6 +46,7 @@ interface ChatRoomProps {
   ) => void;
   onStartCall?: (chat: Chat, isVideo: boolean) => void;
   onMarkRead?: (chatId: string) => void;
+  onClearChat?: (chatId: string) => void;
 }
 
 export const ChatRoom: React.FC<ChatRoomProps> = ({
@@ -55,11 +58,19 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   onSendMessage,
   onStartCall,
   onMarkRead,
+  onClearChat,
 }) => {
   const [inputText, setInputText] = useState('');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [selectedReactionMessageId, setSelectedReactionMessageId] = useState<string | null>(null);
+
+  // Contact Info Screen state
+  const [showContactInfo, setShowContactInfo] = useState(false);
+
+  // In-chat Search state
+  const [isSearchingInChat, setIsSearchingInChat] = useState(false);
+  const [inChatSearchQuery, setInChatSearchQuery] = useState('');
 
   // Advanced Voice Note recorder active state
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
@@ -317,7 +328,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     <div className="fixed inset-0 z-50 bg-[#0c0c0e] flex flex-col select-none overflow-hidden animate-in fade-in slide-in-from-right duration-200">
       {/* Top WhatsApp Chat Navigation Bar */}
       <div className="pt-[max(env(safe-area-inset-top),8px)] pb-2 bg-[#161619]/95 backdrop-blur-md border-b border-neutral-800/80 px-3 flex items-center justify-between z-10 shrink-0">
-        {/* Left: Back button + Avatar + Name */}
+        {/* Left: Back button + Avatar + Name (Tapping Avatar/Name opens Contact Info) */}
         <div className="flex items-center gap-1.5 min-w-0">
           <button
             onClick={onBack}
@@ -327,39 +338,46 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             <span className="text-[15px] font-medium hidden sm:inline">Chats</span>
           </button>
 
-          {/* Contact Avatar */}
-          <div className="relative shrink-0 ml-1">
-            <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-neutral-800">
-              {chat.avatarType === 'photo' && chat.avatarUrl ? (
-                <img src={chat.avatarUrl} alt={chat.name} className="w-full h-full object-cover" />
-              ) : (
-                <div
-                  className="w-full h-full flex items-center justify-center text-white font-bold text-sm"
-                  style={{ backgroundColor: chat.avatarBg || '#1c1c1e' }}
-                >
-                  {chat.name.charAt(0).toUpperCase()}
-                </div>
+          {/* Contact Avatar & Info (Tapping opens Contact Info screen) */}
+          <div
+            onClick={() => setShowContactInfo(true)}
+            className="flex items-center min-w-0 cursor-pointer active:opacity-75 transition p-1 -m-1 rounded-xl hover:bg-neutral-800/40"
+            title="View contact info"
+          >
+            {/* Contact Avatar */}
+            <div className="relative shrink-0 ml-1">
+              <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-neutral-800 ring-1 ring-red-500/40">
+                {chat.avatarType === 'photo' && chat.avatarUrl ? (
+                  <img src={chat.avatarUrl} alt={chat.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div
+                    className="w-full h-full flex items-center justify-center text-white font-bold text-sm"
+                    style={{ backgroundColor: chat.avatarBg || '#1c1c1e' }}
+                  >
+                    {chat.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
+              {chat.online && (
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black"></span>
               )}
             </div>
-            {chat.online && (
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black"></span>
-            )}
-          </div>
 
-          {/* Contact info */}
-          <div className="ml-2 min-w-0">
-            <h2 className="text-[15.5px] font-semibold text-white truncate tracking-tight">
-              {chat.name}
-            </h2>
-            <p className="text-[11.5px] text-neutral-400 truncate">
-              {isTyping ? (
-                <span className="text-red-400 font-medium">typing...</span>
-              ) : chat.online ? (
-                <span className="text-emerald-400">online</span>
-              ) : (
-                `last seen ${chat.timestamp}`
-              )}
-            </p>
+            {/* Contact info */}
+            <div className="ml-2 min-w-0">
+              <h2 className="text-[15.5px] font-semibold text-white truncate tracking-tight hover:text-red-400 transition">
+                {chat.name}
+              </h2>
+              <p className="text-[11.5px] text-neutral-400 truncate">
+                {isTyping ? (
+                  <span className="text-red-400 font-medium">typing...</span>
+                ) : chat.online ? (
+                  <span className="text-emerald-400">online</span>
+                ) : (
+                  `last seen ${chat.timestamp}`
+                )}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -383,6 +401,35 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           </button>
         </div>
       </div>
+
+      {/* In-Chat Search Bar */}
+      {isSearchingInChat && (
+        <div className="bg-[#18181c] border-b border-neutral-800 px-3 py-2 flex items-center gap-2 animate-in slide-in-from-top-2">
+          <Search className="w-4 h-4 text-red-500 shrink-0" />
+          <input
+            type="text"
+            autoFocus
+            value={inChatSearchQuery}
+            onChange={(e) => setInChatSearchQuery(e.target.value)}
+            placeholder={`Search in conversation with ${chat.name}...`}
+            className="flex-1 bg-transparent text-sm text-white placeholder-neutral-500 outline-none"
+          />
+          {inChatSearchQuery && (
+            <span className="text-xs text-neutral-400 font-medium">
+              {chat.messages.filter((m) => (m.text || '').toLowerCase().includes(inChatSearchQuery.trim().toLowerCase())).length} found
+            </span>
+          )}
+          <button
+            onClick={() => {
+              setIsSearchingInChat(false);
+              setInChatSearchQuery('');
+            }}
+            className="p-1 rounded-full text-neutral-400 hover:text-white cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Messages Canvas with WhatsApp dark doodle wallpaper */}
       <div
@@ -417,7 +464,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         )}
 
         {/* Messages List */}
-        {chat.messages.map((msg) => {
+        {(inChatSearchQuery.trim()
+          ? chat.messages.filter((m) =>
+              (m.text || '').toLowerCase().includes(inChatSearchQuery.trim().toLowerCase())
+            )
+          : chat.messages
+        ).map((msg) => {
           const isMe = msg.senderId === 'me' || msg.senderId === myId;
 
           return (
@@ -676,6 +728,29 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           </>
         )}
       </div>
+
+      {/* Contact Info Screen */}
+      {showContactInfo && (
+        <ContactInfoScreen
+          chat={chat}
+          onBack={() => setShowContactInfo(false)}
+          onStartCall={(targetChat, isVideo) => {
+            setShowContactInfo(false);
+            onStartCall?.(targetChat, isVideo);
+          }}
+          onSearchChat={() => {
+            setShowContactInfo(false);
+            setIsSearchingInChat(true);
+          }}
+          onClearChat={(chatId) => {
+            onClearChat?.(chatId);
+          }}
+          onBlockContact={(chatId) => {
+            onClearChat?.(chatId);
+          }}
+          onReportContact={() => {}}
+        />
+      )}
     </div>
   );
 };
