@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -17,6 +17,7 @@ import {
 import { UserProfileData } from '../types';
 import { uploadAvatarToSupabase, uploadCoverToSupabase, saveFullUserProfile, isVideoMediaUrl } from '../lib/supabase';
 import { isOwnerEmail, OWNER_FIXED_ID } from '../lib/accountRules';
+import { saveMediaToOfflineCache, getMediaFromOfflineCache, safeLocalStorageSet } from '../lib/mediaCache';
 
 interface ProfileEditScreenProps {
   userProfile: UserProfileData | null;
@@ -152,6 +153,24 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
+  // Load offline cached cover & avatar on mount
+  useEffect(() => {
+    let isMounted = true;
+    getMediaFromOfflineCache('kempo_user_cover').then((cached) => {
+      if (isMounted && cached) {
+        setCoverUrl(cached);
+      }
+    });
+    getMediaFromOfflineCache('kempo_user_avatar').then((cached) => {
+      if (isMounted && cached) {
+        setAvatarUrl(cached);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   // Handle avatar upload from device
   const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -160,15 +179,10 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     setAvatarFile(file);
     setShowPhotoOptions(false);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setAvatarUrl(dataUrl);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('kempo_user_avatar', dataUrl);
-      }
-    };
-    reader.readAsDataURL(file);
+    // Instant 0ms object URL preview
+    const previewUrl = URL.createObjectURL(file);
+    setAvatarUrl(previewUrl);
+    saveMediaToOfflineCache('kempo_user_avatar', file);
     e.target.value = '';
   };
 
@@ -184,16 +198,15 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     const detectedType: 'image' | 'video' = isVideo ? 'video' : 'image';
     setCoverType(detectedType);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      setCoverUrl(dataUrl);
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('kempo_user_cover', dataUrl);
-        localStorage.setItem('kempo_user_cover_type', detectedType);
-      }
-    };
-    reader.readAsDataURL(file);
+    // Instant 0ms object URL preview
+    const previewUrl = URL.createObjectURL(file);
+    setCoverUrl(previewUrl);
+
+    // Store in high-capacity offline IndexedDB cache
+    saveMediaToOfflineCache('kempo_user_cover', file);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('kempo_user_cover_type', detectedType);
+    }
     e.target.value = '';
   };
 
@@ -219,49 +232,21 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     setEditingField(null);
   };
 
-  // Save complete profile changes to Supabase and LocalStorage
+  // Fast Save & Immediate UI Response (Optimistic UI Update + Background Cloud Upload)
   const handleSaveProfile = async () => {
     setIsSaving(true);
-    let finalAvatarUrl = avatarUrl;
-    let finalCoverUrl = coverUrl;
-
-    // 1. Upload avatar to Supabase Storage if a new file was chosen
-    if (avatarFile) {
-      try {
-        const uploadedAvatar = await uploadAvatarToSupabase(avatarFile, userProfile?.id || 'user');
-        if (uploadedAvatar) {
-          finalAvatarUrl = uploadedAvatar;
-          setAvatarUrl(uploadedAvatar);
-        }
-      } catch (err) {
-        console.warn('Supabase avatar upload notice:', err);
-      }
-    }
-
-    // 2. Upload cover photo to Supabase Storage if a new file was chosen
-    if (coverFile) {
-      try {
-        const uploadedCover = await uploadCoverToSupabase(coverFile, userProfile?.id || 'user');
-        if (uploadedCover) {
-          finalCoverUrl = uploadedCover;
-          setCoverUrl(uploadedCover);
-        }
-      } catch (err) {
-        console.warn('Supabase cover photo upload notice:', err);
-      }
-    }
 
     const effectiveCoverType: 'image' | 'video' =
-      coverType === 'video' || isVideoMediaUrl(finalCoverUrl) ? 'video' : 'image';
+      coverType === 'video' || isVideoMediaUrl(coverUrl) ? 'video' : 'image';
 
-    // 3. Build full updated profile object
+    // 1. Build updated profile object immediately with local URLs
     const finalProfile: UserProfileData = {
       id: userProfile?.id || 'user',
       email: rawEmail,
       accountType: userProfile?.accountType || (isOwner ? 'creator' : 'personal'),
       displayName: displayName.trim() || (isOwner ? 'Precious Ddkid' : 'Kempo User'),
-      avatarUrl: finalAvatarUrl,
-      coverUrl: finalCoverUrl,
+      avatarUrl: avatarUrl,
+      coverUrl: coverUrl,
       coverType: effectiveCoverType,
       kempoId: shareableKempoId,
       countryCode: cleanCode,
@@ -281,53 +266,92 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
       isAdmin: isOwner,
     };
 
-    // 4. Cache locally for instant 0ms offline availability
+    // 2. Safe local caching without localStorage QuotaExceededError
     if (typeof window !== 'undefined') {
-      if (finalAvatarUrl) {
-        localStorage.setItem('kempo_user_avatar', finalAvatarUrl);
-      }
-      if (finalCoverUrl) {
-        localStorage.setItem('kempo_user_cover', finalCoverUrl);
-        localStorage.setItem('kempo_user_cover_type', effectiveCoverType);
-      } else {
-        localStorage.removeItem('kempo_user_cover');
-        localStorage.removeItem('kempo_user_cover_type');
-      }
-      localStorage.setItem('kempo_user_profile', JSON.stringify(finalProfile));
-      localStorage.setItem('kempo_auth_name', finalProfile.displayName);
-      localStorage.setItem('kempo_status_thought', statusThought);
-      localStorage.setItem('kempo_profile_completed', 'true');
-      localStorage.setItem('kempo_onboarded_completed', 'true');
-      localStorage.setItem('kempo_country_code', cleanCode);
-      localStorage.setItem('kempo_user_id', shareableKempoId);
-
-      // Register in permanent accounts registry
       try {
+        const leanProfile = { ...finalProfile };
+        if (leanProfile.coverUrl && (leanProfile.coverUrl.startsWith('blob:') || leanProfile.coverUrl.length > 200000)) {
+          leanProfile.coverUrl = 'indexeddb://kempo_user_cover';
+        }
+        if (leanProfile.avatarUrl && (leanProfile.avatarUrl.startsWith('blob:') || leanProfile.avatarUrl.length > 200000)) {
+          leanProfile.avatarUrl = 'indexeddb://kempo_user_avatar';
+        }
+
+        localStorage.setItem('kempo_user_profile', JSON.stringify(leanProfile));
+        localStorage.setItem('kempo_auth_name', finalProfile.displayName);
+        localStorage.setItem('kempo_status_thought', statusThought);
+        localStorage.setItem('kempo_profile_completed', 'true');
+        localStorage.setItem('kempo_onboarded_completed', 'true');
+        localStorage.setItem('kempo_country_code', cleanCode);
+        localStorage.setItem('kempo_user_id', shareableKempoId);
+        localStorage.setItem('kempo_user_cover_type', effectiveCoverType);
+
+        if (finalProfile.coverUrl && !finalProfile.coverUrl.startsWith('blob:')) {
+          safeLocalStorageSet('kempo_user_cover', finalProfile.coverUrl);
+        }
+        if (finalProfile.avatarUrl && !finalProfile.avatarUrl.startsWith('blob:')) {
+          safeLocalStorageSet('kempo_user_avatar', finalProfile.avatarUrl);
+        }
+
         const regRaw = localStorage.getItem('kempo_completed_accounts') || '{}';
         const reg = JSON.parse(regRaw);
-        if (rawEmail) reg[rawEmail.toLowerCase()] = finalProfile;
-        if (finalProfile.id) reg[finalProfile.id] = finalProfile;
+        if (rawEmail) reg[rawEmail.toLowerCase()] = leanProfile;
+        if (finalProfile.id) reg[finalProfile.id] = leanProfile;
         localStorage.setItem('kempo_completed_accounts', JSON.stringify(reg));
-      } catch {}
+      } catch (storageErr) {
+        console.warn('Local profile cache note:', storageErr);
+      }
     }
 
-    // 5. Save to Supabase database & auth metadata
-    try {
-      await saveFullUserProfile(finalProfile);
-    } catch (err) {
-      console.warn('Supabase full profile save notice:', err);
-    }
-
+    // 3. Complete UI update immediately! (0ms delay, no stuck spinner)
     setIsSaving(false);
     setSaveSuccessNotice(true);
-
-    // Notify parent state immediately so bottom tab bar avatar and profile update in real-time
     onSaveSuccess(finalProfile);
 
     setTimeout(() => {
       setSaveSuccessNotice(false);
       onBack();
-    }, 600);
+    }, 350);
+
+    // 4. Run Supabase Cloud Upload Asynchronously in Background (Non-Blocking)
+    (async () => {
+      try {
+        let cloudAvatarUrl = finalProfile.avatarUrl;
+        let cloudCoverUrl = finalProfile.coverUrl;
+
+        if (avatarFile) {
+          try {
+            const uploaded = await uploadAvatarToSupabase(avatarFile, finalProfile.id);
+            if (uploaded && !uploaded.startsWith('data:')) {
+              cloudAvatarUrl = uploaded;
+            }
+          } catch (e) {
+            console.info('Background avatar upload note:', e);
+          }
+        }
+
+        if (coverFile) {
+          try {
+            const uploaded = await uploadCoverToSupabase(coverFile, finalProfile.id);
+            if (uploaded && !uploaded.startsWith('data:')) {
+              cloudCoverUrl = uploaded;
+            }
+          } catch (e) {
+            console.info('Background cover upload note:', e);
+          }
+        }
+
+        const syncedProfile: UserProfileData = {
+          ...finalProfile,
+          avatarUrl: cloudAvatarUrl,
+          coverUrl: cloudCoverUrl,
+        };
+
+        await saveFullUserProfile(syncedProfile);
+      } catch (cloudErr) {
+        console.warn('Background Supabase sync notice:', cloudErr);
+      }
+    })();
   };
 
   return (
@@ -368,13 +392,13 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
           <div className="w-7" />
         </div>
 
-        {/* WhatsApp Business-Style Cover Photo/Video & Profile Picture Section */}
-        <div className="relative w-full rounded-3xl overflow-hidden mb-6 bg-[#16161a] border border-neutral-800/90 shadow-2xl">
-          {/* Header Cover Background Banner (Supports Images & Motion Videos) */}
+        {/* Full-Bleed Cover Photo/Video & Profile Picture Hero (No Dark Box) */}
+        <div className="relative w-full rounded-3xl overflow-hidden mb-6 border border-neutral-800/80 shadow-2xl min-h-[260px] sm:min-h-[290px] flex flex-col justify-end">
+          {/* Full-Bleed Background Video / Cover Image Stretching Full-Width & Full-Height */}
           <div
             onClick={() => coverInputRef.current?.click()}
-            className="relative w-full h-36 sm:h-44 bg-gradient-to-r from-[#17171d] via-[#22222a] to-[#16161c] cursor-pointer group overflow-hidden"
-            title="Tap to change header cover photo or video from gallery"
+            className="absolute inset-0 w-full h-full cursor-pointer group overflow-hidden bg-gradient-to-br from-[#17171d] via-[#22222a] to-[#121216]"
+            title="Tap to change header cover photo or video"
           >
             {coverUrl ? (
               isVideoMediaUrl(coverUrl) || coverType === 'video' ? (
@@ -396,23 +420,23 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center text-neutral-500 group-hover:text-neutral-400 transition bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neutral-800/40 via-transparent to-transparent">
                 <ImageIcon className="w-8 h-8 mb-1.5 opacity-35 group-hover:opacity-60 transition" />
-                <span className="text-[11px] font-bold tracking-wider uppercase text-neutral-400/80">
+                <span className="text-[11px] font-bold tracking-wider uppercase text-neutral-400/80 drop-shadow">
                   Add Cover Photo or Video
                 </span>
               </div>
             )}
 
-            {/* Subtle Gradient Overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
+            {/* Dark Gradient Overlay for optimal legibility and cinematic depth */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/20 pointer-events-none" />
 
-            {/* Camera badge on the right side of the cover area - Triggers native phone media picker for header photo/video */}
+            {/* Camera badge on the bottom-right of the full-bleed cover area */}
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 coverInputRef.current?.click();
               }}
-              className="absolute right-3.5 bottom-3.5 w-10 h-10 rounded-full bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700/80 text-white flex items-center justify-center shadow-xl shadow-black/80 active:scale-90 transition cursor-pointer group"
+              className="absolute right-3.5 bottom-3.5 z-20 w-10 h-10 rounded-full bg-black/70 hover:bg-black/90 backdrop-blur-md border border-white/20 text-white flex items-center justify-center shadow-xl shadow-black/80 active:scale-90 transition cursor-pointer group"
               title="Pick header cover photo or video from gallery"
               aria-label="Pick cover photo or video"
             >
@@ -420,11 +444,11 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
             </button>
           </div>
 
-          {/* Centered Circular Avatar (Overlapping cover banner) */}
-          <div className="flex flex-col items-center -mt-16 sm:-mt-18 pb-4 relative z-10">
+          {/* Overlaid Profile Avatar & "EDIT PHOTO" Action (Directly on top of full-bleed cover) */}
+          <div className="relative z-10 flex flex-col items-center py-6 pointer-events-auto">
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-[#18181c] ring-4 ring-red-600 shadow-2xl shadow-black/90 cursor-pointer group flex items-center justify-center transition active:scale-98"
+              className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-[#18181c]/80 backdrop-blur-xs ring-4 ring-red-600 shadow-2xl shadow-black/90 cursor-pointer group flex items-center justify-center transition active:scale-98"
               title="Tap to select photo from phone gallery or camera"
             >
               {avatarUrl ? (
@@ -439,16 +463,16 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
                 </span>
               )}
 
-              <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
                 <Camera className="w-7 h-7 text-white drop-shadow-md" />
               </div>
             </div>
 
-            {/* "Edit photo" Option in Kempo Pro Red */}
+            {/* "Edit photo" Option in Kempo Pro Red with drop-shadow */}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="mt-2.5 text-xs font-black uppercase tracking-wider text-red-500 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center gap-1.5"
+              className="mt-2.5 text-xs font-black uppercase tracking-wider text-red-500 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center gap-1.5 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"
             >
               <span>Edit photo</span>
             </button>

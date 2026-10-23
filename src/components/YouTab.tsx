@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { UserProfileData, Chat, AppPreferences } from '../types';
 import { uploadAvatarToSupabase, saveFullUserProfile, isVideoMediaUrl } from '../lib/supabase';
+import { getMediaFromOfflineCache } from '../lib/mediaCache';
 import {
   isOwnerEmail,
   OWNER_FIXED_ID,
@@ -180,6 +181,24 @@ export const YouTab: React.FC<YouTabProps> = ({
       setCoverType(userProfile.coverType || (isVideoMediaUrl(userProfile.coverUrl) ? 'video' : 'image'));
     }
   }, [userProfile?.coverUrl, userProfile?.coverType]);
+
+  // Load offline cached media on mount
+  useEffect(() => {
+    let isMounted = true;
+    getMediaFromOfflineCache('kempo_user_cover').then((cached) => {
+      if (isMounted && cached) {
+        setCoverUrl(cached);
+      }
+    });
+    getMediaFromOfflineCache('kempo_user_avatar').then((cached) => {
+      if (isMounted && cached) {
+        setAvatarUrl(cached);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Copy ID state
   const [copiedId, setCopiedId] = useState(false);
@@ -344,12 +363,12 @@ export const YouTab: React.FC<YouTabProps> = ({
         </div>
       </div>
 
-      {/* 1. WhatsApp Business-Style Header Cover Banner & Profile */}
-      <div className="relative rounded-3xl overflow-hidden bg-[#161619] border border-neutral-800/80 shadow-2xl pb-4">
-        {/* Cover Photo / Video Header */}
+      {/* 1. Full-Bleed Cover Photo/Video & Profile Hero (No Dark Box) */}
+      <div className="relative rounded-3xl overflow-hidden border border-neutral-800/80 shadow-2xl min-h-[310px] sm:min-h-[340px] flex flex-col justify-end">
+        {/* Full-Bleed Cover Background Video or Picture Stretching Full Width & Height */}
         <div
           onClick={() => setShowProfileEdit(true)}
-          className="relative w-full h-28 sm:h-36 bg-gradient-to-r from-[#17171d] via-[#22222a] to-[#16161c] cursor-pointer group overflow-hidden"
+          className="absolute inset-0 w-full h-full cursor-pointer group overflow-hidden bg-gradient-to-br from-[#17171d] via-[#22222a] to-[#16161c]"
           title="Tap to edit profile & cover photo or video"
         >
           {coverUrl ? (
@@ -371,16 +390,17 @@ export const YouTab: React.FC<YouTabProps> = ({
             )
           ) : (
             <div className="w-full h-full flex items-center justify-end p-3 text-neutral-600 group-hover:text-neutral-400 transition bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neutral-800/40 via-transparent to-transparent">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500/70 mr-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500/70 mr-1 drop-shadow">
                 Kempo Pro
               </span>
             </div>
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+          {/* Seamless gradient overlay ensuring user details & text remain ultra-readable */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/55 to-black/25 pointer-events-none" />
         </div>
 
-        {/* Profile Content Overlapping Banner */}
-        <div className="flex flex-col items-center text-center -mt-12 sm:-mt-14 px-4 select-none relative z-10">
+        {/* User Details Overlaid Directly on Top of Full-Bleed Cover */}
+        <div className="relative z-10 flex flex-col items-center text-center px-4 pt-8 pb-5 select-none">
           {/* Centered Circular Avatar with Camera Uploader */}
           <div
             className="relative cursor-pointer group mb-2"
@@ -391,7 +411,7 @@ export const YouTab: React.FC<YouTabProps> = ({
                 isOwner
                   ? 'ring-amber-500/80 shadow-amber-950/40'
                   : 'ring-red-600 shadow-red-950/50'
-              } bg-[#161619] flex items-center justify-center shadow-2xl transition group-hover:scale-102`}
+              } bg-[#161619]/80 backdrop-blur-xs flex items-center justify-center shadow-2xl transition group-hover:scale-102`}
             >
               {avatarUrl ? (
                 <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
@@ -410,7 +430,7 @@ export const YouTab: React.FC<YouTabProps> = ({
                 setShowProfileEdit(true);
               }}
               aria-label="Edit Profile"
-              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg shadow-red-950 ring-2 ring-black active:scale-90 transition cursor-pointer"
+              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg shadow-black/80 ring-2 ring-black active:scale-90 transition cursor-pointer"
             >
               {isUploadingAvatar ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
@@ -420,90 +440,90 @@ export const YouTab: React.FC<YouTabProps> = ({
             </button>
           </div>
 
-          {/* WhatsApp-Style Thought / Status Bubble */}
+          {/* Thought / Status Bubble */}
           <button
             type="button"
             onClick={() => {
               setStatusInput(statusThought);
               setShowStatusModal(true);
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1 mb-1.5 rounded-full bg-[#1c1c20] hover:bg-[#242429] border border-neutral-800 text-[11px] text-neutral-300 shadow-md transition active:scale-95 cursor-pointer relative"
+            className="inline-flex items-center gap-1.5 px-3 py-1 mb-1.5 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/10 text-[11px] text-neutral-200 shadow-lg transition active:scale-95 cursor-pointer relative"
             title="Tap to update status"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-            <span className="font-medium max-w-[200px] truncate">{statusThought}</span>
+            <span className="font-medium max-w-[200px] truncate drop-shadow-sm">{statusThought}</span>
           </button>
 
-        {/* Centered Display Name */}
-        <h2 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-2 mt-2.5">
-          <span>{displayName}</span>
-          {isOwner ? (
-            <Crown className="w-5 h-5 text-amber-400 fill-amber-400" />
-          ) : (
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black inline-block" title="Online"></span>
-          )}
-        </h2>
-
-        {/* Account Badge */}
-        <div className="mt-1 flex items-center justify-center">
-          {isOwner ? (
-            <span className="px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 text-white shadow-md shadow-red-950/50 border border-amber-400/40 flex items-center gap-1.5">
-              <span>👑</span>
-              <span>KEMPO PRO OWNER & ADMIN</span>
-            </span>
-          ) : (
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-950/60 text-red-300 border border-red-800/40 shadow-xs">
-              {accountType === 'personal' && 'Personal Account'}
-              {accountType === 'business' && 'Business Account'}
-              {accountType === 'creator' && 'Creator Profile'}
-              {accountType === 'developer_gamer' && 'Developer / Gamer'}
-            </span>
-          )}
-        </div>
-
-        {/* 2. User ID Sizing & Copy Button (Small font, non-wrapping with quick one-tap copy button) */}
-        <div className="mt-2.5 inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-xl bg-[#141417]/90 border border-neutral-800 shadow-inner">
-          <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
-            ID:
-          </span>
-          <span
-            className={`text-xs font-mono font-bold tracking-wide select-all ${
-              isOwner ? 'text-amber-400' : 'text-red-400'
-            }`}
-          >
-            {kempoId}
-          </span>
-          {/* Small Copy icon/button right next to User ID */}
-          <button
-            type="button"
-            onClick={handleCopyId}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white text-[10px] font-semibold transition active:scale-95 cursor-pointer ml-0.5"
-            title="Copy User ID"
-          >
-            {copiedId ? (
-              <>
-                <Check className="w-3 h-3 text-emerald-400 shrink-0" />
-                <span className="text-emerald-400 font-bold">Copied</span>
-              </>
+          {/* Centered Display Name with Clean Drop Shadow */}
+          <h2 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-2 mt-1 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
+            <span>{displayName}</span>
+            {isOwner ? (
+              <Crown className="w-5 h-5 text-amber-400 fill-amber-400 drop-shadow" />
             ) : (
-              <>
-                <Copy className="w-3 h-3 text-red-400 shrink-0" />
-                <span>Copy</span>
-              </>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black inline-block shadow-sm" title="Online"></span>
             )}
-          </button>
-          {/* Share Button */}
-          <button
-            type="button"
-            onClick={handleShareId}
-            className="p-1 rounded-md bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition active:scale-95 cursor-pointer"
-            title="Share ID"
-          >
-            <Share2 className="w-3 h-3" />
-          </button>
+          </h2>
+
+          {/* Account Badge */}
+          <div className="mt-1 flex items-center justify-center">
+            {isOwner ? (
+              <span className="px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 text-white shadow-lg shadow-black/60 border border-amber-400/40 flex items-center gap-1.5 backdrop-blur-xs">
+                <span>👑</span>
+                <span>KEMPO PRO OWNER & ADMIN</span>
+              </span>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-black/60 backdrop-blur-md text-red-300 border border-red-800/50 shadow-md">
+                {accountType === 'personal' && 'Personal Account'}
+                {accountType === 'business' && 'Business Account'}
+                {accountType === 'creator' && 'Creator Profile'}
+                {accountType === 'developer_gamer' && 'Developer / Gamer'}
+              </span>
+            )}
+          </div>
+
+          {/* 2. User ID Sizing & Copy Button */}
+          <div className="mt-2.5 inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-xl bg-black/65 backdrop-blur-md border border-white/10 shadow-lg">
+            <span className="text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+              ID:
+            </span>
+            <span
+              className={`text-xs font-mono font-bold tracking-wide select-all ${
+                isOwner ? 'text-amber-400' : 'text-red-400'
+              }`}
+            >
+              {kempoId}
+            </span>
+            {/* Small Copy icon/button right next to User ID */}
+            <button
+              type="button"
+              onClick={handleCopyId}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-800/80 hover:bg-neutral-700 text-neutral-200 hover:text-white text-[10px] font-semibold transition active:scale-95 cursor-pointer ml-0.5"
+              title="Copy User ID"
+            >
+              {copiedId ? (
+                <>
+                  <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span className="text-emerald-400 font-bold">Copied</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3 text-red-400 shrink-0" />
+                  <span>Copy</span>
+                </>
+              )}
+            </button>
+            {/* Share Button */}
+            <button
+              type="button"
+              onClick={handleShareId}
+              className="p-1 rounded-md bg-neutral-800/80 hover:bg-neutral-700 text-neutral-400 hover:text-white transition active:scale-95 cursor-pointer"
+              title="Share ID"
+            >
+              <Share2 className="w-3 h-3" />
+            </button>
+          </div>
         </div>
       </div>
-    </div>
 
       {/* WhatsApp-Style Group 1: Subscriptions, Lists, Broadcasts, Starred, Linked Devices */}
       <div className="rounded-2xl bg-[#161619] border border-neutral-800/80 overflow-hidden divide-y divide-[#222226]">

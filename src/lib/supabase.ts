@@ -126,11 +126,16 @@ export async function uploadAvatarToSupabase(file: File | Blob, userId: string):
   const filePath = `avatars/${fileName}`;
 
   try {
-    // Attempt uploading to Supabase Storage bucket 'avatars'
-    const { error } = await supabase.storage.from('avatars').upload(filePath, file, {
+    // Attempt uploading to Supabase Storage bucket 'avatars' with 6s timeout race
+    const uploadPromise = supabase.storage.from('avatars').upload(filePath, file, {
       cacheControl: '3600',
       upsert: true,
     });
+    const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 6000)
+    );
+
+    const { error } = await Promise.race([uploadPromise, timeoutPromise]);
 
     if (!error) {
       const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
@@ -181,13 +186,18 @@ export async function uploadCoverToSupabase(file: File | Blob, userId: string): 
   const contentType = file.type || (isVideo ? 'video/mp4' : 'image/jpeg');
 
   try {
-    // For video and media, try chat-media first then avatars bucket
+    // For video and media, try chat-media first then avatars bucket with 7s timeout safeguard
     const targetBucket = isVideo ? 'chat-media' : 'avatars';
-    const { error } = await supabase.storage.from(targetBucket).upload(filePath, file, {
+    const uploadPromise = supabase.storage.from(targetBucket).upload(filePath, file, {
       cacheControl: '3600',
       contentType,
       upsert: true,
     });
+    const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 7000)
+    );
+
+    const { error } = await Promise.race([uploadPromise, timeoutPromise]);
 
     if (!error) {
       const { data: publicUrlData } = supabase.storage.from(targetBucket).getPublicUrl(filePath);
@@ -197,11 +207,16 @@ export async function uploadCoverToSupabase(file: File | Blob, userId: string): 
     } else {
       // Try fallback bucket
       const altBucket = isVideo ? 'avatars' : 'chat-media';
-      const { error: altError } = await supabase.storage.from(altBucket).upload(filePath, file, {
+      const altPromise = supabase.storage.from(altBucket).upload(filePath, file, {
         cacheControl: '3600',
         contentType,
         upsert: true,
       });
+      const altTimeout = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: { message: 'Timeout' } }), 5000)
+      );
+
+      const { error: altError } = await Promise.race([altPromise, altTimeout]);
       if (!altError) {
         const { data: publicUrlData } = supabase.storage.from(altBucket).getPublicUrl(filePath);
         if (publicUrlData?.publicUrl) {
@@ -342,18 +357,31 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
 
   // 3. Cache locally for instant loading, offline capability & permanent memory
   if (typeof window !== 'undefined') {
-    localStorage.setItem('kempo_user_profile', JSON.stringify({ ...securedProfile, coverType: effectiveCoverType }));
-    localStorage.setItem('kempo_onboarded_completed', 'true');
-    localStorage.setItem('kempo_profile_completed', 'true');
-    localStorage.setItem('kempo_auth_user', securedProfile.email);
-    localStorage.setItem('kempo_auth_name', securedProfile.displayName);
-    localStorage.setItem('kempo_user_id', securedProfile.kempoId);
-    if (securedProfile.avatarUrl) {
-      localStorage.setItem('kempo_user_avatar', securedProfile.avatarUrl);
-    }
-    if (securedProfile.coverUrl) {
-      localStorage.setItem('kempo_user_cover', securedProfile.coverUrl);
+    try {
+      const leanProfile = { ...securedProfile, coverType: effectiveCoverType };
+      if (leanProfile.coverUrl && (leanProfile.coverUrl.startsWith('blob:') || leanProfile.coverUrl.length > 200000)) {
+        leanProfile.coverUrl = 'indexeddb://kempo_user_cover';
+      }
+      if (leanProfile.avatarUrl && (leanProfile.avatarUrl.startsWith('blob:') || leanProfile.avatarUrl.length > 200000)) {
+        leanProfile.avatarUrl = 'indexeddb://kempo_user_avatar';
+      }
+
+      localStorage.setItem('kempo_user_profile', JSON.stringify(leanProfile));
+      localStorage.setItem('kempo_onboarded_completed', 'true');
+      localStorage.setItem('kempo_profile_completed', 'true');
+      localStorage.setItem('kempo_auth_user', securedProfile.email);
+      localStorage.setItem('kempo_auth_name', securedProfile.displayName);
+      localStorage.setItem('kempo_user_id', securedProfile.kempoId);
       localStorage.setItem('kempo_user_cover_type', effectiveCoverType);
+
+      if (securedProfile.avatarUrl && !securedProfile.avatarUrl.startsWith('blob:') && securedProfile.avatarUrl.length < 200000) {
+        localStorage.setItem('kempo_user_avatar', securedProfile.avatarUrl);
+      }
+      if (securedProfile.coverUrl && !securedProfile.coverUrl.startsWith('blob:') && securedProfile.coverUrl.length < 200000) {
+        localStorage.setItem('kempo_user_cover', securedProfile.coverUrl);
+      }
+    } catch (storageErr) {
+      console.warn('localStorage cache notice (handled):', storageErr);
     }
 
     // WhatsApp-Style Permanent Accounts Registry (NEVER deleted on logout)
