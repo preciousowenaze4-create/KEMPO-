@@ -18,10 +18,13 @@ import {
   Loader2,
   Clock,
   Filter,
+  Eye,
+  Plus,
 } from 'lucide-react';
 import { UserProfileData, UserStatus } from '../types';
 import { fetchAllUsersForAdmin, updateUserAdminStatus } from '../lib/supabase';
 import { isOwnerEmail } from '../lib/accountRules';
+import { BannedAccountScreen } from './BannedAccountScreen';
 
 interface AdminConsoleModalProps {
   onClose: () => void;
@@ -40,7 +43,15 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
-  // Load all signed-in users
+  // Quick Ban by Email state
+  const [banEmailInput, setBanEmailInput] = useState('');
+  const [isBanningCustom, setIsBanningCustom] = useState(false);
+
+  // Preview Banned Screen state
+  const [previewBannedScreen, setPreviewBannedScreen] = useState(false);
+  const [previewUserEmail, setPreviewUserEmail] = useState('banned.user@example.com');
+
+  // Load all real signed-in users
   const loadUsers = async () => {
     try {
       const data = await fetchAllUsersForAdmin();
@@ -62,6 +73,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
     loadUsers();
   };
 
+  // Ban or update user status
   const handleUpdateStatus = async (
     targetUser: UserProfileData,
     newStatus: UserStatus,
@@ -79,11 +91,11 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
 
     setActionLoadingId(targetUser.id);
     try {
-      await updateUserAdminStatus(targetUser.id, newStatus, isVerified);
+      await updateUserAdminStatus(targetUser.email || targetUser.id, newStatus, isVerified);
       // Update local state immediately for instant feedback
       setUsers((prev) =>
         prev.map((u) => {
-          if (u.id === targetUser.id) {
+          if (u.id === targetUser.id || (u.email && targetUser.email && u.email.toLowerCase() === targetUser.email.toLowerCase())) {
             return {
               ...u,
               status: newStatus,
@@ -97,8 +109,8 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       const statusLabels: Record<UserStatus, string> = {
         active: 'restored to Active',
         verified: 'marked as Officially Verified',
-        suspended: 'Suspended',
-        banned: 'Banned permanently',
+        suspended: 'Suspended (Access blocked)',
+        banned: 'PERMANENTLY BANNED (Access locked on their side)',
         restricted: 'Restricted',
       };
 
@@ -106,7 +118,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
         type: 'success',
         text: `User ${targetUser.displayName} (${targetUser.email}) has been ${statusLabels[newStatus]}.`,
       });
-      setTimeout(() => setFeedbackMsg(null), 3500);
+      setTimeout(() => setFeedbackMsg(null), 4000);
     } catch (err: any) {
       setFeedbackMsg({
         type: 'error',
@@ -115,6 +127,41 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       setTimeout(() => setFeedbackMsg(null), 3500);
     } finally {
       setActionLoadingId(null);
+    }
+  };
+
+  // Quick Ban by Email Address
+  const handleQuickBanEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = banEmailInput.trim().toLowerCase();
+    if (!clean) return;
+
+    if (isOwnerEmail(clean)) {
+      setFeedbackMsg({
+        type: 'error',
+        text: 'Action Denied: You cannot ban the application owner.',
+      });
+      setTimeout(() => setFeedbackMsg(null), 3000);
+      return;
+    }
+
+    setIsBanningCustom(true);
+    try {
+      await updateUserAdminStatus(clean, 'banned', false);
+      setFeedbackMsg({
+        type: 'success',
+        text: `Account with email ${clean} has been BANNED. Their app will automatically display the Banned Account screen.`,
+      });
+      setBanEmailInput('');
+      await loadUsers();
+      setTimeout(() => setFeedbackMsg(null), 4500);
+    } catch (err: any) {
+      setFeedbackMsg({
+        type: 'error',
+        text: err.message || 'Failed to ban email.',
+      });
+    } finally {
+      setIsBanningCustom(false);
     }
   };
 
@@ -140,10 +187,9 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
   const countVerified = users.filter((u) => u.status === 'verified' || u.isVerified).length;
   const countSuspended = users.filter((u) => u.status === 'suspended').length;
   const countBanned = users.filter((u) => u.status === 'banned').length;
-  const countRestricted = users.filter((u) => u.status === 'restricted').length;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col justify-between text-white animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col justify-between text-white animate-in fade-in duration-200">
       {/* Top Header */}
       <div className="p-4 pt-[max(env(safe-area-inset-top),16px)] border-b border-neutral-800 bg-[#121215] shrink-0">
         <div className="flex items-center justify-between max-w-4xl mx-auto">
@@ -157,21 +203,34 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-black text-white tracking-tight">Owner & Admin Console</h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-950 text-red-300 border border-red-700">
-                  MASTER CONTROL
+                  REAL ACCOUNTS ONLY
                 </span>
               </div>
               <p className="text-xs text-neutral-400">
-                Manage registered user emails, accounts, verification & security
+                Manage real accounts that have signed in & enforce user ban restrictions
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Preview Banned Screen Button */}
+            <button
+              onClick={() => {
+                setPreviewUserEmail(users.find((u) => u.status === 'banned')?.email || 'sample.user@gmail.com');
+                setPreviewBannedScreen(true);
+              }}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-950/80 hover:bg-red-900 text-red-300 border border-red-800/80 text-xs font-bold transition active:scale-95 cursor-pointer shadow-md"
+              title="Preview how banned screen looks on the user's side"
+            >
+              <Eye className="w-4 h-4 text-red-400" />
+              <span>Preview Banned User View</span>
+            </button>
+
             <button
               onClick={handleRefresh}
               disabled={refreshing}
               className="w-9 h-9 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 flex items-center justify-center transition active:scale-95 cursor-pointer"
-              title="Refresh Users"
+              title="Refresh Real Users"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-red-400' : ''}`} />
             </button>
@@ -186,7 +245,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
         </div>
 
         {/* Quick Metrics Bar */}
-        <div className="grid grid-cols-5 gap-2 mt-3.5 max-w-4xl mx-auto">
+        <div className="grid grid-cols-4 gap-2 mt-3.5 max-w-4xl mx-auto">
           <div
             onClick={() => setStatusFilter('all')}
             className={`p-2 rounded-xl text-center cursor-pointer transition border ${
@@ -196,7 +255,7 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
             }`}
           >
             <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
-              Total Signed In
+              Real Signed In
             </span>
             <span className="text-lg font-black text-white">{countTotal}</span>
           </div>
@@ -238,34 +297,42 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
             }`}
           >
             <span className="text-[10px] font-bold uppercase tracking-wider text-red-400 block">
-              Banned
+              Banned Accounts
             </span>
             <span className="text-lg font-black text-red-300">{countBanned}</span>
           </div>
-
-          <div
-            onClick={() => setStatusFilter('restricted')}
-            className={`p-2 rounded-xl text-center cursor-pointer transition border ${
-              statusFilter === 'restricted'
-                ? 'bg-purple-950/60 border-purple-500'
-                : 'bg-[#18181c] border-neutral-800/80 hover:border-purple-900'
-            }`}
-          >
-            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400 block">
-              Restricted
-            </span>
-            <span className="text-lg font-black text-purple-300">{countRestricted}</span>
-          </div>
         </div>
 
+        {/* Quick Ban Any Email Section */}
+        <form onSubmit={handleQuickBanEmail} className="mt-3.5 max-w-4xl mx-auto flex items-center gap-2">
+          <div className="relative flex-1">
+            <Mail className="w-4 h-4 text-red-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="email"
+              value={banEmailInput}
+              onChange={(e) => setBanEmailInput(e.target.value)}
+              placeholder="Enter any user's real email to ban immediately..."
+              className="w-full h-10 pl-10 pr-4 rounded-xl bg-[#0c0c0e] border border-red-900/50 text-white placeholder-neutral-500 text-xs focus:outline-none focus:border-red-500 transition font-medium"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isBanningCustom || !banEmailInput.trim()}
+            className="h-10 px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-red-950 transition active:scale-95 cursor-pointer shrink-0"
+          >
+            <Ban className="w-3.5 h-3.5" />
+            <span>Ban Email</span>
+          </button>
+        </form>
+
         {/* Search Bar */}
-        <div className="relative mt-3 max-w-4xl mx-auto">
+        <div className="relative mt-2.5 max-w-4xl mx-auto">
           <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search users by Name, Email address, or KEMPO ID..."
+            placeholder="Search real users by Name, Email address, or Kempo ID..."
             className="w-full h-10 pl-10 pr-4 rounded-xl bg-[#0c0c0e] border border-neutral-700/80 text-white placeholder-neutral-500 text-xs focus:outline-none focus:border-red-500 transition font-medium"
           />
           {searchQuery && (
@@ -304,30 +371,44 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-neutral-400">
             <Loader2 className="w-8 h-8 text-red-500 animate-spin mb-3" />
-            <p className="text-xs font-medium">Fetching registered user accounts from database...</p>
+            <p className="text-xs font-medium">Fetching real signed-in user accounts from Supabase...</p>
           </div>
         ) : filteredUsers.length === 0 ? (
-          <div className="text-center py-16 text-neutral-500">
-            <Users className="w-10 h-10 mx-auto mb-2 opacity-50" />
-            <p className="text-sm font-bold text-neutral-300">No users match your search criteria</p>
-            <p className="text-xs text-neutral-500 mt-1">Try another search keyword or clear the status filter.</p>
+          <div className="text-center py-16 text-neutral-500 bg-[#141418] rounded-2xl border border-neutral-800 p-8">
+            <Users className="w-12 h-12 mx-auto mb-3 text-red-500/70" />
+            <h3 className="text-base font-black text-white">No Outside Users Have Signed In Yet</h3>
+            <p className="text-xs text-neutral-400 max-w-md mx-auto mt-1 leading-relaxed">
+              All fake demo accounts have been completely removed. Only real users who sign in via Google or email into Kempo Pro will be listed here in real-time.
+            </p>
+            <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-red-950/40 border border-red-800/40 text-xs text-red-300">
+              <span>You can also enter any email in the box above to pre-ban them.</span>
+            </div>
           </div>
         ) : (
           filteredUsers.map((u) => {
             const isUserOwner = isOwnerEmail(u.email);
             const status = u.status || (isUserOwner ? 'verified' : 'active');
             const isUpdating = actionLoadingId === u.id;
+            const isBanned = status === 'banned';
 
             return (
               <div
                 key={u.id || u.email}
-                className="p-4 rounded-2xl bg-[#151518] border border-neutral-800/90 hover:border-neutral-700/80 transition shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                className={`p-4 rounded-2xl border transition shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                  isBanned
+                    ? 'bg-red-950/25 border-red-600/70'
+                    : 'bg-[#151518] border-neutral-800/90 hover:border-neutral-700/80'
+                }`}
               >
                 {/* User Info Section */}
                 <div className="flex items-center gap-3.5 min-w-0">
                   {/* User Avatar */}
                   <div className="relative shrink-0">
-                    <div className="w-12 h-12 rounded-full overflow-hidden bg-neutral-800 flex items-center justify-center ring-2 ring-neutral-700">
+                    <div
+                      className={`w-12 h-12 rounded-full overflow-hidden bg-neutral-800 flex items-center justify-center ring-2 ${
+                        isBanned ? 'ring-red-600' : 'ring-neutral-700'
+                      }`}
+                    >
                       {u.avatarUrl ? (
                         <img src={u.avatarUrl} alt={u.displayName} className="w-full h-full object-cover" />
                       ) : (
@@ -341,6 +422,11 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                         👑
                       </span>
                     )}
+                    {isBanned && (
+                      <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px] font-black shadow-md">
+                        🚫
+                      </span>
+                    )}
                   </div>
 
                   {/* Name, Email, and ID */}
@@ -351,6 +437,11 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-gradient-to-r from-red-600 to-amber-500 text-white uppercase tracking-wider">
                           Owner
                         </span>
+                      ) : isBanned ? (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-600 text-white shadow-md shadow-red-950 flex items-center gap-1">
+                          <Ban className="w-3 h-3" />
+                          <span>BANNED ACCOUNT</span>
+                        </span>
                       ) : (
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
@@ -358,10 +449,6 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                               ? 'bg-blue-950 text-blue-300 border border-blue-700'
                               : status === 'suspended'
                               ? 'bg-amber-950 text-amber-300 border border-amber-700'
-                              : status === 'banned'
-                              ? 'bg-red-950 text-red-300 border border-red-700'
-                              : status === 'restricted'
-                              ? 'bg-purple-950 text-purple-300 border border-purple-700'
                               : 'bg-neutral-800 text-neutral-300'
                           }`}
                         >
@@ -370,17 +457,21 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                       )}
                     </div>
 
-                    {/* Show User Email prominently to the owner as requested */}
-                    <div className="flex items-center gap-1.5 mt-0.5 text-xs text-neutral-300 font-mono">
+                    {/* Show Real User Email */}
+                    <div className="flex items-center gap-1.5 mt-0.5 text-xs text-neutral-200 font-mono">
                       <Mail className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                      <span className="truncate">{u.email || 'No email registered'}</span>
+                      <span className="truncate font-bold">{u.email || 'No email registered'}</span>
                     </div>
 
-                    {/* KEMPO ID & Account Type */}
+                    {/* KEMPO ID & Ban Warning */}
                     <div className="flex items-center gap-2 mt-1 text-[11px] text-neutral-400">
                       <span className="font-mono text-red-400 font-bold">{u.kempoId}</span>
-                      <span>&bull;</span>
-                      <span className="capitalize">{u.accountType.replace('_', ' ')}</span>
+                      {isBanned && (
+                        <>
+                          <span>&bull;</span>
+                          <span className="text-red-400 font-bold">Access blocked on user side</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -410,73 +501,43 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
                         <span>{status === 'verified' ? 'Verified' : 'Verify'}</span>
                       </button>
 
-                      {/* 2. Suspend / Restore */}
-                      {status === 'suspended' ? (
+                      {/* 2. Ban / Unban User */}
+                      {isBanned ? (
                         <button
                           onClick={() => handleUpdateStatus(u, 'active', false)}
                           disabled={isUpdating}
-                          className="px-2.5 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700 text-xs font-semibold flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md"
                         >
                           <CheckCircle className="w-3.5 h-3.5" />
-                          <span>Unsuspend</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleUpdateStatus(u, 'suspended', false)}
-                          disabled={isUpdating}
-                          className="px-2.5 py-1.5 rounded-xl bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800/60 text-xs font-semibold flex items-center gap-1 transition active:scale-95 cursor-pointer"
-                          title="Suspend User Account"
-                        >
-                          <UserX className="w-3.5 h-3.5" />
-                          <span>Suspend</span>
-                        </button>
-                      )}
-
-                      {/* 3. Restrict Account */}
-                      {status === 'restricted' ? (
-                        <button
-                          onClick={() => handleUpdateStatus(u, 'active', false)}
-                          disabled={isUpdating}
-                          className="px-2.5 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700 text-xs font-semibold flex items-center gap-1 transition active:scale-95 cursor-pointer"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          <span>Unrestrict</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleUpdateStatus(u, 'restricted', false)}
-                          disabled={isUpdating}
-                          className="px-2.5 py-1.5 rounded-xl bg-purple-950/80 hover:bg-purple-900 text-purple-300 border border-purple-800/60 text-xs font-semibold flex items-center gap-1 transition active:scale-95 cursor-pointer"
-                          title="Restrict User Calling & Mini-apps"
-                        >
-                          <ShieldAlert className="w-3.5 h-3.5" />
-                          <span>Restrict</span>
-                        </button>
-                      )}
-
-                      {/* 4. Ban User */}
-                      {status === 'banned' ? (
-                        <button
-                          onClick={() => handleUpdateStatus(u, 'active', false)}
-                          disabled={isUpdating}
-                          className="px-2.5 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700 text-xs font-semibold flex items-center gap-1 transition active:scale-95 cursor-pointer"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          <span>Unban</span>
+                          <span>Unban Account</span>
                         </button>
                       ) : (
                         <button
                           onClick={() => {
-                            if (window.confirm(`Are you sure you want to BAN ${u.displayName} (${u.email})?`)) {
+                            if (window.confirm(`Are you sure you want to BAN ${u.displayName} (${u.email})? Their app will automatically show the Banned Account screen.`)) {
                               handleUpdateStatus(u, 'banned', false);
                             }
                           }}
                           disabled={isUpdating}
-                          className="px-2.5 py-1.5 rounded-xl bg-red-950 hover:bg-red-900 text-red-300 border border-red-800/80 text-xs font-semibold flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                          className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-md shadow-red-950"
                           title="Ban User Permanently"
                         >
                           <Ban className="w-3.5 h-3.5" />
-                          <span>Ban</span>
+                          <span>Ban User</span>
+                        </button>
+                      )}
+
+                      {/* 3. Preview this user's screen */}
+                      {isBanned && (
+                        <button
+                          onClick={() => {
+                            setPreviewUserEmail(u.email);
+                            setPreviewBannedScreen(true);
+                          }}
+                          className="p-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white transition cursor-pointer"
+                          title="View how banned screen looks for this user"
+                        >
+                          <Eye className="w-4 h-4 text-red-400" />
                         </button>
                       )}
                     </>
@@ -489,11 +550,30 @@ export const AdminConsoleModal: React.FC<AdminConsoleModalProps> = ({
       </div>
 
       {/* Footer Info */}
-      <div className="p-3 border-t border-neutral-800 bg-[#121215] text-center text-[11px] text-neutral-400 shrink-0">
+      <div className="p-3 border-t border-neutral-800 bg-[#121215] flex flex-col sm:flex-row items-center justify-between text-[11px] text-neutral-400 shrink-0 gap-2 max-w-4xl mx-auto w-full">
         <p>
-          Logged in as Application Owner: <strong className="text-white">{currentOwnerEmail}</strong> &bull; All changes persist immediately to database
+          Logged in as Application Owner: <strong className="text-white">{currentOwnerEmail}</strong>
         </p>
+        <button
+          onClick={() => {
+            setPreviewUserEmail('user@domain.com');
+            setPreviewBannedScreen(true);
+          }}
+          className="text-red-400 hover:text-red-300 font-semibold underline cursor-pointer"
+        >
+          View Banned Account Screen Layout &rarr;
+        </button>
       </div>
+
+      {/* Owner Preview of the Banned Screen */}
+      {previewBannedScreen && (
+        <BannedAccountScreen
+          email={previewUserEmail}
+          status="banned"
+          isPreview={true}
+          onClosePreview={() => setPreviewBannedScreen(false)}
+        />
+      )}
     </div>
   );
 };

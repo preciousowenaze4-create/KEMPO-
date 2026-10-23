@@ -10,9 +10,12 @@ import {
   X,
   Edit2,
   ExternalLink,
+  Image as ImageIcon,
+  Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { UserProfileData } from '../types';
-import { uploadAvatarToSupabase, saveFullUserProfile } from '../lib/supabase';
+import { uploadAvatarToSupabase, uploadCoverToSupabase, saveFullUserProfile } from '../lib/supabase';
 import { isOwnerEmail, OWNER_FIXED_ID } from '../lib/accountRules';
 
 interface ProfileEditScreenProps {
@@ -31,6 +34,34 @@ const PRESET_AVATARS = [
   'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300&auto=format&fit=crop&q=80',
   'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=300&auto=format&fit=crop&q=80',
   'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=300&auto=format&fit=crop&q=80',
+];
+
+// Preset WhatsApp Business-style Cover Banners (Kempo Pro Tech & Crimson Aesthetic)
+const PRESET_COVERS = [
+  {
+    name: 'Cyber Kempo Red',
+    url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Crimson Matrix',
+    url: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=1000&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Dark Studio Grid',
+    url: 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?w=1000&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Deep Cyber Night',
+    url: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=1000&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Abstract Carbon Red',
+    url: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?w=1000&auto=format&fit=crop&q=80',
+  },
+  {
+    name: 'Minimal Midnight',
+    url: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=1000&auto=format&fit=crop&q=80',
+  },
 ];
 
 export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
@@ -68,6 +99,8 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     }
     return "Right now I'm using Kempo Pro";
   });
+
+  // Avatar state
   const [avatarUrl, setAvatarUrl] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return (
@@ -80,6 +113,19 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
   });
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
 
+  // Cover photo / header background state (WhatsApp Business Style)
+  const [coverUrl, setCoverUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return (
+        userProfile?.coverUrl ||
+        localStorage.getItem('kempo_user_cover') ||
+        ''
+      );
+    }
+    return userProfile?.coverUrl || '';
+  });
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+
   const [username, setUsername] = useState<string>(() => {
     return isOwner ? 'preciousddkid' : rawSuffix.toLowerCase();
   });
@@ -87,14 +133,16 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
 
   // UI modal states
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [showCoverOptions, setShowCoverOptions] = useState(false);
   const [editingField, setEditingField] = useState<'name' | 'about' | 'username' | 'links' | null>(null);
   const [fieldTempInput, setFieldTempInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
-  // Handle image upload from device
+  // Handle avatar upload from device
   const handlePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -102,13 +150,31 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     setAvatarFile(file);
     setShowPhotoOptions(false);
 
-    // Read immediately as Base64 for instant preview and offline caching
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
       setAvatarUrl(dataUrl);
       if (typeof window !== 'undefined') {
         localStorage.setItem('kempo_user_avatar', dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Handle cover / header background upload from device
+  const handleCoverFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCoverFile(file);
+    setShowCoverOptions(false);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setCoverUrl(dataUrl);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('kempo_user_cover', dataUrl);
       }
     };
     reader.readAsDataURL(file);
@@ -140,27 +206,42 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
   const handleSaveProfile = async () => {
     setIsSaving(true);
     let finalAvatarUrl = avatarUrl;
+    let finalCoverUrl = coverUrl;
 
     // 1. Upload avatar to Supabase Storage if a new file was chosen
     if (avatarFile) {
       try {
-        const uploadedUrl = await uploadAvatarToSupabase(avatarFile, userProfile?.id || 'user');
-        if (uploadedUrl) {
-          finalAvatarUrl = uploadedUrl;
-          setAvatarUrl(uploadedUrl);
+        const uploadedAvatar = await uploadAvatarToSupabase(avatarFile, userProfile?.id || 'user');
+        if (uploadedAvatar) {
+          finalAvatarUrl = uploadedAvatar;
+          setAvatarUrl(uploadedAvatar);
         }
       } catch (err) {
         console.warn('Supabase avatar upload notice:', err);
       }
     }
 
-    // 2. Build full updated profile object
+    // 2. Upload cover photo to Supabase Storage if a new file was chosen
+    if (coverFile) {
+      try {
+        const uploadedCover = await uploadCoverToSupabase(coverFile, userProfile?.id || 'user');
+        if (uploadedCover) {
+          finalCoverUrl = uploadedCover;
+          setCoverUrl(uploadedCover);
+        }
+      } catch (err) {
+        console.warn('Supabase cover photo upload notice:', err);
+      }
+    }
+
+    // 3. Build full updated profile object
     const finalProfile: UserProfileData = {
       id: userProfile?.id || 'user',
       email: rawEmail,
       accountType: userProfile?.accountType || (isOwner ? 'creator' : 'personal'),
       displayName: displayName.trim() || (isOwner ? 'Precious Ddkid' : 'Kempo User'),
       avatarUrl: finalAvatarUrl,
+      coverUrl: finalCoverUrl,
       kempoId: shareableKempoId,
       countryCode: cleanCode,
       phoneNumber: userProfile?.phoneNumber || `${cleanCode}${rawSuffix}`,
@@ -179,10 +260,15 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
       isAdmin: isOwner,
     };
 
-    // 3. Cache locally for instant 0ms offline availability
+    // 4. Cache locally for instant 0ms offline availability
     if (typeof window !== 'undefined') {
       if (finalAvatarUrl) {
         localStorage.setItem('kempo_user_avatar', finalAvatarUrl);
+      }
+      if (finalCoverUrl) {
+        localStorage.setItem('kempo_user_cover', finalCoverUrl);
+      } else {
+        localStorage.removeItem('kempo_user_cover');
       }
       localStorage.setItem('kempo_user_profile', JSON.stringify(finalProfile));
       localStorage.setItem('kempo_auth_name', finalProfile.displayName);
@@ -196,13 +282,13 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
       try {
         const regRaw = localStorage.getItem('kempo_completed_accounts') || '{}';
         const reg = JSON.parse(regRaw);
-        if (rawEmail) reg[rawEmail.toLowerCase()] = true;
-        if (finalProfile.id) reg[finalProfile.id] = true;
+        if (rawEmail) reg[rawEmail.toLowerCase()] = finalProfile;
+        if (finalProfile.id) reg[finalProfile.id] = finalProfile;
         localStorage.setItem('kempo_completed_accounts', JSON.stringify(reg));
       } catch {}
     }
 
-    // 4. Save to Supabase database & auth metadata
+    // 5. Save to Supabase database & auth metadata
     try {
       await saveFullUserProfile(finalProfile);
     } catch (err) {
@@ -212,7 +298,7 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     setIsSaving(false);
     setSaveSuccessNotice(true);
 
-    // Notify parent state immediately so bottom tab bar avatar updates in real-time
+    // Notify parent state immediately so bottom tab bar avatar and profile update in real-time
     onSaveSuccess(finalProfile);
 
     setTimeout(() => {
@@ -223,12 +309,21 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-[#0c0c0e] text-white flex flex-col justify-between overflow-y-auto select-none animate-in slide-in-from-right duration-200">
-      {/* Hidden device file uploader */}
+      {/* Hidden file input for Avatar upload */}
       <input
         type="file"
         ref={fileInputRef}
         accept="image/*"
         onChange={handlePhotoFileChange}
+        className="hidden"
+      />
+
+      {/* Hidden file input for Cover Photo upload */}
+      <input
+        type="file"
+        ref={coverInputRef}
+        accept="image/*"
+        onChange={handleCoverFileChange}
         className="hidden"
       />
 
@@ -250,37 +345,78 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
           <div className="w-7" />
         </div>
 
-        {/* Profile Picture Section (Matching Image 2) */}
-        <div className="flex flex-col items-center mt-3 mb-6">
+        {/* WhatsApp Business-Style Cover Photo & Profile Picture Section */}
+        <div className="relative w-full rounded-3xl overflow-hidden mb-6 bg-[#16161a] border border-neutral-800/90 shadow-2xl">
+          {/* Header Cover Background Banner */}
           <div
-            onClick={() => setShowPhotoOptions(true)}
-            className="relative w-32 h-32 sm:w-36 sm:h-36 rounded-full overflow-hidden bg-[#18181c] ring-3 ring-red-600/80 shadow-2xl shadow-red-950/40 cursor-pointer group flex items-center justify-center transition active:scale-98"
+            onClick={() => setShowCoverOptions(true)}
+            className="relative w-full h-36 sm:h-44 bg-gradient-to-r from-[#17171d] via-[#22222a] to-[#16161c] cursor-pointer group overflow-hidden"
           >
-            {avatarUrl ? (
+            {coverUrl ? (
               <img
-                src={avatarUrl}
-                alt={displayName}
-                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                src={coverUrl}
+                alt="Header Cover Background"
+                className="w-full h-full object-cover group-hover:scale-102 transition duration-500"
               />
             ) : (
-              <span className="text-4xl font-black text-neutral-300">
-                {displayName.charAt(0).toUpperCase() || 'U'}
-              </span>
+              <div className="w-full h-full flex flex-col items-center justify-center text-neutral-500 group-hover:text-neutral-400 transition bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neutral-800/40 via-transparent to-transparent">
+                <ImageIcon className="w-8 h-8 mb-1.5 opacity-35 group-hover:opacity-60 transition" />
+                <span className="text-[11px] font-bold tracking-wider uppercase text-neutral-400/80">
+                  Add Cover Photo
+                </span>
+              </div>
             )}
 
-            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
-              <Camera className="w-8 h-8 text-white drop-shadow-md" />
-            </div>
+            {/* Subtle Gradient Overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
+
+            {/* Camera badge on the right side of the cover area (where marked in green circle in IMG_4749) */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowCoverOptions(true);
+              }}
+              className="absolute right-3.5 bottom-3.5 w-10 h-10 rounded-full bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700/80 text-white flex items-center justify-center shadow-xl shadow-black/80 active:scale-90 transition cursor-pointer group"
+              title="Edit header cover background"
+              aria-label="Edit cover photo"
+            >
+              <Camera className="w-5 h-5 text-neutral-200 group-hover:text-red-400 transition" />
+            </button>
           </div>
 
-          {/* "Edit photo" Option in Kempo Pro Red */}
-          <button
-            type="button"
-            onClick={() => setShowPhotoOptions(true)}
-            className="mt-3.5 text-sm font-extrabold text-red-500 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center gap-1.5"
-          >
-            <span>Edit photo</span>
-          </button>
+          {/* Centered Circular Avatar (Overlapping cover banner) */}
+          <div className="flex flex-col items-center -mt-16 sm:-mt-18 pb-4 relative z-10">
+            <div
+              onClick={() => setShowPhotoOptions(true)}
+              className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-[#18181c] ring-4 ring-red-600 shadow-2xl shadow-black/90 cursor-pointer group flex items-center justify-center transition active:scale-98"
+            >
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={displayName}
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                />
+              ) : (
+                <span className="text-4xl font-black text-neutral-300">
+                  {displayName.charAt(0).toUpperCase() || 'U'}
+                </span>
+              )}
+
+              <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                <Camera className="w-7 h-7 text-white drop-shadow-md" />
+              </div>
+            </div>
+
+            {/* "Edit photo" Option in Kempo Pro Red */}
+            <button
+              type="button"
+              onClick={() => setShowPhotoOptions(true)}
+              className="mt-2.5 text-xs font-black uppercase tracking-wider text-red-500 hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Edit photo</span>
+            </button>
+          </div>
         </div>
 
         {/* iOS / WhatsApp Style Profile Items Card (Matching Image 2) */}
@@ -358,24 +494,22 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
           <span className="text-neutral-400 font-medium">Permanent Kempo ID:</span>
           <span className="text-red-400 font-mono font-bold">{shareableKempoId}</span>
         </div>
-      </div>
 
-      {/* Prominent Red "Save" Button at Bottom */}
-      <div className="w-full max-w-lg mx-auto p-4 pb-[max(env(safe-area-inset-bottom),16px)] bg-[#0c0c0e]/95 backdrop-blur-md border-t border-neutral-900">
+        {/* Prominent Red Save Profile Button (Matching Image 2) */}
         <button
           type="button"
           onClick={handleSaveProfile}
           disabled={isSaving}
-          className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-98 text-white font-black text-base shadow-xl shadow-red-950/70 flex items-center justify-center gap-2.5 transition cursor-pointer disabled:opacity-60"
+          className="w-full py-4 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-98 text-white font-extrabold text-base shadow-xl shadow-red-950/60 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
         >
           {isSaving ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Saving Changes...</span>
+              <span>Saving Profile & Photos...</span>
             </>
           ) : saveSuccessNotice ? (
             <>
-              <Check className="w-5 h-5 text-white stroke-[3]" />
+              <Check className="w-5 h-5" />
               <span>Profile Saved!</span>
             </>
           ) : (
@@ -384,7 +518,97 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
         </button>
       </div>
 
-      {/* Photo Options Modal */}
+      {/* Cover Background Options Modal (WhatsApp Business Style) */}
+      {showCoverOptions && (
+        <div
+          className="fixed inset-0 z-60 bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 sm:p-4 animate-in fade-in"
+          onClick={() => setShowCoverOptions(false)}
+        >
+          <div
+            className="w-full max-w-md bg-[#16161a] border border-neutral-800 rounded-3xl p-5 shadow-2xl animate-in slide-in-from-bottom sm:slide-in-from-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3.5 border-b border-neutral-800 mb-4">
+              <div>
+                <h3 className="text-base font-black text-white">Header Cover Photo</h3>
+                <p className="text-xs text-neutral-400">Customize your background banner</p>
+              </div>
+              <button
+                onClick={() => setShowCoverOptions(false)}
+                className="w-8 h-8 rounded-full bg-neutral-800 text-neutral-300 flex items-center justify-center hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Choose from device */}
+            <button
+              type="button"
+              onClick={() => {
+                coverInputRef.current?.click();
+              }}
+              className="w-full py-3.5 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-red-950/50 mb-3 cursor-pointer active:scale-98 transition"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Upload from Device / Gallery</span>
+            </button>
+
+            {/* Remove cover photo button if active */}
+            {coverUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCoverUrl('');
+                  setCoverFile(null);
+                  if (typeof window !== 'undefined') {
+                    localStorage.removeItem('kempo_user_cover');
+                  }
+                  setShowCoverOptions(false);
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-red-400 font-bold text-xs flex items-center justify-center gap-2 mb-3 cursor-pointer transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Remove Cover Photo</span>
+              </button>
+            )}
+
+            {/* Instant Preset Cover Banners */}
+            <div className="pt-2">
+              <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider block mb-2.5">
+                Or pick a Kempo Pro preset cover:
+              </span>
+              <div className="grid grid-cols-3 gap-2.5">
+                {PRESET_COVERS.map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setCoverUrl(preset.url);
+                      setCoverFile(null);
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('kempo_user_cover', preset.url);
+                      }
+                      setShowCoverOptions(false);
+                    }}
+                    className={`relative h-16 rounded-xl overflow-hidden border-2 transition active:scale-95 cursor-pointer group ${
+                      coverUrl === preset.url
+                        ? 'border-red-500 ring-2 ring-red-500/50 scale-102'
+                        : 'border-neutral-700 hover:border-neutral-500 opacity-80 hover:opacity-100'
+                    }`}
+                  >
+                    <img src={preset.url} alt={preset.name} className="w-full h-full object-cover" />
+                    <span className="absolute inset-x-0 bottom-0 bg-black/75 px-1 py-0.5 text-[9px] font-bold text-white truncate text-center">
+                      {preset.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Avatar Photo Options Modal */}
       {showPhotoOptions && (
         <div
           className="fixed inset-0 z-60 bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-3 sm:p-4 animate-in fade-in"

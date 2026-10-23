@@ -25,6 +25,7 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { PhoneMissed, MessageCircle, ShieldAlert, Loader2 } from 'lucide-react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
+import { BannedAccountScreen } from './components/BannedAccountScreen';
 import { isOwnerEmail, OWNER_FIXED_ID } from './lib/accountRules';
 import {
   realtimeService,
@@ -42,6 +43,7 @@ import {
   saveFullUserProfile,
   findUserByKempoId,
   checkUserProfileCompletion,
+  isAccountBanned,
   DEFAULT_PREFERENCES,
   generateKempoId,
 } from './lib/supabase';
@@ -1243,34 +1245,20 @@ export default function App() {
   }
 
   // Enforcement: If account is banned or suspended by the owner
-  if (
+  const isUserBanned =
     !isOwnerEmail(currentUserEmail) &&
-    (userProfile?.status === 'banned' || userProfile?.status === 'suspended')
-  ) {
-    const isBanned = userProfile.status === 'banned';
+    (userProfile?.status === 'banned' ||
+      userProfile?.status === 'suspended' ||
+      isAccountBanned(currentUserEmail, currentUserId, userProfile?.status));
+
+  if (isUserBanned) {
     return (
-      <div className="w-full h-full min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center select-none">
-        <div className="w-20 h-20 rounded-3xl bg-red-950/80 border-2 border-red-600 flex items-center justify-center mb-5 shadow-2xl shadow-red-950">
-          <ShieldAlert className="w-10 h-10 text-red-500" />
-        </div>
-        <h2 className="text-2xl font-black text-white tracking-tight">
-          {isBanned ? 'Account Banned' : 'Account Suspended'}
-        </h2>
-        <p className="text-sm text-neutral-400 mt-2 max-w-sm">
-          {isBanned
-            ? 'This account has been permanently banned by the Kempo Pro administrator for security policy violations.'
-            : 'This account has been temporarily suspended by the Kempo Pro administrator. Please contact support.'}
-        </p>
-        <div className="mt-4 px-4 py-2 rounded-xl bg-neutral-900 border border-neutral-800 text-xs text-neutral-400 font-mono">
-          User ID: <span className="text-red-400 font-bold">{userProfile.kempoId}</span>
-        </div>
-        <button
-          onClick={handleSignOut}
-          className="mt-8 px-6 py-3 rounded-2xl bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-sm transition active:scale-95 cursor-pointer"
-        >
-          Sign Out of Account
-        </button>
-      </div>
+      <BannedAccountScreen
+        email={currentUserEmail}
+        userId={userProfile?.kempoId || currentUserId}
+        status={userProfile?.status || 'banned'}
+        onSignOut={handleSignOut}
+      />
     );
   }
 

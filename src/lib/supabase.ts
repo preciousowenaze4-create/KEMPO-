@@ -152,6 +152,38 @@ export async function uploadAvatarToSupabase(file: File | Blob, userId: string):
   });
 }
 
+// Upload cover / header background photo to Supabase Storage with resilient fallback
+export async function uploadCoverToSupabase(file: File | Blob, userId: string): Promise<string> {
+  const ext = file.type.split('/')[1] || 'jpg';
+  const fileName = `cover-${userId}-${Date.now()}.${ext}`;
+  const filePath = `covers/${fileName}`;
+
+  try {
+    const { error } = await supabase.storage.from('avatars').upload(filePath, file, {
+      cacheControl: '3600',
+      upsert: true,
+    });
+
+    if (!error) {
+      const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      if (publicUrlData?.publicUrl) {
+        return publicUrlData.publicUrl;
+      }
+    }
+  } catch (err) {
+    console.info('Supabase cover storage upload note:', err);
+  }
+
+  // Graceful fallback to client-side data URL so cover works 100% reliably offline
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      resolve(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 // Upload chat media (image, voice, document) to Supabase Storage with graceful fallback
 export async function uploadChatMediaToSupabase(fileOrBlob: Blob, messageId: string): Promise<string> {
   const ext = fileOrBlob.type.split('/')[1]?.split(';')[0] || 'jpg';
@@ -223,6 +255,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
         display_name: securedProfile.displayName,
         full_name: securedProfile.displayName,
         avatar_url: securedProfile.avatarUrl,
+        cover_url: securedProfile.coverUrl,
         kempo_id: securedProfile.kempoId,
         account_type: securedProfile.accountType,
         category: securedProfile.category || securedProfile.accountType,
@@ -243,6 +276,7 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
       email: securedProfile.email,
       display_name: securedProfile.displayName,
       avatar_url: securedProfile.avatarUrl,
+      cover_url: securedProfile.coverUrl,
       account_type: securedProfile.accountType,
       kempo_id: securedProfile.kempoId,
       preferences: securedProfile.preferences,
@@ -271,6 +305,9 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
     localStorage.setItem('kempo_user_id', securedProfile.kempoId);
     if (securedProfile.avatarUrl) {
       localStorage.setItem('kempo_user_avatar', securedProfile.avatarUrl);
+    }
+    if (securedProfile.coverUrl) {
+      localStorage.setItem('kempo_user_cover', securedProfile.coverUrl);
     }
 
     // WhatsApp-Style Permanent Accounts Registry (NEVER deleted on logout)
@@ -428,6 +465,7 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
         email,
         displayName: data.display_name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
         avatarUrl: data.avatar_url || '',
+        coverUrl: data.cover_url || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : ''),
         accountType: data.account_type || (isRecordOwner ? 'creator' : 'personal'),
         category: data.category || data.account_type,
         phoneNumber: data.phone_number,
@@ -515,6 +553,7 @@ export async function checkUserProfileCompletion(
           email: data.email || cleanEmail,
           displayName: data.display_name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
           avatarUrl: data.avatar_url || '',
+          coverUrl: data.cover_url || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : ''),
           accountType: data.account_type || (isRecordOwner ? 'creator' : 'personal'),
           category: data.category || data.account_type,
           phoneNumber: data.phone_number,
@@ -615,13 +654,31 @@ export async function fetchAllUsersForAdmin(): Promise<UserProfileData[]> {
     console.warn('Admin fetch from Supabase warning:', err);
   }
 
-  // 2. Merge with locally cached signed-in users
+  // Helper to filter out any old demo emails from earlier versions
+  const isFakeEmail = (email?: string) => {
+    if (!email) return false;
+    const lower = email.toLowerCase();
+    return (
+      lower.includes('cybermail.io') ||
+      lower.includes('streamcraft.net') ||
+      lower.includes('enterprise.ng') ||
+      lower.includes('temp-disposable.org')
+    );
+  };
+
+  // 2. Merge with locally cached signed-in users (filtering out any fake demo emails)
   if (typeof window !== 'undefined') {
     try {
       const cachedRaw = localStorage.getItem('kempo_registered_users');
       if (cachedRaw) {
         const cachedUsers: UserProfileData[] = JSON.parse(cachedRaw);
-        cachedUsers.forEach((cached) => {
+        const realCachedUsers = cachedUsers.filter((u) => !isFakeEmail(u.email));
+        // Clean storage if it had fake emails
+        if (realCachedUsers.length !== cachedUsers.length) {
+          localStorage.setItem('kempo_registered_users', JSON.stringify(realCachedUsers));
+        }
+
+        realCachedUsers.forEach((cached) => {
           const exists = allUsers.find(
             (u) =>
               u.id === cached.id ||
@@ -641,13 +698,15 @@ export async function fetchAllUsersForAdmin(): Promise<UserProfileData[]> {
       const currentProfileRaw = localStorage.getItem('kempo_user_profile');
       if (currentProfileRaw) {
         const cur: UserProfileData = JSON.parse(currentProfileRaw);
-        const exists = allUsers.find(
-          (u) =>
-            u.id === cur.id ||
-            (u.email && cur.email && u.email.toLowerCase() === cur.email.toLowerCase())
-        );
-        if (!exists) {
-          allUsers.unshift(cur);
+        if (!isFakeEmail(cur.email)) {
+          const exists = allUsers.find(
+            (u) =>
+              u.id === cur.id ||
+              (u.email && cur.email && u.email.toLowerCase() === cur.email.toLowerCase())
+          );
+          if (!exists) {
+            allUsers.unshift(cur);
+          }
         }
       }
     } catch (e) {
@@ -655,88 +714,59 @@ export async function fetchAllUsersForAdmin(): Promise<UserProfileData[]> {
     }
   }
 
-  // Seed sample real active accounts if database list has fewer than 2 users,
-  // so the owner immediately sees all users, emails, and can ban, suspend, verify, or restrict!
-  if (allUsers.length < 2) {
-    const demoAccounts: UserProfileData[] = [
-      {
-        id: 'usr-alex-9921',
-        email: 'alex.chen@cybermail.io',
-        displayName: 'Alex Chen',
-        avatarUrl:
-          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-        accountType: 'developer_gamer',
-        kempoId: 'KEMPO-8921X',
-        preferences: DEFAULT_PREFERENCES,
-        isOnboarded: true,
-        status: 'active',
-        isVerified: false,
-        createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-        lastActive: '5 mins ago',
-      },
-      {
-        id: 'usr-sarah-1420',
-        email: 'sarah.miller@streamcraft.net',
-        displayName: 'Sarah Miller',
-        avatarUrl:
-          'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-        accountType: 'creator',
-        kempoId: 'KEMPO-4410M',
-        preferences: DEFAULT_PREFERENCES,
-        isOnboarded: true,
-        status: 'verified',
-        isVerified: true,
-        createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-        lastActive: '1 hour ago',
-      },
-      {
-        id: 'usr-david-3891',
-        email: 'david.okonkwo@enterprise.ng',
-        displayName: 'David Okonkwo',
-        avatarUrl:
-          'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80',
-        accountType: 'business',
-        kempoId: 'KEMPO-3891D',
-        preferences: DEFAULT_PREFERENCES,
-        isOnboarded: true,
-        status: 'restricted',
-        isVerified: false,
-        createdAt: new Date(Date.now() - 86400000 * 7).toISOString(),
-        lastActive: 'Yesterday',
-      },
-      {
-        id: 'usr-bot-spammer-007',
-        email: 'spammer999@temp-disposable.org',
-        displayName: 'Fast Spammer Bot',
-        avatarUrl: '',
-        accountType: 'personal',
-        kempoId: 'KEMPO-007SP',
-        preferences: DEFAULT_PREFERENCES,
-        isOnboarded: true,
-        status: 'suspended',
-        isVerified: false,
-        createdAt: new Date(Date.now() - 86400000 * 12).toISOString(),
-        lastActive: '3 days ago',
-      },
-    ];
+  // Filter out any fake demo accounts from live list
+  allUsers = allUsers.filter((u) => !isFakeEmail(u.email));
 
-    demoAccounts.forEach((demo) => {
-      if (!allUsers.find((u) => u.email.toLowerCase() === demo.email.toLowerCase())) {
-        allUsers.push(demo);
+  // Sync banned status from local banned accounts list
+  if (typeof window !== 'undefined') {
+    try {
+      const rawBanned = localStorage.getItem('kempo_banned_emails');
+      if (rawBanned) {
+        const bannedList: string[] = JSON.parse(rawBanned);
+        allUsers.forEach((u) => {
+          if (
+            (u.email && bannedList.some((b) => b.toLowerCase() === u.email.toLowerCase())) ||
+            (u.id && bannedList.some((b) => b.toLowerCase() === u.id.toLowerCase()))
+          ) {
+            u.status = 'banned';
+          }
+        });
       }
-    });
+    } catch {}
   }
 
   return allUsers;
 }
 
+// Check if an account or email is currently banned
+export function isAccountBanned(email?: string, userId?: string, status?: string): boolean {
+  if (status === 'banned' || status === 'suspended') return true;
+  if (typeof window === 'undefined') return false;
+
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const cleanId = (userId || '').trim().toLowerCase();
+
+  try {
+    const raw = localStorage.getItem('kempo_banned_emails');
+    if (raw) {
+      const list: string[] = JSON.parse(raw);
+      if (cleanEmail && list.some((b) => b.toLowerCase() === cleanEmail)) return true;
+      if (cleanId && list.some((b) => b.toLowerCase() === cleanId)) return true;
+    }
+  } catch {}
+
+  return false;
+}
+
 // Update a user's status from the Owner Admin Panel (ban, suspend, verify, restrict, restore)
 export async function updateUserAdminStatus(
-  userId: string,
+  userIdOrEmail: string,
   newStatus: 'active' | 'verified' | 'suspended' | 'banned' | 'restricted',
   isVerified?: boolean
 ): Promise<void> {
-  // Update in Supabase
+  const cleanKey = userIdOrEmail.trim().toLowerCase();
+
+  // 1. Update in Supabase database
   try {
     await supabase
       .from('profiles')
@@ -745,28 +775,54 @@ export async function updateUserAdminStatus(
         is_verified: isVerified ?? (newStatus === 'verified'),
         updated_at: new Date().toISOString(),
       })
-      .eq('id', userId);
+      .or(`id.eq.${userIdOrEmail},email.ilike.${cleanKey}`);
   } catch (err) {
     console.warn('Supabase status update warning:', err);
   }
 
-  // Update in local cache
+  // 2. Update persistent banned registry in localStorage
   if (typeof window !== 'undefined') {
     try {
-      const raw = localStorage.getItem('kempo_registered_users');
-      let users: UserProfileData[] = raw ? JSON.parse(raw) : [];
-      const idx = users.findIndex((u) => u.id === userId);
-      if (idx >= 0) {
-        users[idx].status = newStatus;
-        if (isVerified !== undefined) users[idx].isVerified = isVerified;
+      const rawBanned = localStorage.getItem('kempo_banned_emails');
+      let bannedList: string[] = rawBanned ? JSON.parse(rawBanned) : [];
+
+      if (newStatus === 'banned' || newStatus === 'suspended') {
+        if (!bannedList.some((b) => b.toLowerCase() === cleanKey)) {
+          bannedList.push(cleanKey);
+        }
+      } else {
+        bannedList = bannedList.filter((b) => b.toLowerCase() !== cleanKey);
+      }
+      localStorage.setItem('kempo_banned_emails', JSON.stringify(bannedList));
+
+      // Update in registered users cache
+      const rawUsers = localStorage.getItem('kempo_registered_users');
+      if (rawUsers) {
+        let users: UserProfileData[] = JSON.parse(rawUsers);
+        users = users.map((u) => {
+          if (
+            u.id.toLowerCase() === cleanKey ||
+            (u.email && u.email.toLowerCase() === cleanKey)
+          ) {
+            return {
+              ...u,
+              status: newStatus,
+              isVerified: isVerified !== undefined ? isVerified : newStatus === 'verified',
+            };
+          }
+          return u;
+        });
         localStorage.setItem('kempo_registered_users', JSON.stringify(users));
       }
 
-      // If updating current logged in user, apply immediately
+      // If the currently active logged in user is the one banned, update local profile immediately
       const curProfileRaw = localStorage.getItem('kempo_user_profile');
       if (curProfileRaw) {
-        const cur = JSON.parse(curProfileRaw);
-        if (cur.id === userId) {
+        const cur: UserProfileData = JSON.parse(curProfileRaw);
+        if (
+          cur.id.toLowerCase() === cleanKey ||
+          (cur.email && cur.email.toLowerCase() === cleanKey)
+        ) {
           cur.status = newStatus;
           if (isVerified !== undefined) cur.isVerified = isVerified;
           localStorage.setItem('kempo_user_profile', JSON.stringify(cur));

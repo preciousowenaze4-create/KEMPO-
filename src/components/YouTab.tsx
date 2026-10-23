@@ -151,6 +151,25 @@ export const YouTab: React.FC<YouTabProps> = ({
     }
   }, [userProfile?.avatarUrl]);
 
+  // Cover photo / header background state (WhatsApp Business Style)
+  const [coverUrl, setCoverUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return (
+        userProfile?.coverUrl ||
+        localStorage.getItem('kempo_user_cover') ||
+        ''
+      );
+    }
+    return userProfile?.coverUrl || '';
+  });
+
+  // Sync cover photo if userProfile changes
+  useEffect(() => {
+    if (userProfile?.coverUrl !== undefined) {
+      setCoverUrl(userProfile.coverUrl || '');
+    }
+  }, [userProfile?.coverUrl]);
+
   // Copy ID state
   const [copiedId, setCopiedId] = useState(false);
 
@@ -350,63 +369,84 @@ export const YouTab: React.FC<YouTabProps> = ({
         </div>
       </div>
 
-      {/* 1. Clean Profile Layout (Remove Background Cards) */}
-      {/* Avatar, display name, status, and profile header displayed directly on screen background */}
-      <div className="flex flex-col items-center text-center pt-2 pb-2 select-none relative">
-        {/* WhatsApp-Style Thought / Status Bubble */}
-        <button
-          type="button"
-          onClick={() => {
-            setStatusInput(statusThought);
-            setShowStatusModal(true);
-          }}
-          className="inline-flex items-center gap-1.5 px-3 py-1 mb-2.5 rounded-full bg-[#1c1c20] hover:bg-[#242429] border border-neutral-800 text-[11px] text-neutral-300 shadow-md transition active:scale-95 cursor-pointer relative"
-          title="Tap to update status"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-          <span className="font-medium max-w-[200px] truncate">{statusThought}</span>
-          {/* Tail of speech bubble */}
-          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[5px] border-t-[#1c1c20]" />
-        </button>
-
-        {/* Centered Circular Avatar with Camera Uploader (Directly on screen background) */}
+      {/* 1. WhatsApp Business-Style Header Cover Banner & Profile */}
+      <div className="relative rounded-3xl overflow-hidden bg-[#161619] border border-neutral-800/80 shadow-2xl pb-4">
+        {/* Cover Photo Header */}
         <div
-          className="relative cursor-pointer group"
-          onClick={() => setShowAvatarPicker(true)}
+          onClick={() => setShowProfileEdit(true)}
+          className="relative w-full h-28 sm:h-36 bg-gradient-to-r from-[#17171d] via-[#22222a] to-[#16161c] cursor-pointer group overflow-hidden"
+          title="Tap to edit profile & cover photo"
         >
-          <div
-            className={`w-24 h-24 rounded-full overflow-hidden ring-3 ${
-              isOwner
-                ? 'ring-amber-500/80 shadow-amber-950/40'
-                : 'ring-red-600/90 shadow-red-950/50'
-            } bg-[#161619] flex items-center justify-center shadow-2xl transition group-hover:scale-102`}
-          >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-3xl text-neutral-200 font-black">
-                {displayName.charAt(0).toUpperCase() || 'U'}
+          {coverUrl ? (
+            <img
+              src={coverUrl}
+              alt="Profile Cover Background"
+              className="w-full h-full object-cover group-hover:scale-102 transition duration-500"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-end p-3 text-neutral-600 group-hover:text-neutral-400 transition bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-neutral-800/40 via-transparent to-transparent">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500/70 mr-1">
+                Kempo Pro
               </span>
-            )}
+            </div>
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
+        </div>
+
+        {/* Profile Content Overlapping Banner */}
+        <div className="flex flex-col items-center text-center -mt-12 sm:-mt-14 px-4 select-none relative z-10">
+          {/* Centered Circular Avatar with Camera Uploader */}
+          <div
+            className="relative cursor-pointer group mb-2"
+            onClick={() => setShowProfileEdit(true)}
+          >
+            <div
+              className={`w-24 h-24 rounded-full overflow-hidden ring-4 ${
+                isOwner
+                  ? 'ring-amber-500/80 shadow-amber-950/40'
+                  : 'ring-red-600 shadow-red-950/50'
+              } bg-[#161619] flex items-center justify-center shadow-2xl transition group-hover:scale-102`}
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-3xl text-neutral-200 font-black">
+                  {displayName.charAt(0).toUpperCase() || 'U'}
+                </span>
+              )}
+            </div>
+
+            {/* Camera Edit Badge in Signature Red */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowProfileEdit(true);
+              }}
+              aria-label="Edit Profile"
+              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg shadow-red-950 ring-2 ring-black active:scale-90 transition cursor-pointer"
+            >
+              {isUploadingAvatar ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+              ) : (
+                <Camera className="w-3.5 h-3.5" />
+              )}
+            </button>
           </div>
 
-          {/* Camera Edit Badge in Signature Red */}
+          {/* WhatsApp-Style Thought / Status Bubble */}
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowAvatarPicker(true);
+            onClick={() => {
+              setStatusInput(statusThought);
+              setShowStatusModal(true);
             }}
-            aria-label="Change profile photo"
-            className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center shadow-lg shadow-red-950 ring-2 ring-black active:scale-90 transition cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-1 mb-1.5 rounded-full bg-[#1c1c20] hover:bg-[#242429] border border-neutral-800 text-[11px] text-neutral-300 shadow-md transition active:scale-95 cursor-pointer relative"
+            title="Tap to update status"
           >
-            {isUploadingAvatar ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
-            ) : (
-              <Camera className="w-3.5 h-3.5" />
-            )}
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+            <span className="font-medium max-w-[200px] truncate">{statusThought}</span>
           </button>
-        </div>
 
         {/* Centered Display Name */}
         <h2 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-2 mt-2.5">
@@ -493,6 +533,7 @@ export const YouTab: React.FC<YouTabProps> = ({
           )}
         </div>
       </div>
+    </div>
 
       {/* WhatsApp-Style Group 1: Subscriptions, Lists, Broadcasts, Starred, Linked Devices */}
       <div className="rounded-2xl bg-[#161619] border border-neutral-800/80 overflow-hidden divide-y divide-[#222226]">
@@ -1009,6 +1050,9 @@ export const YouTab: React.FC<YouTabProps> = ({
             onUpdateProfile?.(updated);
             if (updated.avatarUrl) {
               setAvatarUrl(updated.avatarUrl);
+            }
+            if (updated.coverUrl !== undefined) {
+              setCoverUrl(updated.coverUrl);
             }
           }}
         />

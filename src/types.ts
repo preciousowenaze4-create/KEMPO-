@@ -83,6 +83,10 @@ export interface UserProfileData {
   email: string;
   displayName: string;
   avatarUrl: string;
+  coverUrl?: string;
+  about?: string;
+  username?: string;
+  links?: string;
   accountType: AccountType;
   category?: string;
   phoneNumber?: string;
@@ -100,4 +104,5 @@ export interface UserProfileData {
   createdAt?: string;
   lastActive?: string;
 }
+
 
