@@ -19,14 +19,14 @@ import {
   Paperclip,
   Search,
 } from 'lucide-react';
-import { Chat, Message } from '../types';
+import { Chat, Message, UserProfileData } from '../types';
 import { VoiceNoteRecorder } from './VoiceNoteRecorder';
 import { ChatMessageMedia } from './ChatMessageMedia';
 import { ContactInfoScreen } from './ContactInfoScreen';
 import { realtimeService } from '../lib/realtimeService';
 import { compressImage, saveLocalMedia } from '../lib/mediaStorage';
 import { offlineQueue } from '../lib/offlineQueue';
-import { uploadChatMediaToSupabase } from '../lib/supabase';
+import { uploadChatMediaToSupabase, fetchContactProfile, formatLastSeen } from '../lib/supabase';
 
 interface ChatRoomProps {
   chat: Chat;
@@ -90,11 +90,72 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     scrollToBottom();
   }, [chat.messages, isTyping]);
 
+  // Dynamic Contact Profile from Supabase & Real-Time Presence
+  const [contactProfile, setContactProfile] = useState<UserProfileData | null>(null);
+  const [isContactOnline, setIsContactOnline] = useState<boolean>(Boolean(chat.online));
+  const [lastSeenText, setLastSeenText] = useState<string>(() => formatLastSeen(chat.lastSeen || chat.timestamp));
+
+  // Partner ID for real-time signaling & profile lookups
+  const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
+
+  // Effective Contact Media (photo from Supabase or chat)
+  const effectiveAvatarUrl = contactProfile?.avatarUrl || chat.avatarUrl || '';
+  const effectiveCoverUrl = contactProfile?.coverUrl || chat.coverUrl || '';
+  const effectiveCoverType = contactProfile?.coverType || chat.coverType || 'image';
+
+  // Fetch contact's actual profile from Supabase and listen for real-time presence
+  useEffect(() => {
+    let isMounted = true;
+    const cleanPartner = partnerId;
+
+    // 1. Initial presence check
+    const currentOnline = realtimeService.isUserOnline(cleanPartner);
+    setIsContactOnline(currentOnline);
+    if (!currentOnline) {
+      const recordedLastSeen = realtimeService.getUserLastSeen(cleanPartner) || chat.lastSeen || chat.timestamp;
+      setLastSeenText(formatLastSeen(recordedLastSeen));
+    }
+
+    // 2. Fetch contact profile from Supabase
+    fetchContactProfile({
+      id: chat.id,
+      kempoId: chat.kempoId,
+      phoneNumber: chat.phoneNumber,
+      name: chat.name,
+      avatarUrl: chat.avatarUrl,
+      coverUrl: chat.coverUrl,
+      coverType: chat.coverType,
+    }).then((profile) => {
+      if (!isMounted) return;
+      if (profile) {
+        setContactProfile(profile);
+        if (profile.lastSeen && !realtimeService.isUserOnline(cleanPartner)) {
+          setLastSeenText(formatLastSeen(profile.lastSeen));
+        }
+      }
+    });
+
+    // 3. Listen to presence updates
+    const unsubPresence = realtimeService.onPresenceChange((onlineUsers) => {
+      if (!isMounted) return;
+      const normPartner = realtimeService.normalizeId(cleanPartner);
+      const online = onlineUsers.has(normPartner);
+      setIsContactOnline(online);
+      if (!online) {
+        const lastSeen = realtimeService.getUserLastSeen(cleanPartner) || contactProfile?.lastSeen || chat.lastSeen || chat.timestamp;
+        setLastSeenText(formatLastSeen(lastSeen));
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubPresence();
+    };
+  }, [chat.id, chat.kempoId, chat.phoneNumber, chat.name]);
+
   // Subscribe to real-time chat messages and read receipts between both participants
   useEffect(() => {
     if (!chat.id) return;
-
-    const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
 
     // Notify that we have opened and read this chat
     onMarkRead?.(chat.id);
@@ -347,8 +408,15 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             {/* Contact Avatar */}
             <div className="relative shrink-0 ml-1">
               <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-neutral-800 ring-1 ring-red-500/40">
-                {chat.avatarType === 'photo' && chat.avatarUrl ? (
-                  <img src={chat.avatarUrl} alt={chat.name} className="w-full h-full object-cover" />
+                {effectiveAvatarUrl ? (
+                  <img
+                    src={effectiveAvatarUrl}
+                    alt={chat.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
                 ) : (
                   <div
                     className="w-full h-full flex items-center justify-center text-white font-bold text-sm"
@@ -358,23 +426,28 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   </div>
                 )}
               </div>
-              {chat.online && (
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black"></span>
+              {isContactOnline && (
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black">
+                  <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
+                </span>
               )}
             </div>
 
             {/* Contact info */}
             <div className="ml-2 min-w-0">
               <h2 className="text-[15.5px] font-semibold text-white truncate tracking-tight hover:text-red-400 transition">
-                {chat.name}
+                {contactProfile?.displayName || chat.name}
               </h2>
               <p className="text-[11.5px] text-neutral-400 truncate">
                 {isTyping ? (
                   <span className="text-red-400 font-medium">typing...</span>
-                ) : chat.online ? (
-                  <span className="text-emerald-400">online</span>
+                ) : isContactOnline ? (
+                  <span className="text-emerald-400 font-medium flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                    online
+                  </span>
                 ) : (
-                  `last seen ${chat.timestamp}`
+                  lastSeenText
                 )}
               </p>
             </div>
@@ -732,7 +805,22 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       {/* Contact Info Screen */}
       {showContactInfo && (
         <ContactInfoScreen
-          chat={chat}
+          chat={{
+            ...chat,
+            name: contactProfile?.displayName || chat.name,
+            avatarUrl: effectiveAvatarUrl,
+            avatarType: effectiveAvatarUrl ? 'photo' : chat.avatarType,
+            coverUrl: effectiveCoverUrl,
+            coverType: effectiveCoverType,
+            online: isContactOnline,
+            lastSeen: lastSeenText,
+          }}
+          contactProfile={contactProfile}
+          isOnline={isContactOnline}
+          lastSeenText={lastSeenText}
+          coverUrl={effectiveCoverUrl}
+          coverType={effectiveCoverType}
+          avatarUrl={effectiveAvatarUrl}
           onBack={() => setShowContactInfo(false)}
           onStartCall={(targetChat, isVideo) => {
             setShowContactInfo(false);

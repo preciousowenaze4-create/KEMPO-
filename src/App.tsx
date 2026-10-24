@@ -906,6 +906,8 @@ export default function App() {
   // Listen to personal signaling channel for real incoming WhatsApp calls, responses, and missed calls
   useEffect(() => {
     const myId = userProfile?.kempoId || currentUserName || 'my-id';
+    const unsubPresence = realtimeService.initPresence(myId, currentUserName || userProfile?.displayName);
+
     realtimeService.listenToPersonalSignals(
       myId,
       (callEvent: IncomingCallEvent) => {
@@ -982,6 +984,10 @@ export default function App() {
         }
       }
     );
+
+    return () => {
+      unsubPresence();
+    };
   }, [userProfile?.kempoId, currentUserName, selectedChat, activeCallingChat, isVideoCall, chats]);
 
   // Start Call (Video or Voice) with Real-Time Signaling (Never call self)

@@ -930,6 +930,168 @@ export async function updateUserAdminStatus(
   }
 }
 
+// Format last seen timestamp into human friendly display (e.g., "last seen today at 9:15 AM")
+export function formatLastSeen(timestampOrDate?: string | Date): string {
+  if (!timestampOrDate) return 'last seen recently';
+  try {
+    const date = typeof timestampOrDate === 'string' ? new Date(timestampOrDate) : timestampOrDate;
+    if (isNaN(date.getTime())) {
+      if (typeof timestampOrDate === 'string') {
+        if (timestampOrDate.toLowerCase().includes('last seen')) return timestampOrDate;
+        return `last seen ${timestampOrDate}`;
+      }
+      return 'last seen recently';
+    }
+
+    const now = new Date();
+    const isToday =
+      now.getFullYear() === date.getFullYear() &&
+      now.getMonth() === date.getMonth() &&
+      now.getDate() === date.getDate();
+
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    const isYesterday =
+      yesterday.getFullYear() === date.getFullYear() &&
+      yesterday.getMonth() === date.getMonth() &&
+      yesterday.getDate() === date.getDate();
+
+    let hours = date.getHours();
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    const timeStr = `${hours}:${minutes} ${ampm}`;
+
+    if (isToday) {
+      return `last seen today at ${timeStr}`;
+    } else if (isYesterday) {
+      return `last seen yesterday at ${timeStr}`;
+    } else {
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `last seen ${monthNames[date.getMonth()]} ${date.getDate()} at ${timeStr}`;
+    }
+  } catch {
+    return 'last seen recently';
+  }
+}
+
+// Fetch complete contact profile from Supabase with multi-key resolution and offline caching
+export async function fetchContactProfile(contact: {
+  id?: string;
+  kempoId?: string;
+  phoneNumber?: string;
+  name?: string;
+  avatarUrl?: string;
+  coverUrl?: string;
+  coverType?: 'image' | 'video';
+}): Promise<UserProfileData | null> {
+  const cleanKempoId = (contact.kempoId || '').trim();
+  const cleanPhone = (contact.phoneNumber || '').trim();
+  const cleanId = (contact.id || '').trim();
+  const cleanName = (contact.name || '').trim();
+
+  // 1. Try querying Supabase profiles table
+  try {
+    let query = supabase.from('profiles').select('*');
+
+    if (cleanKempoId) {
+      query = query.or(`kempo_id.ilike.%${cleanKempoId}%,kempo_id.eq.${cleanKempoId}`);
+    } else if (cleanId && !cleanId.startsWith('user-') && !cleanId.startsWith('temp-')) {
+      query = query.eq('id', cleanId);
+    } else if (cleanPhone) {
+      query = query.eq('phone_number', cleanPhone);
+    } else if (cleanName) {
+      query = query.ilike('display_name', `%${cleanName}%`);
+    }
+
+    const { data, error } = await query.limit(1).maybeSingle();
+
+    if (!error && data) {
+      const rawCoverUrl = data.cover_url || contact.coverUrl || '';
+      const resolvedCoverType: 'image' | 'video' =
+        data.cover_type ||
+        contact.coverType ||
+        (isVideoMediaUrl(rawCoverUrl) ? 'video' : 'image');
+
+      return {
+        id: data.id,
+        email: data.email || '',
+        displayName: data.display_name || cleanName || 'Kempo User',
+        avatarUrl: data.avatar_url || contact.avatarUrl || '',
+        coverUrl: rawCoverUrl,
+        coverType: resolvedCoverType,
+        accountType: data.account_type || 'personal',
+        category: data.category || data.account_type,
+        phoneNumber: data.phone_number || cleanPhone,
+        countryCode: data.country_code,
+        kempoId: data.kempo_id || cleanKempoId,
+        preferences: data.preferences || DEFAULT_PREFERENCES,
+        isOnboarded: true,
+        lastSeen: data.last_seen || data.updated_at,
+      };
+    }
+  } catch (err) {
+    console.info('fetchContactProfile Supabase query notice:', err);
+  }
+
+  // 2. Check local registered users cache
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem('kempo_registered_users');
+      if (raw) {
+        const users: UserProfileData[] = JSON.parse(raw);
+        const match = users.find((u) => {
+          if (cleanKempoId && u.kempoId?.toLowerCase().includes(cleanKempoId.toLowerCase())) return true;
+          if (cleanPhone && u.phoneNumber === cleanPhone) return true;
+          if (cleanId && u.id === cleanId) return true;
+          if (cleanName && u.displayName?.toLowerCase() === cleanName.toLowerCase()) return true;
+          return false;
+        });
+        if (match) {
+          return {
+            ...match,
+            coverUrl: match.coverUrl || contact.coverUrl || '',
+            coverType: match.coverType || contact.coverType || (isVideoMediaUrl(match.coverUrl || contact.coverUrl) ? 'video' : 'image'),
+            avatarUrl: match.avatarUrl || contact.avatarUrl || '',
+          };
+        }
+      }
+
+      // Check current user profile if contact matches
+      const myProfileRaw = localStorage.getItem('kempo_user_profile');
+      if (myProfileRaw) {
+        const myProfile: UserProfileData = JSON.parse(myProfileRaw);
+        if (
+          (cleanKempoId && myProfile.kempoId?.toLowerCase().includes(cleanKempoId.toLowerCase())) ||
+          (cleanId && myProfile.id === cleanId)
+        ) {
+          return myProfile;
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Fallback based on provided contact props
+  if (contact.avatarUrl || contact.coverUrl || contact.kempoId) {
+    const rawCoverUrl = contact.coverUrl || '';
+    return {
+      id: cleanId || 'contact',
+      email: '',
+      displayName: cleanName || cleanKempoId || 'Contact',
+      avatarUrl: contact.avatarUrl || '',
+      coverUrl: rawCoverUrl,
+      coverType: contact.coverType || (isVideoMediaUrl(rawCoverUrl) ? 'video' : 'image'),
+      accountType: 'personal',
+      kempoId: cleanKempoId,
+      phoneNumber: cleanPhone,
+      preferences: DEFAULT_PREFERENCES,
+      isOnboarded: true,
+    };
+  }
+
+  return null;
+}
+
 // Find another user by their shareable KEMPO-ID or Phone ID in Supabase
 export async function findUserByKempoId(kempoId: string): Promise<UserProfileData | null> {
   const cleanId = kempoId.trim();
@@ -944,11 +1106,14 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
       .maybeSingle();
 
     if (!error && data) {
+      const coverUrl = data.cover_url || '';
       return {
         id: data.id,
         email: data.email || '',
         displayName: data.display_name || cleanId,
         avatarUrl: data.avatar_url || '',
+        coverUrl,
+        coverType: data.cover_type || (isVideoMediaUrl(coverUrl) ? 'video' : 'image'),
         accountType: data.account_type || 'personal',
         category: data.category || data.account_type,
         phoneNumber: data.phone_number,
@@ -956,6 +1121,7 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
         kempoId: data.kempo_id || cleanId,
         preferences: data.preferences || DEFAULT_PREFERENCES,
         isOnboarded: true,
+        lastSeen: data.last_seen || data.updated_at,
       };
     }
   } catch (err) {

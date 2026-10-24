@@ -33,6 +33,9 @@ export interface Chat {
   isArchived?: boolean;
   isFavorite?: boolean;
   online?: boolean;
+  lastSeen?: string;
+  coverUrl?: string;
+  coverType?: 'image' | 'video';
   about?: string;
   phoneNumber?: string;
   messages: Message[];
@@ -104,6 +107,7 @@ export interface UserProfileData {
   isAdmin?: boolean;
   createdAt?: string;
   lastActive?: string;
+  lastSeen?: string;
 }
 
 

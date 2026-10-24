@@ -32,7 +32,12 @@ export class KempoRealtimeService {
   private activeChannels: Map<string, any> = new Map();
   private userChannel: any = null;
   private postgresMessagesChannel: any = null;
+  private presenceChannel: any = null;
   private seenMessageIds: Set<string> = new Set();
+  private onlineUsers: Set<string> = new Set();
+  private userLastSeenMap: Map<string, string> = new Map();
+  private presenceListeners: Set<(onlineUserIds: Set<string>) => void> = new Set();
+  private currentUserId: string = '';
 
   // Normalize ID for clean room channels
   public normalizeId(id: string): string {
@@ -45,6 +50,136 @@ export class KempoRealtimeService {
     const clean2 = this.normalizeId(partnerId);
     const sorted = [clean1, clean2].sort();
     return `kempo_chat_${sorted[0]}_${sorted[1]}`;
+  }
+
+  // Real-time Supabase Presence Tracking
+  initPresence(myKempoId: string, myDisplayName?: string) {
+    if (!myKempoId) return () => {};
+    const cleanMyId = this.normalizeId(myKempoId);
+    this.currentUserId = cleanMyId;
+
+    if (this.presenceChannel) {
+      try {
+        supabase.removeChannel(this.presenceChannel);
+      } catch {}
+    }
+
+    const channel = supabase.channel('kempo_global_presence', {
+      config: {
+        presence: {
+          key: cleanMyId,
+        },
+      },
+    });
+
+    const updatePresenceState = () => {
+      const state = channel.presenceState();
+      const online = new Set<string>();
+      Object.keys(state).forEach((key) => {
+        online.add(this.normalizeId(key));
+      });
+      // Current user is always online
+      online.add(cleanMyId);
+      this.onlineUsers = online;
+      this.presenceListeners.forEach((listener) => {
+        try {
+          listener(new Set(this.onlineUsers));
+        } catch {}
+      });
+    };
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        updatePresenceState();
+      })
+      .on('presence', { event: 'join' }, ({ key }) => {
+        if (key) {
+          this.onlineUsers.add(this.normalizeId(key));
+          this.presenceListeners.forEach((listener) => {
+            try {
+              listener(new Set(this.onlineUsers));
+            } catch {}
+          });
+        }
+      })
+      .on('presence', { event: 'leave' }, ({ key }) => {
+        if (key) {
+          const norm = this.normalizeId(key);
+          this.onlineUsers.delete(norm);
+          this.userLastSeenMap.set(norm, new Date().toISOString());
+          this.presenceListeners.forEach((listener) => {
+            try {
+              listener(new Set(this.onlineUsers));
+            } catch {}
+          });
+        }
+      })
+      .subscribe(async (status: string) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({
+            user_id: cleanMyId,
+            display_name: myDisplayName || cleanMyId,
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+
+    this.presenceChannel = channel;
+
+    const handleUnload = () => {
+      if (this.presenceChannel) {
+        try {
+          this.presenceChannel.untrack();
+        } catch {}
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', handleUnload);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('beforeunload', handleUnload);
+      }
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+      this.presenceChannel = null;
+    };
+  }
+
+  // Check if a specific user / contact is currently active and online
+  isUserOnline(userIdOrKempoId: string): boolean {
+    if (!userIdOrKempoId) return false;
+    const clean = this.normalizeId(userIdOrKempoId);
+    return this.onlineUsers.has(clean);
+  }
+
+  // Get contact's last seen ISO timestamp
+  getUserLastSeen(userIdOrKempoId: string): string | undefined {
+    if (!userIdOrKempoId) return undefined;
+    return this.userLastSeenMap.get(this.normalizeId(userIdOrKempoId));
+  }
+
+  // Subscribe to real-time presence changes
+  onPresenceChange(listener: (onlineUserIds: Set<string>) => void): () => void {
+    this.presenceListeners.add(listener);
+    listener(new Set(this.onlineUsers));
+    return () => {
+      this.presenceListeners.delete(listener);
+    };
+  }
+
+  // Mark user as active from room interaction
+  markUserActive(userIdOrKempoId: string) {
+    if (!userIdOrKempoId) return;
+    const clean = this.normalizeId(userIdOrKempoId);
+    this.onlineUsers.add(clean);
+    this.presenceListeners.forEach((listener) => {
+      try {
+        listener(new Set(this.onlineUsers));
+      } catch {}
+    });
   }
 
   // 1. Supabase Realtime Postgres Changes Subscription on 'messages' table
@@ -349,6 +484,7 @@ export class KempoRealtimeService {
     channel
       .on('broadcast', { event: 'new_message' }, ({ payload }) => {
         if (payload && this.normalizeId(payload.senderId) !== cleanMyId) {
+          this.markUserActive(partnerId);
           if (payload.id) {
             if (this.seenMessageIds.has(payload.id)) return;
             this.seenMessageIds.add(payload.id);
@@ -359,10 +495,25 @@ export class KempoRealtimeService {
       })
       .on('broadcast', { event: 'read_receipt' }, ({ payload }) => {
         if (payload && this.normalizeId(payload.readerId) !== cleanMyId) {
+          this.markUserActive(partnerId);
           onReadReceipt(payload.readerId);
         }
       })
-      .subscribe();
+      .on('broadcast', { event: 'heartbeat' }, ({ payload }) => {
+        if (payload && this.normalizeId(payload.senderId) !== cleanMyId) {
+          this.markUserActive(partnerId);
+        }
+      })
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          // Send room heartbeat
+          channel.send({
+            type: 'broadcast',
+            event: 'heartbeat',
+            payload: { senderId: myId, timestamp: new Date().toISOString() },
+          });
+        }
+      });
 
     this.activeChannels.set(channelName, channel);
 
@@ -479,6 +630,12 @@ export class KempoRealtimeService {
         supabase.removeChannel(this.postgresMessagesChannel);
       } catch {}
       this.postgresMessagesChannel = null;
+    }
+    if (this.presenceChannel) {
+      try {
+        supabase.removeChannel(this.presenceChannel);
+      } catch {}
+      this.presenceChannel = null;
     }
     this.activeChannels.forEach((ch) => {
       try {
