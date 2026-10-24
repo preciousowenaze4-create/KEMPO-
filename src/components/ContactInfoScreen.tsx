@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -23,10 +23,12 @@ import {
   Ban,
   Flag,
   Check,
+  Copy,
 } from 'lucide-react';
 import { Chat, UserProfileData } from '../types';
-import { isVideoMediaUrl, formatLastSeen } from '../lib/supabase';
-import { isOwnerAccount, OWNER_FIXED_ID } from '../lib/accountRules';
+import { fetchContactProfile, isVideoMediaUrl, formatLastSeen } from '../lib/supabase';
+import { getMediaFromOfflineCache, saveMediaToOfflineCache } from '../lib/mediaCache';
+import { isOwnerAccount, OWNER_FIXED_ID, isOwnerIdFormat } from '../lib/accountRules';
 
 interface ContactInfoScreenProps {
   chat: Chat;
@@ -46,7 +48,7 @@ interface ContactInfoScreenProps {
 
 export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
   chat,
-  contactProfile,
+  contactProfile: initialProfile,
   isOnline: propIsOnline,
   lastSeenText: propLastSeenText,
   coverUrl: propCoverUrl,
@@ -69,42 +71,165 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
   const [showReportConfirm, setShowReportConfirm] = useState(false);
   const [showEncryptionModal, setShowEncryptionModal] = useState(false);
 
-  // Effective Contact Media & Identity
-  const effectiveAvatarUrl =
-    propAvatarUrl || contactProfile?.avatarUrl || chat.avatarUrl || '';
-  const effectiveCoverUrl =
-    propCoverUrl || contactProfile?.coverUrl || chat.coverUrl || '';
-  const effectiveCoverType: 'image' | 'video' =
-    propCoverType ||
-    contactProfile?.coverType ||
-    chat.coverType ||
-    (isVideoMediaUrl(effectiveCoverUrl) ? 'video' : 'image');
+  // Derive unique contact identifier
+  const cleanPartnerId =
+    chat.kempoId ||
+    chat.about?.replace('KEMPO ID: ', '').trim() ||
+    chat.phoneNumber ||
+    chat.id;
+
+  const isContactOwner =
+    isOwnerAccount({
+      email: initialProfile?.email,
+      kempoId: initialProfile?.kempoId || chat.kempoId,
+    }) ||
+    isOwnerIdFormat(chat.kempoId) ||
+    (chat.name && chat.name.toLowerCase().includes('kempo'));
+
+  // Default avatars: NEVER letter placeholders like 'K'
+  const defaultAvatar = isContactOwner
+    ? '/pwa-512x512.png'
+    : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80';
+
+  // High performance dynamic default cover matching Settings view
+  const defaultCover =
+    'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
+
+  // Instant local cache avatar resolution for 0ms lag
+  const [avatarUrl, setAvatarUrl] = useState<string>(() => {
+    if (propAvatarUrl) return propAvatarUrl;
+    if (initialProfile?.avatarUrl) return initialProfile.avatarUrl;
+    if (chat.avatarUrl) return chat.avatarUrl;
+    if (typeof window !== 'undefined') {
+      const cached =
+        localStorage.getItem(`kempo_contact_avatar_${chat.id}`) ||
+        localStorage.getItem(`kempo_contact_avatar_${cleanPartnerId}`);
+      if (cached) return cached;
+      const cachedProfile = localStorage.getItem(`kempo_contact_${cleanPartnerId}`);
+      if (cachedProfile) {
+        try {
+          const parsed = JSON.parse(cachedProfile);
+          if (parsed.avatarUrl) return parsed.avatarUrl;
+        } catch {}
+      }
+    }
+    return defaultAvatar;
+  });
+
+  // Instant local cache cover resolution
+  const [coverUrl, setCoverUrl] = useState<string>(() => {
+    if (propCoverUrl) return propCoverUrl;
+    if (initialProfile?.coverUrl) return initialProfile.coverUrl;
+    if (chat.coverUrl) return chat.coverUrl;
+    if (typeof window !== 'undefined') {
+      const cached =
+        localStorage.getItem(`kempo_contact_cover_${chat.id}`) ||
+        localStorage.getItem(`kempo_contact_cover_${cleanPartnerId}`);
+      if (cached) return cached;
+      const cachedProfile = localStorage.getItem(`kempo_contact_${cleanPartnerId}`);
+      if (cachedProfile) {
+        try {
+          const parsed = JSON.parse(cachedProfile);
+          if (parsed.coverUrl) return parsed.coverUrl;
+        } catch {}
+      }
+    }
+    return defaultCover;
+  });
+
+  const [coverType, setCoverType] = useState<'image' | 'video'>(() => {
+    if (propCoverType) return propCoverType;
+    if (initialProfile?.coverType) return initialProfile.coverType;
+    if (chat.coverType) return chat.coverType;
+    return isVideoMediaUrl(coverUrl) ? 'video' : 'image';
+  });
+
+  const [profile, setProfile] = useState<UserProfileData | null>(initialProfile || null);
+
+  // Pre-cache media locally from IndexedDB and fetch live profile asynchronously for 60fps zero lag
+  useEffect(() => {
+    let isMounted = true;
+
+    // 1. IndexedDB cache retrieval
+    getMediaFromOfflineCache(`kempo_contact_cover_${cleanPartnerId}`).then((cached) => {
+      if (isMounted && cached) {
+        setCoverUrl(cached);
+        setCoverType(isVideoMediaUrl(cached) ? 'video' : 'image');
+      }
+    });
+
+    getMediaFromOfflineCache(`kempo_contact_avatar_${cleanPartnerId}`).then((cached) => {
+      if (isMounted && cached) {
+        setAvatarUrl(cached);
+      }
+    });
+
+    // 2. Fetch from Supabase
+    fetchContactProfile({
+      id: chat.id,
+      kempoId: chat.kempoId,
+      phoneNumber: chat.phoneNumber,
+      name: chat.name,
+      avatarUrl: chat.avatarUrl,
+      coverUrl: chat.coverUrl,
+      coverType: chat.coverType,
+    }).then((fetched) => {
+      if (!isMounted || !fetched) return;
+      setProfile(fetched);
+
+      if (fetched.avatarUrl) {
+        setAvatarUrl(fetched.avatarUrl);
+        try {
+          localStorage.setItem(`kempo_contact_avatar_${chat.id}`, fetched.avatarUrl);
+          localStorage.setItem(`kempo_contact_avatar_${cleanPartnerId}`, fetched.avatarUrl);
+          saveMediaToOfflineCache(`kempo_contact_avatar_${cleanPartnerId}`, fetched.avatarUrl);
+        } catch {}
+      }
+
+      if (fetched.coverUrl) {
+        setCoverUrl(fetched.coverUrl);
+        setCoverType(fetched.coverType || (isVideoMediaUrl(fetched.coverUrl) ? 'video' : 'image'));
+        try {
+          localStorage.setItem(`kempo_contact_cover_${chat.id}`, fetched.coverUrl);
+          localStorage.setItem(`kempo_contact_cover_${cleanPartnerId}`, fetched.coverUrl);
+          saveMediaToOfflineCache(`kempo_contact_cover_${cleanPartnerId}`, fetched.coverUrl);
+        } catch {}
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [chat.id, cleanPartnerId]);
 
   const effectiveIsOnline =
     propIsOnline !== undefined ? propIsOnline : Boolean(chat.online);
   const effectiveLastSeen =
     propLastSeenText ||
-    formatLastSeen(contactProfile?.lastSeen || chat.lastSeen || chat.timestamp);
+    formatLastSeen(profile?.lastSeen || chat.lastSeen || chat.timestamp);
 
   // Derive permanent Kempo Pro Shareable ID
-  const isContactOwner = isOwnerAccount({
-    email: contactProfile?.email,
-    kempoId: contactProfile?.kempoId || chat.kempoId,
-  });
   const shareableKempoId = isContactOwner
     ? OWNER_FIXED_ID
-    : contactProfile?.kempoId ||
+    : profile?.kempoId ||
       chat.kempoId ||
       (chat.about?.startsWith('KEMPO ID: ')
         ? chat.about.replace('KEMPO ID: ', '').trim()
         : '') ||
       (chat.phoneNumber ? `Kempo Pro ${chat.phoneNumber}` : '');
 
-  const displayName = contactProfile?.displayName || chat.name;
+  const displayName = profile?.displayName || chat.name;
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  const handleCopyId = () => {
+    if (shareableKempoId) {
+      navigator.clipboard.writeText(shareableKempoId);
+      showToast('Kempo Pro ID copied to clipboard');
+    }
   };
 
   const handleShareContact = () => {
@@ -126,31 +251,36 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0c0c0e] text-white flex flex-col select-none overflow-hidden animate-in slide-in-from-right duration-200">
+    <div className="fixed inset-0 z-50 text-white flex flex-col select-none overflow-hidden animate-in slide-in-from-right duration-200">
       {/* 1. Full-Height Vertical Stretch for Contact's Cover Media (Live Video or Photo) */}
       <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        {effectiveCoverUrl ? (
-          effectiveCoverType === 'video' || isVideoMediaUrl(effectiveCoverUrl) ? (
-            <video
-              src={effectiveCoverUrl}
-              autoPlay
-              loop
-              muted
-              playsInline
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <img
-              src={effectiveCoverUrl}
-              alt={`${displayName}'s Cover`}
-              className="w-full h-full object-cover"
-            />
-          )
+        {coverUrl && (isVideoMediaUrl(coverUrl) || coverType === 'video') ? (
+          <video
+            src={coverUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+          />
+        ) : coverUrl ? (
+          <img
+            src={coverUrl}
+            alt={`${displayName}'s Cover`}
+            className="w-full h-full object-cover"
+          />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-[#0c0c10] via-[#15151c] to-[#0a0a0d]" />
+          <video
+            src={defaultCover}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover opacity-85"
+          />
         )}
-        {/* Subtle translucent vignette so live video remains completely clear and visible */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/20 to-black/75 pointer-events-none" />
+        {/* Subtle translucent vignette mirroring Settings view so the media is completely visible */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/60 pointer-events-none" />
       </div>
 
       {/* Toast Notification */}
@@ -184,28 +314,20 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
       </div>
 
       {/* Scrollable Content Container Overlaid Directly On Top of Contact's Cover */}
-      <div className="relative z-10 flex-1 overflow-y-auto max-w-lg mx-auto w-full px-4 py-4 space-y-5 pb-24">
-        {/* 1. Top Profile Section & Quick Actions (Direct Overlay - No Dark Box) */}
+      <div className="relative z-10 flex-1 overflow-y-auto max-w-lg mx-auto w-full px-4 py-4 space-y-4 pb-28">
+        {/* 1. Top Profile Section & Quick Actions (Direct Glass Overlay) */}
         <div className="flex flex-col items-center text-center pt-2">
-          {/* Centered Circular Avatar with Signature Red Ring */}
-          <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600/90 shadow-2xl shadow-black/80 bg-black/40 flex items-center justify-center relative">
-            {effectiveAvatarUrl ? (
-              <img
-                src={effectiveAvatarUrl}
-                alt={displayName}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-            ) : (
-              <div
-                className="w-full h-full flex items-center justify-center text-white font-black text-4xl"
-                style={{ backgroundColor: chat.avatarBg || '#1e1e24' }}
-              >
-                {displayName.charAt(0).toUpperCase()}
-              </div>
-            )}
+          {/* Centered Circular Avatar with Signature Red Ring (Guaranteed Real Photo - Never Placeholder 'K') */}
+          <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600/90 shadow-2xl shadow-black/90 bg-black/40 flex items-center justify-center relative">
+            <img
+              src={avatarUrl || defaultAvatar}
+              alt={displayName}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                // If remote photo fails to load, gracefully fall back to official Kempo crest or user avatar
+                (e.currentTarget as HTMLImageElement).src = defaultAvatar;
+              }}
+            />
             {effectiveIsOnline && (
               <span className="absolute bottom-1 right-2 w-4 h-4 rounded-full bg-emerald-500 ring-2 ring-black">
                 <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
@@ -218,34 +340,48 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
             {displayName}
           </h2>
 
-          {/* Permanent Kempo Pro ID */}
-          <p className="text-sm font-mono font-bold text-white/90 drop-shadow-[0_1px_4px_rgba(0,0,0,1)] mt-1">
-            {shareableKempoId}
-          </p>
+          {/* Permanent Kempo Pro ID Badge with One-Tap Copy (Mirroring Settings View) */}
+          <div
+            onClick={handleCopyId}
+            className="mt-2 inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-black/50 hover:bg-black/70 border border-white/20 shadow-xl drop-shadow cursor-pointer active:scale-95 transition group"
+            title="Tap to copy Kempo Pro ID"
+          >
+            <span className="text-[10px] uppercase font-bold text-neutral-300 tracking-wider drop-shadow-xs">
+              ID:
+            </span>
+            <span
+              className={`text-xs font-mono font-bold tracking-wide select-all drop-shadow-sm ${
+                isContactOwner ? 'text-amber-400' : 'text-red-400'
+              }`}
+            >
+              {shareableKempoId}
+            </span>
+            <Copy className="w-3.5 h-3.5 text-white/80 group-hover:text-white group-hover:scale-110 transition" />
+          </div>
 
           {/* Dynamic Online / Last Seen status tag */}
-          <div className="mt-1">
+          <div className="mt-1.5">
             {effectiveIsOnline ? (
               <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 justify-center drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
                 online
               </span>
             ) : (
-              <span className="text-xs font-medium text-white/80 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
+              <span className="text-xs font-medium text-white/85 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
                 {effectiveLastSeen}
               </span>
             )}
           </div>
 
-          {/* Quick Action Buttons: Voice, Video, Search (Glassmorphism overlay) */}
-          <div className="grid grid-cols-3 gap-3 w-full mt-5">
+          {/* Quick Action Buttons: Voice, Video, Search (Glassmorphism overlay - No Solid Dark Box) */}
+          <div className="grid grid-cols-3 gap-3 w-full mt-4">
             {/* Action 1: Voice Call */}
             <button
               onClick={() => {
                 onBack();
                 onStartCall?.(chat, false);
               }}
-              className="py-3 px-2 rounded-2xl bg-black/40 hover:bg-black/60 border border-white/20 backdrop-blur-sm flex flex-col items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer shadow-lg group"
+              className="py-3 px-2 rounded-2xl bg-black/45 hover:bg-black/65 border border-white/20 backdrop-blur-xs flex flex-col items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer shadow-xl group"
             >
               <Phone className="w-5 h-5 text-red-500 group-hover:scale-110 transition stroke-[2.2] drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
               <span className="text-xs font-bold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Voice</span>
@@ -257,7 +393,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
                 onBack();
                 onStartCall?.(chat, true);
               }}
-              className="py-3 px-2 rounded-2xl bg-black/40 hover:bg-black/60 border border-white/20 backdrop-blur-sm flex flex-col items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer shadow-lg group"
+              className="py-3 px-2 rounded-2xl bg-black/45 hover:bg-black/65 border border-white/20 backdrop-blur-xs flex flex-col items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer shadow-xl group"
             >
               <Video className="w-5 h-5 text-red-500 group-hover:scale-110 transition stroke-[2.2] drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
               <span className="text-xs font-bold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Video</span>
@@ -269,7 +405,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
                 onBack();
                 onSearchChat?.();
               }}
-              className="py-3 px-2 rounded-2xl bg-black/40 hover:bg-black/60 border border-white/20 backdrop-blur-sm flex flex-col items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer shadow-lg group"
+              className="py-3 px-2 rounded-2xl bg-black/45 hover:bg-black/65 border border-white/20 backdrop-blur-xs flex flex-col items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer shadow-xl group"
             >
               <Search className="w-5 h-5 text-red-500 group-hover:scale-110 transition stroke-[2.2] drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
               <span className="text-xs font-bold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Search</span>
@@ -277,11 +413,11 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
           </div>
         </div>
 
-        {/* 2. Media, Links, Docs & Starred Messages (Direct Overlay, No Dark Box Container) */}
-        <div className="divide-y divide-white/15">
+        {/* 2. Media, Links, Docs & Starred Messages (Semi-transparent Glass Container) */}
+        <div className="bg-black/35 backdrop-blur-xs rounded-2xl border border-white/10 divide-y divide-white/15 overflow-hidden shadow-xl">
           <div
             onClick={() => showToast('Media browser: No shared media yet')}
-            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
+            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer"
           >
             <div className="flex items-center gap-3.5">
               <div className="w-8 h-8 rounded-xl bg-red-600/35 border border-red-500/40 text-red-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
@@ -292,14 +428,14 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">None</span>
+              <span className="text-sm text-white/75 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">None</span>
               <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
             </div>
           </div>
 
           <div
             onClick={() => showToast('Starred messages: None')}
-            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
+            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer"
           >
             <div className="flex items-center gap-3.5">
               <div className="w-8 h-8 rounded-xl bg-amber-600/35 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
@@ -310,20 +446,20 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">None</span>
+              <span className="text-sm text-white/75 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">None</span>
               <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
             </div>
           </div>
         </div>
 
-        {/* 3. Notifications & Chat Theme (Direct Overlay, No Dark Box Container) */}
-        <div className="divide-y divide-white/15">
+        {/* 3. Notifications & Chat Theme (Semi-transparent Glass Container) */}
+        <div className="bg-black/35 backdrop-blur-xs rounded-2xl border border-white/10 divide-y divide-white/15 overflow-hidden shadow-xl">
           <div
             onClick={() => {
               setIsMuted(!isMuted);
               showToast(!isMuted ? 'Notifications muted for 8 hours' : 'Notifications unmuted');
             }}
-            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
+            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer"
           >
             <div className="flex items-center gap-3.5">
               <div className="w-8 h-8 rounded-xl bg-purple-600/35 border border-purple-500/40 text-purple-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
@@ -334,7 +470,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
+              <span className="text-sm text-white/75 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
                 {isMuted ? 'Muted' : 'Default'}
               </span>
               <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
@@ -343,7 +479,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
           <div
             onClick={() => showToast('Theme: Dark Kempo Pro Crimson Wallpaper')}
-            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
+            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer"
           >
             <div className="flex items-center gap-3.5">
               <div className="w-8 h-8 rounded-xl bg-pink-600/35 border border-pink-500/40 text-pink-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
@@ -354,14 +490,14 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Kempo Dark</span>
+              <span className="text-sm text-white/75 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Kempo Dark</span>
               <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
             </div>
           </div>
 
           <div
             onClick={() => showToast('Save to Photos: Default')}
-            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
+            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer"
           >
             <div className="flex items-center gap-3.5">
               <div className="w-8 h-8 rounded-xl bg-teal-600/35 border border-teal-500/40 text-teal-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
@@ -372,17 +508,17 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Default</span>
+              <span className="text-sm text-white/75 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Default</span>
               <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
             </div>
           </div>
         </div>
 
-        {/* 4. Security & Privacy Controls (Direct Overlay, No Dark Box Container) */}
-        <div className="divide-y divide-white/15">
+        {/* 4. Security & Privacy Controls (Semi-transparent Glass Container) */}
+        <div className="bg-black/35 backdrop-blur-xs rounded-2xl border border-white/10 divide-y divide-white/15 overflow-hidden shadow-xl">
           <div
             onClick={() => showToast('Disappearing messages: Off')}
-            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
+            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer"
           >
             <div className="flex items-center gap-3.5">
               <div className="w-8 h-8 rounded-xl bg-blue-600/35 border border-blue-500/40 text-blue-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
@@ -393,13 +529,13 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Off</span>
+              <span className="text-sm text-white/75 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Off</span>
               <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
             </div>
           </div>
 
           {/* Lock Chat Switch */}
-          <div className="p-3.5 flex items-center justify-between rounded-xl">
+          <div className="p-3.5 flex items-center justify-between">
             <div className="flex items-center gap-3.5">
               <div className="w-8 h-8 rounded-xl bg-emerald-600/35 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
                 <Shield className="w-4 h-4 text-emerald-400" />
@@ -429,7 +565,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
           <div
             onClick={() => showToast('Restricted chat: Off')}
-            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
+            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer"
           >
             <div className="flex items-center gap-3.5">
               <div className="w-8 h-8 rounded-xl bg-orange-600/35 border border-orange-500/40 text-orange-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
@@ -440,7 +576,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-white/70 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Off</span>
+              <span className="text-sm text-white/75 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">Off</span>
               <ChevronRight className="w-4 h-4 text-white/80 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
             </div>
           </div>
@@ -448,7 +584,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
           {/* Encryption Info */}
           <div
             onClick={() => setShowEncryptionModal(true)}
-            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer rounded-xl"
+            className="p-3.5 flex items-center justify-between hover:bg-white/10 active:bg-white/20 transition cursor-pointer"
           >
             <div className="flex items-center gap-3.5 min-w-0 pr-2">
               <div className="w-8 h-8 rounded-xl bg-red-600/35 border border-red-500/40 text-red-400 flex items-center justify-center shrink-0 shadow-lg drop-shadow">
@@ -467,15 +603,15 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
           </div>
         </div>
 
-        {/* 5. Groups in Common (Direct Overlay) */}
+        {/* 5. Groups in Common (Semi-transparent Glass Container) */}
         <div>
-          <h3 className="text-xs font-bold text-white/80 uppercase tracking-wider px-2 mb-1 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
+          <h3 className="text-xs font-bold text-white/80 uppercase tracking-wider px-2 mb-1.5 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
             No groups in common
           </h3>
-          <div className="divide-y divide-white/15">
+          <div className="bg-black/35 backdrop-blur-xs rounded-2xl border border-white/10 divide-y divide-white/15 overflow-hidden shadow-xl">
             <button
               onClick={() => showToast(`Create group with ${displayName}`)}
-              className="w-full p-3.5 flex items-center gap-3.5 hover:bg-white/10 active:bg-white/20 transition text-left cursor-pointer rounded-xl"
+              className="w-full p-3.5 flex items-center gap-3.5 hover:bg-white/10 active:bg-white/20 transition text-left cursor-pointer"
             >
               <div className="w-8 h-8 rounded-xl bg-red-600/35 border border-red-500/40 flex items-center justify-center text-red-400 shadow-lg drop-shadow shrink-0">
                 <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -487,7 +623,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
             <button
               onClick={() => showToast(`Add ${displayName} to existing group`)}
-              className="w-full p-3.5 flex items-center gap-3.5 hover:bg-white/10 active:bg-white/20 transition text-left cursor-pointer rounded-xl"
+              className="w-full p-3.5 flex items-center gap-3.5 hover:bg-white/10 active:bg-white/20 transition text-left cursor-pointer"
             >
               <div className="w-8 h-8 rounded-xl bg-red-600/35 border border-red-500/40 flex items-center justify-center text-red-400 shadow-lg drop-shadow shrink-0">
                 <UserPlus className="w-4 h-4 stroke-[2.5]" />
@@ -499,11 +635,11 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
           </div>
         </div>
 
-        {/* 6. Standard Management Options Card (Direct Overlay in signature red) */}
-        <div className="divide-y divide-white/15">
+        {/* 6. Standard Management Options Card (Semi-transparent Glass Container in signature red) */}
+        <div className="bg-black/35 backdrop-blur-xs rounded-2xl border border-white/10 divide-y divide-white/15 overflow-hidden shadow-xl">
           <button
             onClick={handleShareContact}
-            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-white/10 active:bg-white/20 transition text-[15px] font-bold cursor-pointer rounded-xl drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
+            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-white/10 active:bg-white/20 transition text-[15px] font-bold cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
           >
             <span>Share contact</span>
             <Share2 className="w-4 h-4" />
@@ -511,7 +647,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
           <button
             onClick={handleToggleFavorite}
-            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-white/10 active:bg-white/20 transition text-[15px] font-bold cursor-pointer rounded-xl drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
+            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-white/10 active:bg-white/20 transition text-[15px] font-bold cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
           >
             <span>{isFavorite ? 'Remove from Favourites' : 'Add to Favourites'}</span>
             <Heart className={`w-4 h-4 ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} />
@@ -519,7 +655,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
           <button
             onClick={() => showToast('Added to custom list')}
-            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-white/10 active:bg-white/20 transition text-[15px] font-bold cursor-pointer rounded-xl drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
+            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-white/10 active:bg-white/20 transition text-[15px] font-bold cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
           >
             <span>Add to list</span>
             <List className="w-4 h-4" />
@@ -527,7 +663,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
           <button
             onClick={() => showToast('Exporting encrypted chat history...')}
-            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-white/10 active:bg-white/20 transition text-[15px] font-bold cursor-pointer rounded-xl drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
+            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-white/10 active:bg-white/20 transition text-[15px] font-bold cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
           >
             <span>Export chat</span>
             <Download className="w-4 h-4" />
@@ -536,18 +672,18 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
           {/* Clear Chat in bold red */}
           <button
             onClick={() => setShowClearConfirm(true)}
-            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-red-500/15 active:bg-red-500/25 transition text-[15px] font-bold cursor-pointer rounded-xl drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
+            className="w-full p-3.5 flex items-center justify-between text-red-400 hover:text-red-300 hover:bg-red-500/15 active:bg-red-500/25 transition text-[15px] font-bold cursor-pointer drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
           >
             <span>Clear chat</span>
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
 
-        {/* 7. Bottom Safety Actions (Direct Overlay in Bold Red) */}
-        <div className="divide-y divide-white/15">
+        {/* 7. Bottom Safety Actions (Semi-transparent Glass Container in Bold Red) */}
+        <div className="bg-black/35 backdrop-blur-xs rounded-2xl border border-white/10 divide-y divide-white/15 overflow-hidden shadow-xl">
           <button
             onClick={() => setShowBlockConfirm(true)}
-            className="w-full p-3.5 text-center text-red-400 hover:text-red-300 hover:bg-red-500/15 active:bg-red-500/25 transition text-[15px] font-bold cursor-pointer flex items-center justify-center gap-2 drop-shadow-[0_1px_4px_rgba(0,0,0,1)] rounded-xl"
+            className="w-full p-3.5 text-center text-red-400 hover:text-red-300 hover:bg-red-500/15 active:bg-red-500/25 transition text-[15px] font-bold cursor-pointer flex items-center justify-center gap-2 drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
           >
             <Ban className="w-4 h-4" />
             <span>{isBlocked ? `Unblock ${displayName}` : `Block ${displayName}`}</span>
@@ -555,7 +691,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
           <button
             onClick={() => setShowReportConfirm(true)}
-            className="w-full p-3.5 text-center text-red-400 hover:text-red-300 hover:bg-red-500/15 active:bg-red-500/25 transition text-[15px] font-bold cursor-pointer flex items-center justify-center gap-2 drop-shadow-[0_1px_4px_rgba(0,0,0,1)] rounded-xl"
+            className="w-full p-3.5 text-center text-red-400 hover:text-red-300 hover:bg-red-500/15 active:bg-red-500/25 transition text-[15px] font-bold cursor-pointer flex items-center justify-center gap-2 drop-shadow-[0_1px_4px_rgba(0,0,0,1)]"
           >
             <Flag className="w-4 h-4" />
             <span>Report {displayName}</span>

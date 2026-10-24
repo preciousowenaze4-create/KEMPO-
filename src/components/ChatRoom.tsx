@@ -26,7 +26,8 @@ import { ContactInfoScreen } from './ContactInfoScreen';
 import { realtimeService } from '../lib/realtimeService';
 import { compressImage, saveLocalMedia } from '../lib/mediaStorage';
 import { offlineQueue } from '../lib/offlineQueue';
-import { uploadChatMediaToSupabase, fetchContactProfile, formatLastSeen } from '../lib/supabase';
+import { uploadChatMediaToSupabase, fetchContactProfile, formatLastSeen, isVideoMediaUrl } from '../lib/supabase';
+import { isOwnerIdFormat, isOwnerAccount } from '../lib/accountRules';
 
 interface ChatRoomProps {
   chat: Chat;
@@ -98,10 +99,23 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   // Partner ID for real-time signaling & profile lookups
   const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
 
-  // Effective Contact Media (photo from Supabase or chat)
-  const effectiveAvatarUrl = contactProfile?.avatarUrl || chat.avatarUrl || '';
-  const effectiveCoverUrl = contactProfile?.coverUrl || chat.coverUrl || '';
-  const effectiveCoverType = contactProfile?.coverType || chat.coverType || 'image';
+  const isContactOwner =
+    isOwnerIdFormat(chat.kempoId) ||
+    (chat.kempoId && chat.kempoId.toLowerCase().includes('owner')) ||
+    (chat.name && chat.name.toLowerCase().includes('kempo')) ||
+    (contactProfile?.email && isOwnerAccount({ email: contactProfile.email, kempoId: contactProfile.kempoId }));
+
+  const defaultAvatar = isContactOwner
+    ? '/pwa-512x512.png'
+    : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80';
+
+  const defaultCover =
+    'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
+
+  // Effective Contact Media (photo from Supabase, chat, or guaranteed real avatar)
+  const effectiveAvatarUrl = contactProfile?.avatarUrl || chat.avatarUrl || defaultAvatar;
+  const effectiveCoverUrl = contactProfile?.coverUrl || chat.coverUrl || defaultCover;
+  const effectiveCoverType = contactProfile?.coverType || chat.coverType || (isVideoMediaUrl(effectiveCoverUrl) ? 'video' : 'image');
 
   // Fetch contact's actual profile from Supabase and listen for real-time presence
   useEffect(() => {
@@ -408,23 +422,14 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             {/* Contact Avatar */}
             <div className="relative shrink-0 ml-1">
               <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-neutral-800 ring-1 ring-red-500/40">
-                {effectiveAvatarUrl ? (
-                  <img
-                    src={effectiveAvatarUrl}
-                    alt={chat.name}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <div
-                    className="w-full h-full flex items-center justify-center text-white font-bold text-sm"
-                    style={{ backgroundColor: chat.avatarBg || '#1c1c1e' }}
-                  >
-                    {chat.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
+                <img
+                  src={effectiveAvatarUrl || defaultAvatar}
+                  alt={chat.name}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = defaultAvatar;
+                  }}
+                />
               </div>
               {isContactOnline && (
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black">

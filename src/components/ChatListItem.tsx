@@ -147,25 +147,21 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
                 : ''
             }`}
           >
-            {chat.avatarType === 'photo' && chat.avatarUrl ? (
-              <img
-                src={chat.avatarUrl}
-                alt={chat.name}
-                className="w-full h-full rounded-full object-cover"
-                loading="lazy"
-              />
-            ) : (
-              <div
-                className="w-full h-full rounded-full flex items-center justify-center font-bold text-white text-base select-none"
-                style={{ backgroundColor: chat.avatarBg || '#1c1c1e' }}
-              >
-                {chat.name ? (
-                  <span>{chat.name.trim().charAt(0).toUpperCase()}</span>
-                ) : (
-                  <User className="w-6 h-6 text-neutral-300" />
-                )}
-              </div>
-            )}
+            {(() => {
+              const isKempo = chat.name?.toLowerCase().includes('kempo') || chat.kempoId?.toLowerCase().includes('owner');
+              const itemAvatar = chat.avatarUrl || (isKempo ? '/pwa-512x512.png' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80');
+              return (
+                <img
+                  src={itemAvatar}
+                  alt={chat.name}
+                  className="w-full h-full rounded-full object-cover"
+                  loading="lazy"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = '/pwa-512x512.png';
+                  }}
+                />
+              );
+            })()}
           </div>
 
           {/* Active online dot if applicable */}

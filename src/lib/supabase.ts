@@ -1088,12 +1088,90 @@ export async function fetchContactProfile(contact: {
   const cleanId = (contact.id || '').trim();
   const cleanName = (contact.name || '').trim();
 
-  // 1. Try querying Supabase profiles table
+  // 1. Check if contact represents the recognized App Owner / Admin or Official Kempo Account
+  const lowerName = cleanName.toLowerCase();
+  const lowerKempoId = cleanKempoId.toLowerCase();
+  const isTargetOwner =
+    isOwnerIdFormat(cleanKempoId) ||
+    lowerKempoId.includes('owner') ||
+    lowerKempoId.includes('admin') ||
+    lowerName.includes('owner') ||
+    lowerName.includes('admin') ||
+    lowerName.includes('kempo') ||
+    lowerName.includes('ddkid') ||
+    lowerName.includes('precious') ||
+    isOwnerEmail(cleanId);
+
+  if (isTargetOwner) {
+    // 1a. Check local storage if current user or cached owner
+    let ownerAvatar = typeof window !== 'undefined' ? localStorage.getItem('kempo_user_avatar') || '' : '';
+    let ownerCover = typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : '';
+    let ownerCoverType: 'image' | 'video' = typeof window !== 'undefined'
+      ? (localStorage.getItem('kempo_user_cover_type') as 'image' | 'video') || 'video'
+      : 'video';
+
+    // 1b. Query Supabase profiles for latest owner photo & cover video
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .or(`email.ilike.${OWNER_EMAILS[0]},email.ilike.${OWNER_EMAILS[1]},kempo_id.ilike.%owner%,is_admin.eq.true`)
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data) {
+        if (data.avatar_url) ownerAvatar = data.avatar_url;
+        if (data.cover_url) {
+          ownerCover = data.cover_url;
+          ownerCoverType = data.cover_type || (isVideoMediaUrl(data.cover_url) ? 'video' : 'image');
+        }
+      }
+    } catch (e) {
+      console.info('fetchContactProfile Owner query notice:', e);
+    }
+
+    // Default to official Kempo Pro Crest & Cyber Red cover if not yet customized
+    const finalAvatar = ownerAvatar || contact.avatarUrl || '/pwa-512x512.png';
+    const finalCover = ownerCover || contact.coverUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80';
+
+    const ownerProfile: UserProfileData = {
+      id: 'kempo-owner-account',
+      email: OWNER_EMAILS[0],
+      displayName: cleanName || 'Kempo Pro OWNER',
+      avatarUrl: finalAvatar,
+      coverUrl: finalCover,
+      coverType: ownerCoverType || (isVideoMediaUrl(finalCover) ? 'video' : 'image'),
+      accountType: 'creator',
+      category: 'creator',
+      phoneNumber: cleanPhone || '+234',
+      countryCode: '+234',
+      kempoId: OWNER_FIXED_ID,
+      preferences: DEFAULT_PREFERENCES,
+      isOnboarded: true,
+      status: 'verified',
+      isVerified: true,
+      isAdmin: true,
+      lastSeen: new Date().toISOString(),
+    };
+
+    // Cache locally for instant 0ms access
+    if (typeof window !== 'undefined') {
+      try {
+        if (cleanKempoId) localStorage.setItem(`kempo_contact_${cleanKempoId}`, JSON.stringify(ownerProfile));
+        if (cleanId) localStorage.setItem(`kempo_contact_${cleanId}`, JSON.stringify(ownerProfile));
+        if (cleanName) localStorage.setItem(`kempo_contact_${cleanName}`, JSON.stringify(ownerProfile));
+      } catch {}
+    }
+
+    return ownerProfile;
+  }
+
+  // 2. Query Supabase profiles table for standard user
   try {
     let query = supabase.from('profiles').select('*');
 
     if (cleanKempoId) {
-      query = query.or(`kempo_id.ilike.%${cleanKempoId}%,kempo_id.eq.${cleanKempoId}`);
+      query = query.or(`kempo_id.eq.${cleanKempoId},kempo_id.ilike.%${cleanKempoId}%,email.ilike.${cleanKempoId}`);
     } else if (cleanId && !cleanId.startsWith('user-') && !cleanId.startsWith('temp-')) {
       query = query.eq('id', cleanId);
     } else if (cleanPhone) {
@@ -1105,17 +1183,19 @@ export async function fetchContactProfile(contact: {
     const { data, error } = await query.limit(1).maybeSingle();
 
     if (!error && data) {
-      const rawCoverUrl = data.cover_url || contact.coverUrl || '';
+      const rawCoverUrl = data.cover_url || contact.coverUrl || 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=1000&auto=format&fit=crop&q=80';
       const resolvedCoverType: 'image' | 'video' =
         data.cover_type ||
         contact.coverType ||
         (isVideoMediaUrl(rawCoverUrl) ? 'video' : 'image');
 
-      return {
+      const resolvedAvatar = data.avatar_url || contact.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80';
+
+      const resolvedProfile: UserProfileData = {
         id: data.id,
         email: data.email || '',
         displayName: data.display_name || cleanName || 'Kempo User',
-        avatarUrl: data.avatar_url || contact.avatarUrl || '',
+        avatarUrl: resolvedAvatar,
         coverUrl: rawCoverUrl,
         coverType: resolvedCoverType,
         accountType: data.account_type || 'personal',
@@ -1127,14 +1207,30 @@ export async function fetchContactProfile(contact: {
         isOnboarded: true,
         lastSeen: data.last_seen || data.updated_at,
       };
+
+      // Fast cache in localStorage for instant 0ms retrieval next time
+      if (typeof window !== 'undefined') {
+        try {
+          if (cleanKempoId) localStorage.setItem(`kempo_contact_${cleanKempoId}`, JSON.stringify(resolvedProfile));
+          if (cleanId) localStorage.setItem(`kempo_contact_${cleanId}`, JSON.stringify(resolvedProfile));
+          if (cleanName) localStorage.setItem(`kempo_contact_${cleanName}`, JSON.stringify(resolvedProfile));
+        } catch {}
+      }
+
+      return resolvedProfile;
     }
   } catch (err) {
     console.info('fetchContactProfile Supabase query notice:', err);
   }
 
-  // 2. Check local registered users cache
+  // 3. Check local registered users cache & instant cache
   if (typeof window !== 'undefined') {
     try {
+      if (cleanKempoId) {
+        const cached = localStorage.getItem(`kempo_contact_${cleanKempoId}`);
+        if (cached) return JSON.parse(cached);
+      }
+
       const raw = localStorage.getItem('kempo_registered_users');
       if (raw) {
         const users: UserProfileData[] = JSON.parse(raw);
@@ -1148,46 +1244,32 @@ export async function fetchContactProfile(contact: {
         if (match) {
           return {
             ...match,
-            coverUrl: match.coverUrl || contact.coverUrl || '',
+            coverUrl: match.coverUrl || contact.coverUrl || 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=1000&auto=format&fit=crop&q=80',
             coverType: match.coverType || contact.coverType || (isVideoMediaUrl(match.coverUrl || contact.coverUrl) ? 'video' : 'image'),
-            avatarUrl: match.avatarUrl || contact.avatarUrl || '',
+            avatarUrl: match.avatarUrl || contact.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
           };
-        }
-      }
-
-      // Check current user profile if contact matches
-      const myProfileRaw = localStorage.getItem('kempo_user_profile');
-      if (myProfileRaw) {
-        const myProfile: UserProfileData = JSON.parse(myProfileRaw);
-        if (
-          (cleanKempoId && myProfile.kempoId?.toLowerCase().includes(cleanKempoId.toLowerCase())) ||
-          (cleanId && myProfile.id === cleanId)
-        ) {
-          return myProfile;
         }
       }
     } catch {}
   }
 
-  // 3. Fallback based on provided contact props
-  if (contact.avatarUrl || contact.coverUrl || contact.kempoId) {
-    const rawCoverUrl = contact.coverUrl || '';
-    return {
-      id: cleanId || 'contact',
-      email: '',
-      displayName: cleanName || cleanKempoId || 'Contact',
-      avatarUrl: contact.avatarUrl || '',
-      coverUrl: rawCoverUrl,
-      coverType: contact.coverType || (isVideoMediaUrl(rawCoverUrl) ? 'video' : 'image'),
-      accountType: 'personal',
-      kempoId: cleanKempoId,
-      phoneNumber: cleanPhone,
-      preferences: DEFAULT_PREFERENCES,
-      isOnboarded: true,
-    };
-  }
+  // 4. Fallback based on provided contact props with aesthetic cover
+  const fallbackCover = contact.coverUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80';
+  const fallbackAvatar = contact.avatarUrl || (isTargetOwner ? '/pwa-512x512.png' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80');
 
-  return null;
+  return {
+    id: cleanId || 'contact',
+    email: '',
+    displayName: cleanName || cleanKempoId || 'Contact',
+    avatarUrl: fallbackAvatar,
+    coverUrl: fallbackCover,
+    coverType: contact.coverType || (isVideoMediaUrl(fallbackCover) ? 'video' : 'image'),
+    accountType: 'personal',
+    kempoId: cleanKempoId || (isTargetOwner ? OWNER_FIXED_ID : 'Kempo Pro ID'),
+    phoneNumber: cleanPhone,
+    preferences: DEFAULT_PREFERENCES,
+    isOnboarded: true,
+  };
 }
 
 // Find another user by their unique permanent KEMPO-ID, Owner ID, or Phone ID in Supabase
