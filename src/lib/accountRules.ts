@@ -1,13 +1,24 @@
 /**
  * Account Rules and Access Control for KEMPO PRo
- * Enforces owner identification, fixed owner ID, backend email privacy, and standard user ID validation.
+ * Enforces owner identification, dedicated owner ID formatting, and unique permanent standard user IDs.
  */
 
 export const OWNER_EMAILS = [
-  'preciousddkid@gmail.com',
   'preciousowenaze4@gmail.com',
+  'preciousddkid@gmail.com',
 ];
-export const OWNER_FIXED_ID = 'kempo pro';
+
+// Dedicated Owner ID format requested: Prefix "Kempo Pro", Role Tag "OWNER"
+export const OWNER_FIXED_ID = 'Kempo Pro OWNER';
+export const OWNER_ADMIN_ID = 'Kempo Pro ADMIN';
+
+export const OWNER_RECOGNIZED_IDS = [
+  'kempo pro owner',
+  'kempo pro admin',
+  'kempo pro',
+  'owner',
+  'admin',
+];
 
 /**
  * Check if the given email corresponds to the application owner (case-insensitive)
@@ -19,53 +30,99 @@ export function isOwnerEmail(email?: string | null): boolean {
 }
 
 /**
+ * Check if an ID string matches the dedicated Owner or Admin format
+ */
+export function isOwnerIdFormat(id?: string | null): boolean {
+  if (!id) return false;
+  const clean = id.trim().toLowerCase();
+  return (
+    OWNER_RECOGNIZED_IDS.includes(clean) ||
+    clean === OWNER_FIXED_ID.toLowerCase() ||
+    clean === OWNER_ADMIN_ID.toLowerCase() ||
+    clean.includes('kempo pro owner') ||
+    clean.includes('kempo pro admin')
+  );
+}
+
+/**
  * Check if a profile or ID belongs to the application owner
  */
-export function isOwnerAccount(profile?: { email?: string; kempoId?: string } | null): boolean {
+export function isOwnerAccount(profile?: { email?: string; kempoId?: string; isAdmin?: boolean } | null): boolean {
   if (!profile) return false;
+  if (profile.isAdmin) return true;
   if (isOwnerEmail(profile.email)) return true;
-  if (profile.kempoId && profile.kempoId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
+  if (profile.kempoId && isOwnerIdFormat(profile.kempoId)) {
     return true;
   }
   return false;
 }
 
 /**
- * Generate standard user ID strictly using the app name as prefix:
- * Format: KEMPO-[digits/letters], NEVER username with number!
- * Example: KEMPO-749219 or KEMPO-9B4X21
+ * Generates a distinct 6-character uppercase alphanumeric ID suffix
+ * (Excludes visually ambiguous characters like 0, O, 1, I)
  */
-export function generateStandardUserKempoId(): string {
-  // App name prefix followed by 6 random alphanumeric characters / numbers
+export function generateUniqueIdSuffix(seed?: string): string {
   const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const digits = '1234567890';
-  let randomPart = '';
-  // Mix 4 digits and 2 letters
-  for (let i = 0; i < 4; i++) {
-    randomPart += digits.charAt(Math.floor(Math.random() * digits.length));
+  let result = '';
+
+  // Use cryptographic randomness if available
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const randomBytes = new Uint8Array(6);
+    crypto.getRandomValues(randomBytes);
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(randomBytes[i] % chars.length);
+    }
+  } else {
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
   }
-  for (let i = 0; i < 2; i++) {
-    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+
+  return result;
+}
+
+/**
+ * Generate a unique permanent Kempo Pro ID for a standard user:
+ * Format: Kempo Pro +[DialCode][UniqueSuffix] or Kempo Pro [UniqueSuffix]
+ * Example: Kempo Pro +2349B7K24
+ */
+export function generateStandardUserKempoId(countryDialCode?: string, email?: string): string {
+  const suffix = generateUniqueIdSuffix(email);
+  if (countryDialCode) {
+    const cleanCode = countryDialCode.startsWith('+') ? countryDialCode : `+${countryDialCode}`;
+    return `Kempo Pro ${cleanCode}${suffix}`;
   }
-  return `KEMPO-${randomPart}`;
+  return `Kempo Pro +234${suffix}`;
 }
 
 /**
  * Assign appropriate User ID based on account credentials.
- * Automatically gives fixed 'kempo pro' to the owner account,
- * and app name prefix 'KEMPO-[digits/letters]' to all other people signing up.
+ * Dedicated "Kempo Pro OWNER" for owner email,
+ * and guaranteed unique permanent Kempo Pro ID for standard users.
  */
-export function assignUserKempoId(email: string, _preferredName?: string): string {
+export function assignUserKempoId(
+  email: string,
+  countryDialCode?: string,
+  existingId?: string
+): string {
   if (isOwnerEmail(email)) {
     return OWNER_FIXED_ID;
   }
-  return generateStandardUserKempoId();
+  // If an existing valid permanent ID is already assigned (and not the buggy A5738 placeholder), preserve it!
+  if (
+    existingId &&
+    existingId.trim() &&
+    !isOwnerIdFormat(existingId) &&
+    !existingId.endsWith('A5738')
+  ) {
+    return existingId.trim();
+  }
+  return generateStandardUserKempoId(countryDialCode, email);
 }
 
 /**
  * Validate when a user attempts to customize or set a User ID.
- * Returns validation status and error messages if regular users attempt to use 'kempo pro'.
- * Enforces KEMPO- prefix for standard users as requested by the user.
+ * Returns validation status and ensures regular users cannot claim the Owner ID.
  */
 export function validateAndFormatUserId(
   desiredId: string,
@@ -74,39 +131,27 @@ export function validateAndFormatUserId(
   const trimmed = desiredId.trim();
   const lower = trimmed.toLowerCase();
 
-  // If owner, allow 'kempo pro'
+  // If owner, allow official owner IDs
   if (isOwnerEmail(userEmail)) {
-    if (lower === OWNER_FIXED_ID.toLowerCase()) {
+    if (isOwnerIdFormat(trimmed)) {
       return { valid: true, formattedId: OWNER_FIXED_ID };
     }
     return { valid: true, formattedId: trimmed };
   }
 
-  // Non-owner trying to set 'kempo pro' or variations
-  const forbiddenPatterns = ['kempo pro', 'kempopro', 'kempo_pro', 'kempo-pro'];
-  if (forbiddenPatterns.includes(lower)) {
+  // Non-owner trying to set 'Kempo Pro OWNER', 'Kempo Pro ADMIN', 'kempo pro'
+  if (isOwnerIdFormat(lower)) {
     return {
       valid: false,
       formattedId: '',
-      error: "'kempo pro' is reserved exclusively for the application owner.",
+      error: "'Kempo Pro OWNER' is reserved exclusively for the application owner.",
     };
   }
 
-  // Ensure standard user ID starts with the app name: KEMPO-
-  let formatted = trimmed.toUpperCase();
-  if (!formatted.startsWith('KEMPO-')) {
-    const cleanSuffix = formatted.replace(/^KEMPO/i, '').replace(/[^A-Z0-9]/g, '');
-    if (cleanSuffix) {
-      formatted = `KEMPO-${cleanSuffix}`;
-    } else {
-      formatted = generateStandardUserKempoId();
-    }
-  }
-
-  // Ensure it has letters/digits after KEMPO-
-  const suffix = formatted.replace('KEMPO-', '');
-  if (!suffix || suffix.length < 3) {
-    formatted = `${formatted}${Math.floor(100 + Math.random() * 900)}`;
+  // Clean format
+  let formatted = trimmed;
+  if (!formatted.toLowerCase().startsWith('kempo pro')) {
+    formatted = `Kempo Pro ${formatted}`;
   }
 
   return { valid: true, formattedId: formatted };
@@ -125,8 +170,8 @@ export function getBackendPrivacyStatus(email?: string): string {
 }
 
 /**
- * Formats user phone or custom ID with the required 'Kempo Pro +[code][entry]' format
- * Example: Kempo Pro +234A5738 (seamlessly combining prefix directly adjacent to ID without excessive spacing)
+ * Formats user phone or unique ID with the required 'Kempo Pro +[code][entry]' format
+ * Example: Kempo Pro +2349B7K24
  */
 export function formatKempoUserPhoneId(countryDialCode: string, entry: string): string {
   const cleanCode = countryDialCode.startsWith('+') ? countryDialCode : `+${countryDialCode}`;
@@ -136,4 +181,3 @@ export function formatKempoUserPhoneId(countryDialCode: string, entry: string): 
   }
   return `Kempo Pro ${cleanCode}${cleanEntry}`;
 }
-

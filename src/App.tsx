@@ -26,13 +26,14 @@ import { PhoneMissed, MessageCircle, ShieldAlert, Loader2 } from 'lucide-react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { BannedAccountScreen } from './components/BannedAccountScreen';
-import { isOwnerEmail, OWNER_FIXED_ID } from './lib/accountRules';
+import { isOwnerEmail, OWNER_FIXED_ID, isOwnerIdFormat, generateStandardUserKempoId } from './lib/accountRules';
 import {
   realtimeService,
   IncomingCallEvent,
   DirectMessagePayload,
   MissedCallEvent,
 } from './lib/realtimeService';
+import { dispatchDeviceNotification, playNotificationChime } from './lib/deviceNotifications';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { offlineQueue } from './lib/offlineQueue';
 import {
@@ -46,6 +47,7 @@ import {
   isAccountBanned,
   DEFAULT_PREFERENCES,
   generateKempoId,
+  getOrCreatePermanentKempoId,
 } from './lib/supabase';
 import {
   INITIAL_CHATS,
@@ -140,11 +142,7 @@ export default function App() {
           const email = parsed.email || localStorage.getItem('kempo_auth_user') || '';
           if (isOwnerEmail(email)) {
             parsed.accountType = 'creator';
-            if (!parsed.kempoId || !parsed.kempoId.includes('+')) {
-              const country = parsed.countryCode || localStorage.getItem('kempo_country_code') || '+234';
-              const cleanCode = country.startsWith('+') ? country : `+${country}`;
-              parsed.kempoId = `Kempo Pro ${cleanCode}${parsed.rawIdEntry || 'A5738'}`;
-            }
+            parsed.kempoId = OWNER_FIXED_ID;
           }
           return parsed;
         } catch (e) {
@@ -333,11 +331,9 @@ export default function App() {
           if (profile) {
             if (isOwnerEmail(email)) {
               profile.accountType = 'creator';
-              if (!profile.kempoId || !profile.kempoId.includes('+')) {
-                const country = profile.countryCode || localStorage.getItem('kempo_country_code') || '+234';
-                const cleanCode = country.startsWith('+') ? country : `+${country}`;
-                profile.kempoId = `Kempo Pro ${cleanCode}${profile.rawIdEntry || 'A5738'}`;
-              }
+              profile.kempoId = OWNER_FIXED_ID;
+            } else if (!profile.kempoId || profile.kempoId.endsWith('A5738') || isOwnerIdFormat(profile.kempoId)) {
+              profile.kempoId = await getOrCreatePermanentKempoId(email, profile.countryCode);
             }
             if (profile.avatarUrl && typeof window !== 'undefined') {
               localStorage.setItem('kempo_user_avatar', profile.avatarUrl);
@@ -407,11 +403,12 @@ export default function App() {
             if (profile) {
               if (isOwner) {
                 profile.accountType = 'creator';
-                if (!profile.kempoId || !profile.kempoId.includes('+')) {
-                  const country = profile.countryCode || localStorage.getItem('kempo_country_code') || '+234';
-                  const cleanCode = country.startsWith('+') ? country : `+${country}`;
-                  profile.kempoId = `Kempo Pro ${cleanCode}${profile.rawIdEntry || 'A5738'}`;
-                }
+                profile.kempoId = OWNER_FIXED_ID;
+              } else if (!profile.kempoId || profile.kempoId.endsWith('A5738') || isOwnerIdFormat(profile.kempoId)) {
+                getOrCreatePermanentKempoId(email, profile.countryCode).then((freshId) => {
+                  profile.kempoId = freshId;
+                  setUserProfile((prev) => (prev ? { ...prev, kempoId: freshId } : null));
+                });
               }
               if (profile.avatarUrl && typeof window !== 'undefined') {
                 localStorage.setItem('kempo_user_avatar', profile.avatarUrl);
@@ -491,20 +488,14 @@ export default function App() {
   };
 
   const handleOnboardingComplete = async (profile: UserProfileData) => {
-    const countryPrefix =
-      profile.countryCode ||
-      (typeof window !== 'undefined' ? localStorage.getItem('kempo_country_code') || '+234' : '+234');
-    const cleanCode = countryPrefix.startsWith('+') ? countryPrefix : `+${countryPrefix}`;
-    const rawSuffix = profile.rawIdEntry || 'A5738';
+    const isOwner = isOwnerEmail(profile.email || currentUserEmail);
 
-    if (isOwnerEmail(profile.email || currentUserEmail)) {
+    if (isOwner) {
       profile.accountType = 'creator';
-      if (!profile.kempoId || !profile.kempoId.includes('+')) {
-        profile.kempoId = `Kempo Pro ${cleanCode}${rawSuffix}`;
-      }
+      profile.kempoId = OWNER_FIXED_ID;
     } else {
-      if (!profile.kempoId || !profile.kempoId.includes('+')) {
-        profile.kempoId = `Kempo Pro ${cleanCode}${rawSuffix}`;
+      if (!profile.kempoId || profile.kempoId.endsWith('A5738') || isOwnerIdFormat(profile.kempoId)) {
+        profile.kempoId = await getOrCreatePermanentKempoId(profile.email || currentUserEmail, profile.countryCode);
       }
     }
     profile.isOnboarded = true;
@@ -515,7 +506,9 @@ export default function App() {
       if (profile.avatarUrl) {
         localStorage.setItem('kempo_user_avatar', profile.avatarUrl);
       }
-      localStorage.setItem('kempo_country_code', cleanCode);
+      if (profile.countryCode) {
+        localStorage.setItem('kempo_country_code', profile.countryCode);
+      }
       localStorage.setItem('kempo_user_id', profile.kempoId);
     }
 
@@ -561,45 +554,63 @@ export default function App() {
     localStorage.removeItem('kempo_auth_name');
   };
 
-  // Add Contact by shareable KEMPO-ID
+  // Add Contact by shareable KEMPO-ID (or dedicated Owner ID)
   const handleAddContactById = async (targetId: string): Promise<Chat | null> => {
-    const cleanId = targetId.trim().toUpperCase();
+    const cleanId = targetId.trim();
     if (!cleanId) return null;
 
+    const isTargetOwner = isOwnerIdFormat(cleanId);
+    const lookupId = isTargetOwner ? OWNER_FIXED_ID : cleanId;
+
     // Check if user already exists in current chats list
-    const existing = chats.find(
-      (c) =>
-        (c.kempoId && c.kempoId.toUpperCase() === cleanId) ||
-        (c.about && c.about.toUpperCase().includes(cleanId)) ||
-        c.name.toUpperCase().includes(cleanId) ||
+    const existing = chats.find((c) => {
+      if (isTargetOwner) {
+        return (
+          isOwnerIdFormat(c.kempoId) ||
+          c.name.toLowerCase().includes('precious') ||
+          (c.about && isOwnerIdFormat(c.about.replace('KEMPO ID: ', '')))
+        );
+      }
+      return (
+        (c.kempoId && c.kempoId.toUpperCase() === cleanId.toUpperCase()) ||
+        (c.kempoId && c.kempoId.replace(/\s+/g, '').toUpperCase() === cleanId.replace(/\s+/g, '').toUpperCase()) ||
+        (c.about && c.about.toUpperCase().includes(cleanId.toUpperCase())) ||
+        c.name.toUpperCase() === cleanId.toUpperCase() ||
         c.id === `user-${cleanId}`
-    );
+      );
+    });
+
     if (existing) {
       setSelectedChat(existing);
       return existing;
     }
 
-    // Query Supabase for user profile by KEMPO-ID
+    // Query Supabase for user profile by unique permanent ID or Owner ID
     const foundProfile = await findUserByKempoId(cleanId);
 
-    const contactName = foundProfile?.displayName || `User (${cleanId})`;
+    const contactName = foundProfile?.displayName || (isTargetOwner ? 'Precious Ddkid' : `User (${cleanId})`);
     const contactAvatar = foundProfile?.avatarUrl || '';
-    const contactAbout = `KEMPO ID: ${cleanId}`;
+    const contactKempoId = foundProfile?.kempoId || (isTargetOwner ? OWNER_FIXED_ID : cleanId);
+    const contactAbout = `KEMPO ID: ${contactKempoId}`;
 
     const newChat: Chat = {
-      id: foundProfile?.id || `user-${cleanId}`,
-      kempoId: cleanId,
+      id: foundProfile?.id || (isTargetOwner ? 'kempo-owner-account' : `user-${cleanId.replace(/\s+/g, '_')}`),
+      kempoId: contactKempoId,
       name: contactName,
       avatarUrl: contactAvatar,
-      avatarBg: '#251a24',
+      avatarBg: isTargetOwner ? '#451a24' : '#251a24',
       avatarType: contactAvatar ? 'photo' : 'initials',
       timestamp: 'Just now',
-      lastMessage: 'Connected on KEMPO PRo! Tap to chat.',
+      lastMessage: isTargetOwner
+        ? 'Connected with Kempo Pro Creator! Tap to chat.'
+        : 'Connected on KEMPO PRo! Tap to chat.',
       lastMessageStatus: 'none',
       unreadCount: 0,
       online: true,
       about: contactAbout,
-      phoneNumber: cleanId,
+      phoneNumber: foundProfile?.phoneNumber || cleanId,
+      coverUrl: foundProfile?.coverUrl,
+      coverType: foundProfile?.coverType,
       messages: [],
     };
 
@@ -619,7 +630,12 @@ export default function App() {
       const q = searchQuery.toLowerCase();
       const matchesName = chat.name.toLowerCase().includes(q);
       const matchesMsg = chat.lastMessage.toLowerCase().includes(q);
-      if (!matchesName && !matchesMsg) return false;
+      const matchesId = Boolean(
+        (chat.kempoId && chat.kempoId.toLowerCase().includes(q)) ||
+        (chat.about && chat.about.toLowerCase().includes(q)) ||
+        (chat.phoneNumber && chat.phoneNumber.toLowerCase().includes(q))
+      );
+      if (!matchesName && !matchesMsg && !matchesId) return false;
     }
 
     // Tab filter
@@ -719,20 +735,23 @@ export default function App() {
       }
     }
 
-    // Audio tone
-    if (userProfile?.preferences?.messageTones !== false) {
-      try {
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.setValueAtTime(800, ctx.currentTime);
-        gain.gain.setValueAtTime(0.08, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.25);
-      } catch {}
+    // Real native device notification & audio chime
+    const allowSounds = userProfile?.preferences?.soundEffects !== false && userProfile?.preferences?.messageTones !== false;
+    const allowDevicePush = userProfile?.preferences?.deviceNotifications !== false;
+
+    if (allowDevicePush) {
+      const senderTitle = dm.senderName || `Kempo Pro (${senderKempoId})`;
+      const bodyPreview = userProfile?.preferences?.lockScreenPreviews !== false
+        ? (msg.text || (msg.mediaType === 'audio' ? '🎤 Voice message' : '📸 Photo'))
+        : 'New message';
+
+      dispatchDeviceNotification(senderTitle, {
+        body: bodyPreview,
+        badgeCount: 1,
+        silentSound: !allowSounds,
+      });
+    } else if (allowSounds) {
+      playNotificationChime('message');
     }
   };
 
@@ -1465,9 +1484,22 @@ export default function App() {
             currentUserEmail={currentUserEmail}
             currentUserName={currentUserName}
             userProfile={userProfile}
+            onUpdatePreferences={(prefs) => {
+              if (userProfile) {
+                setUserProfile({ ...userProfile, preferences: prefs });
+              }
+            }}
             onUpdateProfile={(updated) => setUserProfile(updated)}
             onAddContactById={handleAddContactById}
             onOpenChat={handleOpenChat}
+            chats={chats}
+            onSendMessage={(chatId, text) => handleSendMessage(chatId, text)}
+            onClearChats={() => {
+              setChats([]);
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('kempo_user_chats');
+              }
+            }}
           />
         )}
 

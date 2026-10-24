@@ -98,17 +98,99 @@ export async function saveSupabaseUserProfile(user: any, name?: string) {
 // Import account rules
 import {
   isOwnerEmail,
+  isOwnerIdFormat,
   assignUserKempoId,
   generateStandardUserKempoId,
+  generateUniqueIdSuffix,
   OWNER_FIXED_ID,
+  OWNER_EMAILS,
 } from './accountRules';
 
-// Generate or assign a shareable KEMPO User ID (fixed 'kempo pro' for owner, distinct appended ID for others)
-export function generateKempoId(email?: string, _name?: string): string {
+// Generate or assign a shareable KEMPO User ID (fixed dedicated 'Kempo Pro OWNER' for owner, distinct unique ID for others)
+export function generateKempoId(email?: string, countryDialCode?: string): string {
   if (email && isOwnerEmail(email)) {
     return OWNER_FIXED_ID;
   }
-  return generateStandardUserKempoId();
+  return generateStandardUserKempoId(countryDialCode, email);
+}
+
+// Fetch existing permanent ID from Supabase by email or generate & persist a guaranteed unique ID
+export async function getOrCreatePermanentKempoId(
+  email: string,
+  countryDialCode?: string
+): Promise<string> {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  if (!cleanEmail) return generateStandardUserKempoId(countryDialCode);
+
+  // 1. If owner email, always assign official dedicated Owner ID format
+  if (isOwnerEmail(cleanEmail)) {
+    return OWNER_FIXED_ID;
+  }
+
+  // 2. Fetch existing saved ID from Supabase using their email address as primary key
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('kempo_id, email, phone_number, country_code')
+      .ilike('email', cleanEmail)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data?.kempo_id) {
+      const existingId = data.kempo_id.trim();
+      // If valid and not the old duplicate placeholder 'A5738'
+      if (!existingId.endsWith('A5738') && !isOwnerIdFormat(existingId)) {
+        return existingId;
+      }
+    }
+  } catch (err) {
+    console.info('getOrCreatePermanentKempoId Supabase query notice:', err);
+  }
+
+  // 3. Check persistent localStorage registry for this specific email
+  if (typeof window !== 'undefined') {
+    try {
+      const regRaw = localStorage.getItem('kempo_completed_accounts');
+      if (regRaw) {
+        const reg = JSON.parse(regRaw);
+        const match = reg[cleanEmail];
+        if (match?.kempoId && !match.kempoId.endsWith('A5738') && !isOwnerIdFormat(match.kempoId)) {
+          return match.kempoId;
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Generate a guaranteed unique permanent Kempo Pro ID for this standard user
+  let candidateId = generateStandardUserKempoId(countryDialCode, cleanEmail);
+
+  // Check collision in Supabase profiles table
+  try {
+    const { data: existingMatch } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('kempo_id', candidateId)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingMatch) {
+      candidateId = generateStandardUserKempoId(countryDialCode, `${cleanEmail}-${Date.now()}`);
+    }
+  } catch {}
+
+  // 5. Store permanently in Supabase profiles tied to this email
+  try {
+    await supabase.from('profiles').upsert(
+      {
+        email: cleanEmail,
+        kempo_id: candidateId,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'email' }
+    );
+  } catch {}
+
+  return candidateId;
 }
 
 // Default app preferences
@@ -117,6 +199,21 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   messageTones: true,
   gamingIntegration: true,
   darkTheme: true,
+  deviceNotifications: true,
+  groupAlerts: true,
+  soundEffects: true,
+  inAppBanners: true,
+  lockScreenPreviews: true,
+  vibrate: true,
+  emailPrivacy: 'nobody', // Sign-in email is private by default
+  lastSeenPrivacy: 'everyone',
+  profileMediaPrivacy: 'everyone',
+  statusPrivacy: 'everyone',
+  readReceipts: true,
+  chatWallpaper: 'doodle',
+  enterIsSend: true,
+  fontSize: 'medium',
+  mediaAutoDownload: true,
 };
 
 // Upload avatar to Supabase Storage with resilient fallback
@@ -272,13 +369,13 @@ export async function uploadChatMediaToSupabase(fileOrBlob: Blob, messageId: str
 
 // Save complete user profile to Supabase auth metadata and profiles table
 export async function saveFullUserProfile(profile: UserProfileData): Promise<void> {
-  // Preserve full Kempo Pro format (e.g. Kempo Pro +234A5738)
-  let normalizedKempoId = profile.kempoId;
   const isOwner = isOwnerEmail(profile.email);
-  if (!normalizedKempoId || normalizedKempoId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
+  let normalizedKempoId = profile.kempoId;
+  if (isOwner) {
+    normalizedKempoId = OWNER_FIXED_ID;
+  } else if (!normalizedKempoId || normalizedKempoId.endsWith('A5738') || isOwnerIdFormat(normalizedKempoId)) {
     const code = profile.countryCode || '+234';
-    const cleanCode = code.startsWith('+') ? code : `+${code}`;
-    normalizedKempoId = `Kempo Pro ${cleanCode}${profile.rawIdEntry || (isOwner ? 'OWNER' : 'A5738')}`;
+    normalizedKempoId = generateStandardUserKempoId(code, profile.email);
   }
 
   // Ensure ID aligns with Supabase Auth UID if available
@@ -521,10 +618,11 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
       const email = data.email || cleanEmail;
       const isRecordOwner = isOwnerEmail(email);
       let assignedId = data.kempo_id;
-      if (!assignedId || assignedId.trim().toLowerCase() === OWNER_FIXED_ID.toLowerCase()) {
+      if (isRecordOwner) {
+        assignedId = OWNER_FIXED_ID;
+      } else if (!assignedId || assignedId.endsWith('A5738') || isOwnerIdFormat(assignedId)) {
         const code = data.country_code || (typeof window !== 'undefined' ? localStorage.getItem('kempo_country_code') : '') || '+234';
-        const cleanCode = code.startsWith('+') ? code : `+${code}`;
-        assignedId = `Kempo Pro ${cleanCode}${isRecordOwner ? 'OWNER' : 'A5738'}`;
+        assignedId = generateStandardUserKempoId(code, email);
       }
 
       const isCompleted = Boolean(
@@ -1092,16 +1190,76 @@ export async function fetchContactProfile(contact: {
   return null;
 }
 
-// Find another user by their shareable KEMPO-ID or Phone ID in Supabase
+// Find another user by their unique permanent KEMPO-ID, Owner ID, or Phone ID in Supabase
 export async function findUserByKempoId(kempoId: string): Promise<UserProfileData | null> {
-  const cleanId = kempoId.trim();
+  const cleanId = (kempoId || '').trim();
+  if (!cleanId) return null;
+
+  // 1. Dedicated App Owner / Admin lookup:
+  // If user searched "Kempo Pro OWNER", "Kempo Pro ADMIN", "kempo pro", "owner", or "admin"
+  if (isOwnerIdFormat(cleanId)) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .or(`email.ilike.${OWNER_EMAILS[0]},email.ilike.${OWNER_EMAILS[1]},kempo_id.ilike.%owner%,is_admin.eq.true`)
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && data) {
+        return {
+          id: data.id,
+          email: data.email || OWNER_EMAILS[0],
+          displayName: data.display_name || 'Precious Ddkid',
+          avatarUrl: data.avatar_url || '',
+          coverUrl: data.cover_url || '',
+          coverType: data.cover_type || 'image',
+          accountType: 'creator',
+          category: 'creator',
+          phoneNumber: data.phone_number || '+234',
+          countryCode: data.country_code || '+234',
+          kempoId: OWNER_FIXED_ID,
+          preferences: data.preferences || DEFAULT_PREFERENCES,
+          isOnboarded: true,
+          status: 'verified',
+          isVerified: true,
+          isAdmin: true,
+          lastSeen: data.last_seen || data.updated_at,
+        };
+      }
+    } catch (e) {
+      console.info('Owner ID search notice:', e);
+    }
+
+    // Direct fallback for Owner ID
+    return {
+      id: 'kempo-owner-account',
+      email: OWNER_EMAILS[0],
+      displayName: 'Precious Ddkid',
+      avatarUrl: '',
+      coverUrl: '',
+      coverType: 'image',
+      accountType: 'creator',
+      category: 'creator',
+      phoneNumber: '+234',
+      countryCode: '+234',
+      kempoId: OWNER_FIXED_ID,
+      preferences: DEFAULT_PREFERENCES,
+      isOnboarded: true,
+      status: 'verified',
+      isVerified: true,
+      isAdmin: true,
+    };
+  }
+
+  // 2. Standard user search in Supabase database by unique permanent ID
+  const stripped = cleanId.replace(/^kempo\s*pro\s*/i, '').trim();
 
   try {
-    // 1. Try exact or partial match in Supabase database
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .or(`kempo_id.ilike.%${cleanId}%,kempo_id.ilike.${cleanId}`)
+      .or(`kempo_id.eq.${cleanId},kempo_id.ilike.%${cleanId}%,kempo_id.ilike.%${stripped}%,email.ilike.${cleanId},phone_number.eq.${cleanId}`)
       .limit(1)
       .maybeSingle();
 
@@ -1128,7 +1286,7 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
     console.info('findUserByKempoId query:', err);
   }
 
-  // 2. Check local registered users cache for instant local testing
+  // 3. Check local registered users cache for instant local testing
   if (typeof window !== 'undefined') {
     try {
       const raw = localStorage.getItem('kempo_registered_users');
@@ -1138,9 +1296,28 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
           (u) =>
             u.kempoId?.toLowerCase() === cleanId.toLowerCase() ||
             u.kempoId?.toLowerCase().includes(cleanId.toLowerCase()) ||
-            (u.phoneNumber && u.phoneNumber === cleanId)
+            u.kempoId?.toLowerCase().includes(stripped.toLowerCase()) ||
+            (u.phoneNumber && u.phoneNumber === cleanId) ||
+            (u.email && u.email.toLowerCase() === cleanId.toLowerCase())
         );
         if (match) return match;
+      }
+
+      const completedRaw = localStorage.getItem('kempo_completed_accounts');
+      if (completedRaw) {
+        const reg = JSON.parse(completedRaw);
+        for (const key of Object.keys(reg)) {
+          const u: UserProfileData = reg[key];
+          if (
+            u.kempoId?.toLowerCase() === cleanId.toLowerCase() ||
+            u.kempoId?.toLowerCase().includes(cleanId.toLowerCase()) ||
+            u.kempoId?.toLowerCase().includes(stripped.toLowerCase()) ||
+            (u.phoneNumber && u.phoneNumber === cleanId) ||
+            (u.email && u.email.toLowerCase() === cleanId.toLowerCase())
+          ) {
+            return u;
+          }
+        }
       }
     } catch {}
   }

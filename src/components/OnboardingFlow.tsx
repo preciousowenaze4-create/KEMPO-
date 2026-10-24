@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { COUNTRIES, Country, DEFAULT_COUNTRY } from '../data/countries';
 import { AccountType, AppPreferences, UserProfileData } from '../types';
-import { formatKempoUserPhoneId, isOwnerEmail, OWNER_FIXED_ID } from '../lib/accountRules';
+import { formatKempoUserPhoneId, isOwnerEmail, OWNER_FIXED_ID, generateUniqueIdSuffix, isOwnerIdFormat } from '../lib/accountRules';
 import { uploadAvatarToSupabase, saveFullUserProfile } from '../lib/supabase';
 
 interface OnboardingFlowProps {
@@ -67,7 +67,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [selectedCountry, setSelectedCountry] = useState<Country>(DEFAULT_COUNTRY);
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
-  const [idSuffix] = useState<string>(isOwner ? 'OWNER' : 'A5738');
+  const [idSuffix] = useState<string>(() => {
+    if (isOwner) return 'OWNER';
+    if (typeof window !== 'undefined' && userEmail) {
+      const cleanEmail = userEmail.toLowerCase().trim();
+      const cached = localStorage.getItem('kempo_user_id_suffix_' + cleanEmail);
+      if (cached && cached !== 'A5738' && cached !== 'OWNER' && cached.length >= 4) {
+        return cached;
+      }
+      const fresh = generateUniqueIdSuffix(cleanEmail);
+      localStorage.setItem('kempo_user_id_suffix_' + cleanEmail, fresh);
+      return fresh;
+    }
+    return generateUniqueIdSuffix();
+  });
   const [showMenuOptions, setShowMenuOptions] = useState(false);
 
   // Account Type Selection state (Step 3 - IMG_4722)
@@ -156,10 +169,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const handleFinishOnboarding = async () => {
     setIsSaving(true);
 
-    const finalKempoId = formatKempoUserPhoneId(
-      selectedCountry.dialCode,
-      isOwner ? (idSuffix || 'OWNER') : idSuffix
-    );
+    const finalKempoId = isOwner
+      ? OWNER_FIXED_ID
+      : formatKempoUserPhoneId(selectedCountry.dialCode, idSuffix);
 
     const finalProfile: UserProfileData = {
       id: userId,
@@ -468,33 +480,34 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               <div className="h-[1px] bg-neutral-800/80 mx-4" />
 
               {/* Row 2: Read-Only Auto-Generated ID Row */}
-              {/* Country code prefix directly adjacent to auto-generated ID without excessive spacing */}
               <div className="px-4 py-3.5 flex items-center gap-3 select-none">
                 <div className="flex items-center gap-1.5 shrink-0 bg-red-950/70 border border-red-600/70 px-3 py-1.5 rounded-xl shadow-md">
                   <span className="text-xs sm:text-sm font-black text-red-500 tracking-tight">Kempo Pro</span>
-                  <span className="text-sm sm:text-base font-black text-white font-mono">
-                    {selectedCountry.dialCode}
-                  </span>
+                  {!isOwner && (
+                    <span className="text-sm sm:text-base font-black text-white font-mono">
+                      {selectedCountry.dialCode}
+                    </span>
+                  )}
                 </div>
 
                 <span className="text-base sm:text-lg font-black text-white font-mono tracking-wider">
-                  {idSuffix}
+                  {isOwner ? 'OWNER' : idSuffix}
                 </span>
               </div>
             </div>
 
-            {/* Live Shareable ID Preview Card matching IMG_4729 */}
+            {/* Live Shareable ID Preview Card */}
             <div className="mt-4 p-4 rounded-2xl bg-[#16161c] border border-red-900/40 flex items-center justify-between shadow-xl">
               <div className="min-w-0 pr-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
                   Your Full Kempo Shareable ID
                 </span>
                 <span className="text-sm sm:text-base font-black text-white font-mono tracking-wide mt-1 block truncate">
-                  Kempo Pro {selectedCountry.dialCode}{idSuffix}
+                  {isOwner ? OWNER_FIXED_ID : `Kempo Pro ${selectedCountry.dialCode}${idSuffix}`}
                 </span>
               </div>
               <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30 shrink-0">
-                Official
+                {isOwner ? 'Owner / Admin' : 'Official'}
               </span>
             </div>
           </div>

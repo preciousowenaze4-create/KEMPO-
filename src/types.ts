@@ -77,6 +77,24 @@ export interface AppPreferences {
   messageTones: boolean;
   gamingIntegration: boolean;
   darkTheme: boolean;
+  // Real Device & Push Notification Settings
+  deviceNotifications?: boolean;
+  groupAlerts?: boolean;
+  soundEffects?: boolean;
+  inAppBanners?: boolean;
+  lockScreenPreviews?: boolean;
+  vibrate?: boolean;
+  // Functional Privacy & Visibility Settings
+  emailPrivacy?: 'everyone' | 'contacts' | 'nobody';
+  lastSeenPrivacy?: 'everyone' | 'contacts' | 'nobody';
+  profileMediaPrivacy?: 'everyone' | 'contacts' | 'nobody';
+  statusPrivacy?: 'everyone' | 'contacts' | 'nobody';
+  readReceipts?: boolean;
+  // Chat customization
+  chatWallpaper?: string;
+  enterIsSend?: boolean;
+  fontSize?: 'small' | 'medium' | 'large';
+  mediaAutoDownload?: boolean;
 }
 
 export type UserStatus = 'active' | 'verified' | 'suspended' | 'banned' | 'restricted';

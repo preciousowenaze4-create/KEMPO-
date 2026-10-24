@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { Chat, UserProfileData } from '../types';
 import { isVideoMediaUrl, formatLastSeen } from '../lib/supabase';
+import { isOwnerAccount, OWNER_FIXED_ID } from '../lib/accountRules';
 
 interface ContactInfoScreenProps {
   chat: Chat;
@@ -86,13 +87,18 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
     formatLastSeen(contactProfile?.lastSeen || chat.lastSeen || chat.timestamp);
 
   // Derive permanent Kempo Pro Shareable ID
-  const shareableKempoId =
-    contactProfile?.kempoId ||
-    chat.kempoId ||
-    (chat.about?.startsWith('KEMPO ID: ')
-      ? chat.about.replace('KEMPO ID: ', '').trim()
-      : '') ||
-    (chat.phoneNumber ? `Kempo Pro ${chat.phoneNumber}` : `Kempo Pro +234A5738`);
+  const isContactOwner = isOwnerAccount({
+    email: contactProfile?.email,
+    kempoId: contactProfile?.kempoId || chat.kempoId,
+  });
+  const shareableKempoId = isContactOwner
+    ? OWNER_FIXED_ID
+    : contactProfile?.kempoId ||
+      chat.kempoId ||
+      (chat.about?.startsWith('KEMPO ID: ')
+        ? chat.about.replace('KEMPO ID: ', '').trim()
+        : '') ||
+      (chat.phoneNumber ? `Kempo Pro ${chat.phoneNumber}` : '');
 
   const displayName = contactProfile?.displayName || chat.name;
 

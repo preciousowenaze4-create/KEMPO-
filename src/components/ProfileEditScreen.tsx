@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { UserProfileData } from '../types';
 import { uploadAvatarToSupabase, uploadCoverToSupabase, saveFullUserProfile, isVideoMediaUrl } from '../lib/supabase';
-import { isOwnerEmail, OWNER_FIXED_ID } from '../lib/accountRules';
+import { isOwnerEmail, OWNER_FIXED_ID, isOwnerIdFormat, generateStandardUserKempoId } from '../lib/accountRules';
 import { saveMediaToOfflineCache, getMediaFromOfflineCache, safeLocalStorageSet } from '../lib/mediaCache';
 
 interface ProfileEditScreenProps {
@@ -73,9 +73,9 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
   onSaveSuccess,
 }) => {
   const rawEmail = userProfile?.email || currentUserEmail || '';
-  const isOwner = isOwnerEmail(rawEmail);
+  const isOwner = isOwnerEmail(rawEmail) || isOwnerIdFormat(userProfile?.kempoId);
 
-  // Country prefix & shareable ID calculation
+  // Country prefix & ID extraction
   const countryPrefix =
     userProfile?.countryCode ||
     (typeof window !== 'undefined' ? localStorage.getItem('kempo_country_code') || '+234' : '+234');
@@ -83,12 +83,14 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
   const rawSuffix =
     userProfile?.rawIdEntry ||
     (userProfile?.phoneNumber ? userProfile.phoneNumber.replace(cleanCode, '') : '') ||
-    'A5738';
+    (userProfile?.kempoId ? userProfile.kempoId.replace(/[^A-Z0-9]/gi, '') : '');
 
-  const shareableKempoId =
-    userProfile?.kempoId && userProfile.kempoId.includes('+')
+  // Dedicated permanent Kempo Pro ID
+  const shareableKempoId = isOwner
+    ? OWNER_FIXED_ID
+    : (userProfile?.kempoId && !userProfile.kempoId.endsWith('A5738') && !isOwnerIdFormat(userProfile.kempoId))
       ? userProfile.kempoId
-      : `Kempo Pro ${cleanCode}${rawSuffix}`;
+      : generateStandardUserKempoId(cleanCode, rawEmail);
 
   // Form states
   const [displayName, setDisplayName] = useState<string>(

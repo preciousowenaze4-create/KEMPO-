@@ -34,6 +34,7 @@ import { uploadAvatarToSupabase, saveFullUserProfile, isVideoMediaUrl } from '..
 import { getMediaFromOfflineCache } from '../lib/mediaCache';
 import {
   isOwnerEmail,
+  isOwnerIdFormat,
   OWNER_FIXED_ID,
   validateAndFormatUserId,
   getBackendPrivacyStatus,
@@ -41,6 +42,29 @@ import {
 } from '../lib/accountRules';
 import { AdminConsoleModal } from './AdminConsoleModal';
 import { ProfileEditScreen } from './ProfileEditScreen';
+import { NotificationSettingsScreen } from './settings/NotificationSettingsScreen';
+import { PrivacySettingsScreen } from './settings/PrivacySettingsScreen';
+import { AccountSettingsScreen } from './settings/AccountSettingsScreen';
+import { SubscriptionsScreen } from './settings/SubscriptionsScreen';
+import { ListsScreen } from './settings/ListsScreen';
+import { BroadcastScreen } from './settings/BroadcastScreen';
+import { StarredMessagesScreen } from './settings/StarredMessagesScreen';
+import { LinkedDevicesScreen } from './settings/LinkedDevicesScreen';
+import { ChatSettingsScreen } from './settings/ChatSettingsScreen';
+import { AppearanceSettingsScreen } from './settings/AppearanceSettingsScreen';
+
+export type SettingsSubScreenType =
+  | 'none'
+  | 'subscriptions'
+  | 'lists'
+  | 'broadcast'
+  | 'starred'
+  | 'linked_devices'
+  | 'account'
+  | 'privacy'
+  | 'chats'
+  | 'appearance'
+  | 'notifications';
 
 interface YouTabProps {
   onOpenPwaGuide: () => void;
@@ -56,6 +80,9 @@ interface YouTabProps {
   onUpdateProfile?: (profile: UserProfileData) => void;
   onAddContactById: (kempoId: string) => Promise<Chat | null>;
   onOpenChat: (chat: Chat) => void;
+  chats?: Chat[];
+  onSendMessage?: (chatId: string, text: string) => void;
+  onClearChats?: () => void;
 }
 
 // Preset stylish avatars for quick selection
@@ -82,35 +109,25 @@ export const YouTab: React.FC<YouTabProps> = ({
   onUpdateProfile,
   onAddContactById,
   onOpenChat,
+  chats = [],
+  onSendMessage,
+  onClearChats,
 }) => {
+  // Navigation state for dedicated sliding sub-screens
+  const [activeSubScreen, setActiveSubScreen] = useState<SettingsSubScreenType>('none');
+
   // Determine if this account is the recognized application owner
   const rawEmail = userProfile?.email || currentUserEmail || '';
   const isOwner =
     isOwnerEmail(rawEmail) ||
-    userProfile?.kempoId?.toLowerCase() === OWNER_FIXED_ID.toLowerCase();
+    isOwnerIdFormat(userProfile?.kempoId);
 
-  // Helper to verify ID follows Kempo Pro naming conventions
-  const isKempoFormatted = (id?: string) => {
-    if (!id) return false;
-    const upper = id.trim().toUpperCase();
-    return upper.startsWith('KEMPO') || upper.startsWith('KEMPO PRO') || upper.startsWith('KEMPO-');
-  };
-
-  // Ensure country dial code selected during onboarding (e.g., +234) remains permanently attached to the user's shareable ID
-  const countryPrefix =
-    userProfile?.countryCode ||
-    (typeof window !== 'undefined' ? localStorage.getItem('kempo_country_code') || '+234' : '+234');
-  const cleanCode = countryPrefix.startsWith('+') ? countryPrefix : `+${countryPrefix}`;
-  const rawSuffix =
-    userProfile?.rawIdEntry ||
-    (userProfile?.phoneNumber ? userProfile.phoneNumber.replace(cleanCode, '') : '') ||
-    'A5738';
-
-  // Display complete ID format (e.g., "Kempo Pro +234 [ID]") prominently without dropping the country prefix
-  const kempoId =
-    userProfile?.kempoId && userProfile.kempoId.includes('+')
+  // Dedicated permanent Kempo Pro ID
+  const kempoId = isOwner
+    ? OWNER_FIXED_ID
+    : (userProfile?.kempoId && !userProfile.kempoId.endsWith('A5738') && !isOwnerIdFormat(userProfile.kempoId))
       ? userProfile.kempoId
-      : `Kempo Pro ${cleanCode}${rawSuffix}`;
+      : generateStandardUserKempoId(userProfile?.countryCode, rawEmail);
 
   const displayName =
     userProfile?.displayName ||
@@ -118,17 +135,14 @@ export const YouTab: React.FC<YouTabProps> = ({
     (isOwner ? 'Precious Ddkid' : 'Kempo User');
   const accountType = isOwner ? 'creator' : userProfile?.category || userProfile?.accountType || 'personal';
 
-  // Auto-correct any legacy non-Kempo IDs so every regular user has Kempo Pro ID
+  // Ensure user's permanent ID is saved to profile if it was using placeholder
   useEffect(() => {
-    if (!isOwner && userProfile?.kempoId && !isKempoFormatted(userProfile.kempoId)) {
-      const standardId = userProfile.countryCode
-        ? `Kempo Pro ${userProfile.countryCode} ${userProfile.phoneNumber || 'A5738'}`
-        : generateStandardUserKempoId();
-      const updatedProfile = { ...userProfile, kempoId: standardId };
+    if (userProfile && (userProfile.kempoId !== kempoId || (isOwner && userProfile.kempoId !== OWNER_FIXED_ID))) {
+      const updatedProfile = { ...userProfile, kempoId };
       saveFullUserProfile(updatedProfile);
       onUpdateProfile?.(updatedProfile);
     }
-  }, [isOwner, userProfile?.kempoId]);
+  }, [isOwner, kempoId, userProfile?.kempoId]);
 
   // Offline-resilient avatar state (loaded from cache instantly)
   const [avatarUrl, setAvatarUrl] = useState<string>(() => {
@@ -522,11 +536,7 @@ export const YouTab: React.FC<YouTabProps> = ({
         <div className="divide-y divide-white/15">
           {/* 1. Subscriptions */}
           <div
-            onClick={() => {
-              alert(
-                "KEMPO PRo Subscriptions:\n\nAll premium features, unlimited encrypted voice & video calls, end-to-end security, and real-time messaging are permanently active for your account."
-              );
-            }}
+            onClick={() => setActiveSubScreen('subscriptions')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -544,9 +554,7 @@ export const YouTab: React.FC<YouTabProps> = ({
 
           {/* 2. Lists */}
           <div
-            onClick={() => {
-              alert("Lists: Organize custom contacts and group categories.");
-            }}
+            onClick={() => setActiveSubScreen('lists')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -564,9 +572,7 @@ export const YouTab: React.FC<YouTabProps> = ({
 
           {/* 3. Broadcast messages */}
           <div
-            onClick={() => {
-              alert("Broadcast Messages: Send announcements to multiple contacts simultaneously.");
-            }}
+            onClick={() => setActiveSubScreen('broadcast')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -584,9 +590,7 @@ export const YouTab: React.FC<YouTabProps> = ({
 
           {/* 4. Starred */}
           <div
-            onClick={() => {
-              alert("Starred Messages: View your saved messages and highlights.");
-            }}
+            onClick={() => setActiveSubScreen('starred')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -604,9 +608,7 @@ export const YouTab: React.FC<YouTabProps> = ({
 
           {/* 5. Linked devices */}
           <div
-            onClick={() => {
-              alert("Linked Devices: 1 active browser session on this device. Real-time encryption active.");
-            }}
+            onClick={() => setActiveSubScreen('linked_devices')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -627,11 +629,7 @@ export const YouTab: React.FC<YouTabProps> = ({
         <div className="divide-y divide-white/15 pt-2">
           {/* 1. Account */}
           <div
-            onClick={() => {
-              alert(
-                `Account Information:\n\nUser ID: ${kempoId}\nAccount Type: ${accountType.toUpperCase()}\nStatus: Active\n\nYour profile is safely stored offline and synced with Supabase.`
-              );
-            }}
+            onClick={() => setActiveSubScreen('account')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -652,13 +650,7 @@ export const YouTab: React.FC<YouTabProps> = ({
 
           {/* 2. Privacy */}
           <div
-            onClick={() => {
-              alert(
-                `Privacy & Account Security:\n\nAccount Status: Active & Encrypted\nUser ID: ${kempoId}\nAccount Type: ${
-                  isOwner ? '👑 Kempo Pro Owner / Admin' : 'Standard Account'
-                }\n\nBackend Email Privacy: Active\nYour sign-in email is handled strictly by the backend server and is never exposed or visible on the app frontend.\n\nEnd-to-End Encryption: Enabled`
-              );
-            }}
+            onClick={() => setActiveSubScreen('privacy')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -680,9 +672,7 @@ export const YouTab: React.FC<YouTabProps> = ({
 
           {/* 3. Chats */}
           <div
-            onClick={() => {
-              alert('Chats & Wallpaper settings: WhatsApp dark doodle wallpaper is active.');
-            }}
+            onClick={() => setActiveSubScreen('chats')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -708,7 +698,7 @@ export const YouTab: React.FC<YouTabProps> = ({
 
           {/* 4. Appearance (App Color & Theme) */}
           <div
-            onClick={onOpenThemeSettings}
+            onClick={() => setActiveSubScreen('appearance')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -729,16 +719,7 @@ export const YouTab: React.FC<YouTabProps> = ({
 
           {/* 5. Notifications */}
           <div
-            onClick={() => {
-              const nextPref = !userProfile?.preferences?.inAppSounds;
-              if (onUpdatePreferences && userProfile) {
-                onUpdatePreferences({
-                  ...userProfile.preferences,
-                  inAppSounds: nextPref,
-                  messageTones: nextPref,
-                });
-              }
-            }}
+            onClick={() => setActiveSubScreen('notifications')}
             className="p-3.5 hover:bg-white/10 active:bg-white/20 flex items-center justify-between cursor-pointer transition rounded-xl"
           >
             <div className="flex items-center gap-3.5 min-w-0">
@@ -750,7 +731,7 @@ export const YouTab: React.FC<YouTabProps> = ({
                   Notifications
                 </h4>
                 <p className="text-[12px] text-neutral-200 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
-                  {userProfile?.preferences?.messageTones !== false ? 'In-app sounds enabled' : 'Muted'}
+                  Real device push alerts & sound
                 </p>
               </div>
             </div>
@@ -1003,6 +984,99 @@ export const YouTab: React.FC<YouTabProps> = ({
               setCoverType(updated.coverType || (isVideoMediaUrl(updated.coverUrl) ? 'video' : 'image'));
             }
           }}
+        />
+      )}
+
+      {/* 1. Notifications Sub-Screen */}
+      {activeSubScreen === 'notifications' && (
+        <NotificationSettingsScreen
+          userProfile={userProfile}
+          onBack={() => setActiveSubScreen('none')}
+          onUpdatePreferences={onUpdatePreferences}
+          onUpdateProfile={onUpdateProfile}
+        />
+      )}
+
+      {/* 2. Privacy Sub-Screen */}
+      {activeSubScreen === 'privacy' && (
+        <PrivacySettingsScreen
+          userProfile={userProfile}
+          currentUserEmail={currentUserEmail}
+          onBack={() => setActiveSubScreen('none')}
+          onUpdatePreferences={onUpdatePreferences}
+          onUpdateProfile={onUpdateProfile}
+        />
+      )}
+
+      {/* 3. Account Sub-Screen */}
+      {activeSubScreen === 'account' && (
+        <AccountSettingsScreen
+          userProfile={userProfile}
+          currentUserEmail={currentUserEmail}
+          onBack={() => setActiveSubScreen('none')}
+          onSignOut={onSignOut}
+        />
+      )}
+
+      {/* 4. Subscriptions Sub-Screen */}
+      {activeSubScreen === 'subscriptions' && (
+        <SubscriptionsScreen
+          userProfile={userProfile}
+          currentUserEmail={currentUserEmail}
+          onBack={() => setActiveSubScreen('none')}
+        />
+      )}
+
+      {/* 5. Lists Sub-Screen */}
+      {activeSubScreen === 'lists' && (
+        <ListsScreen
+          onBack={() => setActiveSubScreen('none')}
+          chats={chats}
+          onOpenChat={onOpenChat}
+        />
+      )}
+
+      {/* 6. Broadcast Messages Sub-Screen */}
+      {activeSubScreen === 'broadcast' && (
+        <BroadcastScreen
+          onBack={() => setActiveSubScreen('none')}
+          chats={chats}
+          onSendMessage={onSendMessage}
+        />
+      )}
+
+      {/* 7. Starred Messages Sub-Screen */}
+      {activeSubScreen === 'starred' && (
+        <StarredMessagesScreen
+          onBack={() => setActiveSubScreen('none')}
+          chats={chats}
+          onOpenChat={onOpenChat}
+        />
+      )}
+
+      {/* 8. Linked Devices Sub-Screen */}
+      {activeSubScreen === 'linked_devices' && (
+        <LinkedDevicesScreen
+          onBack={() => setActiveSubScreen('none')}
+        />
+      )}
+
+      {/* 9. Chats & Wallpaper Sub-Screen */}
+      {activeSubScreen === 'chats' && (
+        <ChatSettingsScreen
+          userProfile={userProfile}
+          onBack={() => setActiveSubScreen('none')}
+          onUpdatePreferences={onUpdatePreferences}
+          onUpdateProfile={onUpdateProfile}
+          chats={chats}
+          onClearChats={onClearChats}
+        />
+      )}
+
+      {/* 10. Appearance Sub-Screen */}
+      {activeSubScreen === 'appearance' && (
+        <AppearanceSettingsScreen
+          onBack={() => setActiveSubScreen('none')}
         />
       )}
       </div>
