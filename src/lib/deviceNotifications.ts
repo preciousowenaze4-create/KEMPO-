@@ -97,9 +97,9 @@ export function playNotificationChime(type: 'message' | 'alert' | 'success' = 'm
 }
 
 /**
- * Trigger a real native device push notification alert with badge and sound
+ * Trigger a real native device push notification alert with badge, sound, and vibration
  */
-export function dispatchDeviceNotification(
+export async function dispatchDeviceNotification(
   title: string,
   options?: {
     body?: string;
@@ -107,6 +107,8 @@ export function dispatchDeviceNotification(
     tag?: string;
     badgeCount?: number;
     silentSound?: boolean;
+    vibrate?: boolean;
+    chatId?: string;
   }
 ) {
   if (typeof window === 'undefined') return;
@@ -116,7 +118,14 @@ export function dispatchDeviceNotification(
     playNotificationChime('message');
   }
 
-  // 2. Update browser app badge if supported (PWA on desktop & mobile)
+  // 2. Hardware vibration if on mobile device
+  if (options?.vibrate !== false && 'vibrate' in navigator) {
+    try {
+      navigator.vibrate([120, 60, 120]);
+    } catch {}
+  }
+
+  // 3. Update browser app badge if supported (PWA on desktop & mobile)
   if (options?.badgeCount !== undefined && 'setAppBadge' in navigator) {
     try {
       if (options.badgeCount > 0) {
@@ -127,7 +136,7 @@ export function dispatchDeviceNotification(
     } catch {}
   }
 
-  // 3. Update document title for background tabs
+  // 4. Update document title for background tabs
   if (typeof document !== 'undefined') {
     const originalTitle = document.title.replace(/^\(\d+\)\s*/, '');
     if (options?.badgeCount && options.badgeCount > 0) {
@@ -135,22 +144,51 @@ export function dispatchDeviceNotification(
     }
   }
 
-  // 4. Trigger real system / native device notification if permission is granted
-  if ('Notification' in window && Notification.permission === 'granted') {
-    try {
-      const notification = new Notification(title, {
+  // 5. In-app floating banner event for when user is actively inside the app
+  try {
+    const event = new CustomEvent('kempo-inapp-banner', {
+      detail: {
+        title,
         body: options?.body || 'New message on Kempo Pro',
         icon: options?.icon || '/pwa-192x192.png',
-        badge: '/pwa-192x192.png',
-        tag: options?.tag || 'kempo-message',
-      });
+        chatId: options?.chatId,
+      },
+    });
+    window.dispatchEvent(event);
+  } catch {}
 
+  // 6. Trigger real system / native device push notification banner
+  if ('Notification' in window && Notification.permission === 'granted') {
+    const notifOptions = {
+      body: options?.body || 'New message on Kempo Pro',
+      icon: options?.icon || '/pwa-192x192.png',
+      badge: '/pwa-192x192.png',
+      tag: options?.tag || 'kempo-message',
+      silent: false,
+    };
+
+    // If service worker is active, use service worker showNotification for superior background delivery
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg && reg.showNotification) {
+          await reg.showNotification(title, notifOptions);
+          return;
+        }
+      } catch (e) {
+        console.warn('SW notification fallback to Notification constructor:', e);
+      }
+    }
+
+    // Direct Notification API
+    try {
+      const notification = new Notification(title, notifOptions);
       notification.onclick = () => {
         window.focus();
         notification.close();
       };
     } catch (err) {
-      console.warn('Could not display native notification banner:', err);
+      console.warn('Notification display note:', err);
     }
   }
 }

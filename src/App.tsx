@@ -22,6 +22,8 @@ import { ActionMenuModal } from './components/ActionMenuModal';
 import { CameraModal } from './components/CameraModal';
 import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { ChatActionSheetModal } from './components/ChatActionSheetModal';
+import { InAppNotificationBanner } from './components/InAppNotificationBanner';
 import { PhoneMissed, MessageCircle, ShieldAlert, Loader2 } from 'lucide-react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
@@ -201,8 +203,34 @@ export default function App() {
   const [showCamera, setShowCamera] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [showArchivedView, setShowArchivedView] = useState(false);
+  const [actionSheetChat, setActionSheetChat] = useState<Chat | null>(null);
 
-  // Calling state
+  const handleArchiveChat = (chatId: string) => {
+    const target = chats.find((c) => c.id === chatId);
+    if (!target) return;
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    setArchivedChats((prev) => [{ ...target, isArchived: true }, ...prev]);
+  };
+
+  const handleClearChatMessages = (chatId: string) => {
+    setChats((prev) =>
+      prev.map((c) =>
+        c.id === chatId
+          ? { ...c, messages: [], lastMessage: 'Chat cleared', unreadCount: 0 }
+          : c
+      )
+    );
+  };
+
+  const handleDeleteSingleChat = (chatId: string) => {
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+  };
+
+  const handleToggleFavorite = (chatId: string) => {
+    setChats((prev) =>
+      prev.map((c) => (c.id === chatId ? { ...c, isFavorite: !c.isFavorite } : c))
+    );
+  };
   const [activeCallingChat, setActiveCallingChat] = useState<Chat | null>(null);
   const [isVideoCall, setIsVideoCall] = useState(false);
   const [activeCallStatus, setActiveCallStatus] = useState<
@@ -1393,6 +1421,8 @@ export default function App() {
                       if (story) setActiveStory(story);
                     }
                   }}
+                  onMore={(c) => setActionSheetChat(c)}
+                  onArchive={(id) => handleArchiveChat(id)}
                 />
               ))}
 
@@ -1651,6 +1681,48 @@ export default function App() {
             onDecline={handleDeclineIncomingCall}
           />
         )}
+
+        {/* WhatsApp Swipe Action Sheet Modal (Matching IMG_4778) */}
+        <ChatActionSheetModal
+          chat={actionSheetChat}
+          isOpen={Boolean(actionSheetChat)}
+          onClose={() => setActionSheetChat(null)}
+          onMuteToggle={(chatId) => {
+            // Mute chat
+            setActionSheetChat(null);
+          }}
+          onContactInfo={(c) => {
+            handleOpenChat(c);
+            setActionSheetChat(null);
+          }}
+          onLockToggle={(chatId) => {
+            setActionSheetChat(null);
+          }}
+          onFavoriteToggle={(chatId) => {
+            handleToggleFavorite(chatId);
+            setActionSheetChat(null);
+          }}
+          onClearChat={(chatId) => {
+            handleClearChatMessages(chatId);
+            setActionSheetChat(null);
+          }}
+          onBlockContact={(c) => {
+            handleDeleteSingleChat(c.id);
+            setActionSheetChat(null);
+          }}
+          onDeleteChat={(chatId) => {
+            handleDeleteSingleChat(chatId);
+            setActionSheetChat(null);
+          }}
+        />
+
+        {/* iOS-Style In-App Notification Banner */}
+        <InAppNotificationBanner
+          onOpenChatById={(chatId) => {
+            const matched = chats.find((c) => c.id === chatId);
+            if (matched) handleOpenChat(matched);
+          }}
+        />
 
       </div>
     </div>
