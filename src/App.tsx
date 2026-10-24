@@ -58,7 +58,25 @@ import {
   CALL_LOGS,
   USER_PROFILE,
 } from './data/mockData';
-import { Chat, Message, FilterType, TabType, StatusStory, CallLog, UserProfileData } from './types';
+import { StatusCreationSheet } from './components/status/StatusCreationSheet';
+import { StatusEditorModal } from './components/status/StatusEditorModal';
+import {
+  fetchActiveStatuses,
+  publishStatusToSupabase,
+  filterExpiredStatuses,
+  filterContactAudience,
+} from './lib/statusService';
+import {
+  Chat,
+  Message,
+  FilterType,
+  TabType,
+  StatusStory,
+  CallLog,
+  UserProfileData,
+  StatusMusicTrack,
+  StatusTextOverlay,
+} from './types';
 
 // Helper to check if browser is returning from Google OAuth redirect
 const isGoogleRedirect = () => {
@@ -178,8 +196,35 @@ export default function App() {
     return INITIAL_CHATS;
   });
   const [archivedChats, setArchivedChats] = useState<Chat[]>(ARCHIVED_CHATS);
-  const [stories, setStories] = useState<StatusStory[]>(STATUS_STORIES);
+
+  // Active Status Stories (Filtered with 24-hour lifespan & contact privacy)
+  const [stories, setStories] = useState<StatusStory[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('kempo_user_statuses');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) return filterExpiredStatuses(parsed);
+        }
+      } catch {}
+    }
+    return STATUS_STORIES;
+  });
+
   const [calls, setCalls] = useState<CallLog[]>(CALL_LOGS);
+
+  // Status Creation & Editor State
+  const [showStatusCreationSheet, setShowStatusCreationSheet] = useState(false);
+  const [statusEditorMedia, setStatusEditorMedia] = useState<{
+    type: 'image' | 'video' | 'text' | 'voice' | 'layout';
+    url?: string;
+    text?: string;
+    backgroundColor?: string;
+    voiceBlob?: Blob;
+    duration?: number;
+    layoutImages?: string[];
+  } | null>(null);
+  const [showStatusEditor, setShowStatusEditor] = useState(false);
 
   // Sync user-created chats to local persistence
   useEffect(() => {
@@ -335,6 +380,82 @@ export default function App() {
 
     return unsub;
   }, []);
+
+  // Fetch active statuses from Supabase with 24-hour expiration filter and contact privacy
+  useEffect(() => {
+    let isMounted = true;
+    fetchActiveStatuses(userProfile?.id || currentUserId, userProfile?.kempoId, chats).then((active) => {
+      if (isMounted && active.length > 0) {
+        setStories(active);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [userProfile?.id, userProfile?.kempoId, chats.length]);
+
+  // Handle publishing a new status story (Asynchronous with zero UI lag)
+  const handlePublishStatus = async (storyData: {
+    mediaType: 'image' | 'video' | 'text' | 'voice' | 'layout';
+    url?: string;
+    caption: string;
+    musicTrack?: StatusMusicTrack;
+    filter?: string;
+    isGif?: boolean;
+    trimStart?: number;
+    trimEnd?: number;
+    rotation?: number;
+    textOverlays?: StatusTextOverlay[];
+    taggedContacts?: string[];
+    audience: 'contacts' | 'everyone';
+    textContent?: string;
+    textBackgroundColor?: string;
+  }) => {
+    const isOwner = isOwnerEmail(userProfile?.email || currentUserEmail);
+    const myKempoId = isOwner ? OWNER_FIXED_ID : (userProfile?.kempoId || 'me');
+    const myName = userProfile?.displayName || currentUserName || 'My Status';
+    const myAvatar =
+      userProfile?.avatarUrl ||
+      (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_avatar') || '' : '') ||
+      (isOwner ? '/pwa-512x512.png' : '');
+
+    const newStoryId = `status-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newStory: StatusStory = {
+      id: newStoryId,
+      userId: userProfile?.id || currentUserId || 'me',
+      userKempoId: myKempoId,
+      userName: 'My Status',
+      userAvatar: myAvatar,
+      timestamp: 'Just now',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      caption: storyData.caption,
+      imageUrl: storyData.mediaType !== 'video' ? storyData.url : undefined,
+      videoUrl: storyData.mediaType === 'video' ? storyData.url : undefined,
+      mediaType: storyData.mediaType,
+      musicTrack: storyData.musicTrack,
+      filter: storyData.filter,
+      isGif: storyData.isGif,
+      trimStart: storyData.trimStart,
+      trimEnd: storyData.trimEnd,
+      rotation: storyData.rotation,
+      textOverlays: storyData.textOverlays,
+      taggedContacts: storyData.taggedContacts,
+      audience: storyData.audience,
+      textContent: storyData.textContent,
+      textBackgroundColor: storyData.textBackgroundColor,
+      viewed: false,
+    };
+
+    // 1. Instant zero-lag optimistic UI update
+    setStories((prev) => [newStory, ...prev.filter((s) => s.userName !== 'My Status' && s.id !== 's_my')]);
+    setActiveTab('updates');
+
+    // 2. High-speed asynchronous upload to Supabase and persistent IndexedDB/localStorage
+    publishStatusToSupabase(newStory).catch((err) => {
+      console.warn('Async status publish notice:', err);
+    });
+  };
 
   // Supabase Auth listener & Session restore
   useEffect(() => {
@@ -1473,8 +1594,12 @@ export default function App() {
         {activeTab === 'updates' && (
           <UpdatesTab
             stories={stories}
+            currentUserAvatar={
+              userProfile?.avatarUrl ||
+              (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_avatar') || '' : '')
+            }
             onViewStory={(story) => setActiveStory(story)}
-            onAddStatus={() => setShowCamera(true)}
+            onAddStatus={() => setShowStatusCreationSheet(true)}
           />
         )}
 
@@ -1642,18 +1767,35 @@ export default function App() {
           isOpen={showCamera}
           onClose={() => setShowCamera(false)}
           onCapture={(imgUrl) => {
-            const newStory: StatusStory = {
-              id: `story-${Date.now()}`,
-              userName: 'My Status',
-              userAvatar: USER_PROFILE.avatarUrl,
-              timestamp: 'Just now',
-              caption: 'Red status snap 🔥 #KempoPro',
-              imageUrl: imgUrl,
-              viewed: false,
-            };
-            setStories((prev) => [newStory, ...prev]);
-            setActiveTab('updates');
+            setStatusEditorMedia({
+              type: 'image',
+              url: imgUrl,
+            });
+            setShowStatusEditor(true);
           }}
+        />
+
+        {/* Status Creation Sheet matching IMG_4780 */}
+        <StatusCreationSheet
+          isOpen={showStatusCreationSheet}
+          onClose={() => setShowStatusCreationSheet(false)}
+          onSelectMedia={(media) => {
+            setStatusEditorMedia(media);
+            setShowStatusEditor(true);
+          }}
+          onOpenLiveCamera={() => setShowCamera(true)}
+        />
+
+        {/* Full Status/Story Video & Photo Editor matching IMG_4782 */}
+        <StatusEditorModal
+          isOpen={showStatusEditor}
+          media={statusEditorMedia}
+          contacts={chats.map((c) => ({ id: c.id, name: c.name, kempoId: c.kempoId }))}
+          onClose={() => {
+            setShowStatusEditor(false);
+            setStatusEditorMedia(null);
+          }}
+          onPublish={handlePublishStatus}
         />
 
         {/* Theme Settings Modal */}

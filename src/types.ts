@@ -41,13 +41,57 @@ export interface Chat {
   messages: Message[];
 }
 
+export interface StatusMusicTrack {
+  id: string;
+  title: string;
+  artist: string;
+  coverUrl?: string;
+  previewUrl?: string;
+  duration?: number;
+}
+
+export interface StatusTextOverlay {
+  id: string;
+  text: string;
+  color: string;
+  fontSize?: number;
+  x: number;
+  y: number;
+}
+
+export interface StatusDrawing {
+  color: string;
+  points: Array<{ x: number; y: number }>;
+}
+
 export interface StatusStory {
   id: string;
+  userId?: string;
+  userKempoId?: string;
   userName: string;
   userAvatar: string;
   timestamp: string;
+  createdAt?: string; // ISO 8601 for 24-hour expiration filter
+  expiresAt?: string;
   caption?: string;
   imageUrl?: string;
+  videoUrl?: string;
+  mediaType?: 'image' | 'video' | 'text' | 'voice' | 'layout';
+  textBackgroundColor?: string;
+  textContent?: string;
+  voiceAudioUrl?: string;
+  voiceDuration?: number;
+  layoutImages?: string[];
+  filter?: string;
+  isGif?: boolean;
+  trimStart?: number;
+  trimEnd?: number;
+  rotation?: number;
+  musicTrack?: StatusMusicTrack;
+  textOverlays?: StatusTextOverlay[];
+  drawings?: StatusDrawing[];
+  taggedContacts?: string[];
+  audience?: 'contacts' | 'everyone';
   viewed: boolean;
 }
 
