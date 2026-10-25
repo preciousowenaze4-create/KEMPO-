@@ -18,6 +18,7 @@ import { UserProfileData } from '../types';
 import { uploadAvatarToSupabase, uploadCoverToSupabase, saveFullUserProfile, isVideoMediaUrl } from '../lib/supabase';
 import { isOwnerEmail, OWNER_FIXED_ID, isOwnerIdFormat, generateStandardUserKempoId } from '../lib/accountRules';
 import { saveMediaToOfflineCache, getMediaFromOfflineCache, safeLocalStorageSet } from '../lib/mediaCache';
+import { realtimeService } from '../lib/realtimeService';
 
 interface ProfileEditScreenProps {
   userProfile: UserProfileData | null;
@@ -310,6 +311,17 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     setSaveSuccessNotice(true);
     onSaveSuccess(finalProfile);
 
+    // Broadcast immediate update so other devices & contacts see change with 0ms delay
+    realtimeService.broadcastProfileUpdate({
+      id: finalProfile.id,
+      kempoId: finalProfile.kempoId,
+      displayName: finalProfile.displayName,
+      avatarUrl: finalProfile.avatarUrl,
+      coverUrl: finalProfile.coverUrl,
+      coverType: finalProfile.coverType,
+      email: finalProfile.email,
+    });
+
     setTimeout(() => {
       setSaveSuccessNotice(false);
       onBack();
@@ -350,6 +362,17 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
         };
 
         await saveFullUserProfile(syncedProfile);
+
+        // Broadcast final public cloud media URLs
+        realtimeService.broadcastProfileUpdate({
+          id: syncedProfile.id,
+          kempoId: syncedProfile.kempoId,
+          displayName: syncedProfile.displayName,
+          avatarUrl: syncedProfile.avatarUrl,
+          coverUrl: syncedProfile.coverUrl,
+          coverType: syncedProfile.coverType,
+          email: syncedProfile.email,
+        });
       } catch (cloudErr) {
         console.warn('Background Supabase sync notice:', cloudErr);
       }

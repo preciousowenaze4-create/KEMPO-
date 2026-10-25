@@ -105,6 +105,8 @@ import {
   OWNER_FIXED_ID,
   OWNER_EMAILS,
   OFFICIAL_OWNER_EMAIL,
+  isRawIdString,
+  formatNameFromEmail,
 } from './accountRules';
 
 // Generate or assign a shareable KEMPO User ID (fixed dedicated 'Kempo Pro OWNER' for owner, distinct unique ID for others)
@@ -1165,10 +1167,21 @@ export async function fetchContactProfile(contact: {
 
       const resolvedAvatar = data.avatar_url || contact.avatarUrl || '';
 
+      let resolvedDisplayName = data.display_name;
+      if (!resolvedDisplayName || isRawIdString(resolvedDisplayName)) {
+        resolvedDisplayName = data.email
+          ? formatNameFromEmail(data.email)
+          : cleanName && !isRawIdString(cleanName)
+          ? cleanName
+          : isOwner
+          ? 'Precious Ddkid'
+          : 'Kempo Contact';
+      }
+
       const resolvedProfile: UserProfileData = {
         id: data.id,
         email: data.email || '',
-        displayName: data.display_name || cleanName || 'Kempo Contact',
+        displayName: resolvedDisplayName,
         avatarUrl: resolvedAvatar,
         coverUrl: rawCoverUrl,
         coverType: resolvedCoverType,
@@ -1280,14 +1293,27 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
   // 3. Query Supabase database profiles table for actual user
   try {
     const stripped = cleanId.replace(/^kempo\s*pro\s*/i, '').trim();
+    const coreCode = cleanId
+      .replace(/^kempo[\s\-_]*(pro)?[\s\-_]*/i, '')
+      .replace(/^[+]\d{1,4}/, '')
+      .trim();
     const compactClean = cleanId.replace(/\s+/g, '');
     const compactStripped = stripped.replace(/\s+/g, '');
 
     // Check exact & case-insensitive kempo_id matches
+    const filters: string[] = [
+      `kempo_id.ilike."${cleanId}"`,
+      `kempo_id.ilike."${stripped}"`,
+      `kempo_id.ilike."%${compactStripped}%"`,
+    ];
+    if (coreCode && coreCode.length >= 3) {
+      filters.push(`kempo_id.ilike."%${coreCode}%"`);
+    }
+
     let res = await supabase
       .from('profiles')
       .select('*')
-      .or(`kempo_id.ilike."${cleanId}",kempo_id.ilike."${stripped}",kempo_id.ilike."%${compactStripped}%"`)
+      .or(filters.join(','))
       .limit(1)
       .maybeSingle();
 
@@ -1328,10 +1354,19 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
 
     if (data) {
       const isOwner = isOwnerEmail(data.email);
+      let resolvedDisplayName = data.display_name;
+      if (!resolvedDisplayName || isRawIdString(resolvedDisplayName)) {
+        resolvedDisplayName = data.email
+          ? formatNameFromEmail(data.email)
+          : isOwner
+          ? 'Precious Ddkid'
+          : 'Kempo Contact';
+      }
+
       const userProf: UserProfileData = {
         id: data.id,
         email: data.email || '',
-        displayName: data.display_name || 'Kempo User',
+        displayName: resolvedDisplayName,
         avatarUrl: data.avatar_url || '',
         coverUrl: data.cover_url || '',
         coverType: data.cover_type || (isVideoMediaUrl(data.cover_url) ? 'video' : 'image'),
@@ -1363,16 +1398,26 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
       if (raw) {
         const users: UserProfileData[] = JSON.parse(raw);
         const stripped = cleanId.replace(/^kempo\s*pro\s*/i, '').trim();
+        const coreCode = cleanId
+          .replace(/^kempo[\s\-_]*(pro)?[\s\-_]*/i, '')
+          .replace(/^[+]\d{1,4}/, '')
+          .trim();
+
         const match = users.find(
           (u) =>
             (u.kempoId && u.kempoId.toLowerCase() === cleanId.toLowerCase()) ||
             (u.kempoId && stripped && u.kempoId.toLowerCase().includes(stripped.toLowerCase())) ||
+            (u.kempoId && coreCode && u.kempoId.toLowerCase().includes(coreCode.toLowerCase())) ||
             (u.phoneNumber && u.phoneNumber === cleanId) ||
             (u.email && u.email.toLowerCase() === cleanId.toLowerCase())
         );
         if (match) {
           const isOwner = isOwnerEmail(match.email);
-          const resolved = { ...match, isAdmin: isOwner };
+          let resolvedName = match.displayName;
+          if (!resolvedName || isRawIdString(resolvedName)) {
+            resolvedName = match.email ? formatNameFromEmail(match.email) : 'Kempo Contact';
+          }
+          const resolved = { ...match, displayName: resolvedName, isAdmin: isOwner };
           setCachedContactProfile(cleanId, resolved);
           return resolved;
         }
@@ -1398,10 +1443,14 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
       ? cleanId
       : `Kempo Pro +234${strippedClean}`;
 
+    const dynamicDisplayName = cleanId.includes('@')
+      ? formatNameFromEmail(cleanId)
+      : 'Kempo Contact';
+
     const dynamicContact: UserProfileData = {
       id: `user-${formattedKempoId.replace(/[^A-Za-z0-9]/g, '_')}`,
       email: cleanId.includes('@') ? cleanId : '',
-      displayName: cleanId.includes('@') ? cleanId.split('@')[0] : 'Kempo Contact',
+      displayName: dynamicDisplayName,
       avatarUrl: '',
       coverUrl: 'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4',
       coverType: 'video',
@@ -1505,10 +1554,19 @@ export async function fetchUserRealChatsFromSupabase(myKempoId: string): Promise
           status: (row.status as any) || 'delivered',
         }));
 
+      let resolvedChatName = profile?.displayName;
+      if (!resolvedChatName || isRawIdString(resolvedChatName)) {
+        resolvedChatName = profile?.email
+          ? formatNameFromEmail(profile.email)
+          : isOwnerEmail(profile?.email)
+          ? 'Precious Ddkid'
+          : 'Kempo Contact';
+      }
+
       realChats.push({
         id: profile?.id || `user-${partnerId}`,
         kempoId: profile?.kempoId || partnerId,
-        name: profile?.displayName || partnerId,
+        name: resolvedChatName,
         avatarUrl: profile?.avatarUrl || '',
         avatarBg: '#251a24',
         avatarType: profile?.avatarUrl ? 'photo' : 'initials',

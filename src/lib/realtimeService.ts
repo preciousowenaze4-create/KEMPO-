@@ -638,6 +638,94 @@ export class KempoRealtimeService {
     }
   }
 
+  // 4. Real-time Profile Updates Subscription (Supabase postgres_changes & broadcast)
+  subscribeToProfileUpdates(
+    onProfileUpdated: (updatedProfile: {
+      id?: string;
+      kempoId?: string;
+      displayName?: string;
+      avatarUrl?: string;
+      coverUrl?: string;
+      coverType?: 'image' | 'video';
+      status?: string;
+      email?: string;
+    }) => void
+  ) {
+    const channelName = 'kempo_global_profiles';
+    const channel = supabase.channel(channelName);
+
+    channel
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // INSERT or UPDATE
+          schema: 'public',
+          table: 'profiles',
+        },
+        (payload: any) => {
+          const row = payload.new;
+          if (!row) return;
+
+          onProfileUpdated({
+            id: row.id,
+            kempoId: row.kempo_id || row.id,
+            displayName: row.display_name,
+            avatarUrl: row.avatar_url,
+            coverUrl: row.cover_url,
+            coverType: row.cover_type,
+            status: row.status,
+            email: row.email,
+          });
+        }
+      )
+      .on('broadcast', { event: 'profile_update' }, ({ payload }) => {
+        if (payload) {
+          onProfileUpdated(payload);
+        }
+      })
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          console.info('Subscribed to real-time profile updates');
+        }
+      });
+
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    };
+  }
+
+  // Broadcast own profile update immediately over the real-time channel
+  broadcastProfileUpdate(profile: {
+    id?: string;
+    kempoId?: string;
+    displayName?: string;
+    avatarUrl?: string;
+    coverUrl?: string;
+    coverType?: 'image' | 'video';
+    status?: string;
+    email?: string;
+  }) {
+    const channelName = 'kempo_global_profiles';
+    const channel = supabase.channel(channelName);
+
+    channel.subscribe((status: string) => {
+      if (status === 'SUBSCRIBED') {
+        channel.send({
+          type: 'broadcast',
+          event: 'profile_update',
+          payload: profile,
+        });
+        setTimeout(() => {
+          try {
+            supabase.removeChannel(channel);
+          } catch {}
+        }, 1500);
+      }
+    });
+  }
+
   cleanup() {
     if (this.userChannel) {
       try {

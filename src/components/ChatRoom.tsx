@@ -27,7 +27,7 @@ import { realtimeService } from '../lib/realtimeService';
 import { compressImage, saveLocalMedia } from '../lib/mediaStorage';
 import { offlineQueue } from '../lib/offlineQueue';
 import { uploadChatMediaToSupabase, fetchContactProfile, formatLastSeen, isVideoMediaUrl, fetchSupabaseMessages } from '../lib/supabase';
-import { isOwnerIdFormat, isOwnerAccount, isOwnerEmail } from '../lib/accountRules';
+import { isOwnerIdFormat, isOwnerAccount, isOwnerEmail, isRawIdString, formatNameFromEmail } from '../lib/accountRules';
 
 interface ChatRoomProps {
   chat: Chat;
@@ -116,15 +116,16 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   // Registered display name formatting
   const rawContactName = contactProfile?.displayName || chat.name || '';
-  const isNameAnId =
-    rawContactName.toLowerCase().startsWith('kempo pro +') ||
-    rawContactName.toLowerCase().startsWith('kempo pro') ||
-    rawContactName.includes('+234');
+  const isNameAnId = isRawIdString(rawContactName);
   const headerDisplayName =
     !isNameAnId && rawContactName.trim()
       ? rawContactName.trim()
+      : contactProfile?.displayName && !isRawIdString(contactProfile.displayName)
+      ? contactProfile.displayName
       : isContactOwner
       ? 'Precious Ddkid'
+      : (contactProfile?.email || chat.email)
+      ? formatNameFromEmail(contactProfile?.email || chat.email)
       : 'Kempo Contact';
 
   // Fetch contact's actual profile from Supabase and listen for real-time presence

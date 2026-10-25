@@ -16,6 +16,75 @@ export const OWNER_RECOGNIZED_IDS = [
 ];
 
 /**
+ * Format a human-friendly display name from an email address
+ * e.g. preciousowenaze4@gmail.com -> Precious Owenaze
+ * e.g. john.doe@example.com -> John Doe
+ */
+export function formatNameFromEmail(email?: string | null): string {
+  if (!email || !email.includes('@')) return 'Kempo User';
+  const localPart = email.split('@')[0].trim();
+  // Strip trailing numbers, e.g. preciousowenaze4 -> preciousowenaze
+  let clean = localPart.replace(/\d+$/, '');
+  if (!clean) clean = localPart;
+
+  // Split on dots, underscores, hyphens
+  if (clean.includes('.') || clean.includes('_') || clean.includes('-')) {
+    return clean
+      .split(/[\._\-]+/)
+      .filter(Boolean)
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase())
+      .join(' ');
+  }
+
+  // CamelCase or PascalCase
+  if (/[a-z][A-Z]/.test(clean)) {
+    return clean
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/^./, (str) => str.toUpperCase());
+  }
+
+  // Single word: capitalize first letter
+  return clean.charAt(0).toUpperCase() + clean.slice(1);
+}
+
+/**
+ * Checks whether a given string is a raw machine ID or identifier code rather than a real human name.
+ * Detects:
+ * - "KEMPO-81889P", "kempo_81889p", "KEMPO-..."
+ * - "Kempo Pro +234..."
+ * - "Kempo Pro 81889P"
+ * - "user-..."
+ * - Phone numbers like "+234...", "080..."
+ * - Alphanumeric codes like "81889P", "9B7K24"
+ */
+export function isRawIdString(val?: string | null): boolean {
+  if (!val) return false;
+  const s = val.trim();
+  const lower = s.toLowerCase();
+
+  // Kempo Pro prefix with + or alphanumeric code
+  if (lower.startsWith('kempo pro +') || lower.startsWith('kempo pro+')) return true;
+  if (/^kempo[\s\-_]pro/i.test(s) && !lower.includes('owner') && !lower.includes('admin')) {
+    return true;
+  }
+
+  // KEMPO-XXXXX or KEMPO_XXXXX (e.g. KEMPO-81889P as shown in user screenshot)
+  if (/^kempo[\-_][a-z0-9]+/i.test(s)) return true;
+
+  // UUIDs or user-xxxx
+  if (/^user[\-_]/i.test(s)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+
+  // Phone numbers like +234..., +1...
+  if (/^\+?\d{7,16}$/.test(s.replace(/[\s\-]/g, ''))) return true;
+
+  // Short 4-8 character uppercase alphanumeric codes (e.g. 81889P, 9B7K24)
+  if (/^[A-Z0-9]{4,8}$/.test(s) && /\d/.test(s) && /[A-Z]/.test(s)) return true;
+
+  return false;
+}
+
+/**
  * Check if the given email corresponds to the single official application owner (case-insensitive)
  */
 export function isOwnerEmail(email?: string | null): boolean {

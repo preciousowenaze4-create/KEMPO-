@@ -29,7 +29,7 @@ import {
 import { Chat, UserProfileData } from '../types';
 import { fetchContactProfile, getCachedContactProfile, isVideoMediaUrl, formatLastSeen } from '../lib/supabase';
 import { getMediaFromOfflineCache, saveMediaToOfflineCache } from '../lib/mediaCache';
-import { isOwnerAccount, OWNER_FIXED_ID, isOwnerIdFormat, isOwnerEmail } from '../lib/accountRules';
+import { isOwnerAccount, OWNER_FIXED_ID, isOwnerIdFormat, isOwnerEmail, isRawIdString, formatNameFromEmail } from '../lib/accountRules';
 
 interface ContactInfoScreenProps {
   chat: Chat;
@@ -208,19 +208,17 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
   // Real registered display name (avoid showing raw ID strings as title)
   const rawName = profile?.displayName || chat.name || '';
-  const isNameAnId =
-    rawName.toLowerCase().startsWith('kempo pro +') ||
-    rawName.toLowerCase().startsWith('kempo pro') ||
-    rawName.includes('+234') ||
-    rawName === shareableKempoId;
+  const isNameAnId = isRawIdString(rawName) || rawName === shareableKempoId;
 
   const displayName =
     !isNameAnId && rawName.trim()
       ? rawName.trim()
-      : profile?.displayName && !profile.displayName.toLowerCase().startsWith('kempo pro +')
+      : profile?.displayName && !isRawIdString(profile.displayName)
       ? profile.displayName
       : isContactOwner
       ? 'Precious Ddkid'
+      : (profile?.email || chat.email)
+      ? formatNameFromEmail(profile?.email || chat.email)
       : 'Kempo Contact';
 
   const initialLetter = (displayName || 'K').trim().charAt(0).toUpperCase();

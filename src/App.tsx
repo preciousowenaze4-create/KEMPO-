@@ -29,7 +29,7 @@ import { PhoneMissed, MessageCircle, ShieldAlert, Loader2 } from 'lucide-react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { BannedAccountScreen } from './components/BannedAccountScreen';
-import { isOwnerEmail, OWNER_FIXED_ID, isOwnerIdFormat, generateStandardUserKempoId } from './lib/accountRules';
+import { isOwnerEmail, OWNER_FIXED_ID, isOwnerIdFormat, generateStandardUserKempoId, isRawIdString, formatNameFromEmail } from './lib/accountRules';
 import {
   realtimeService,
   IncomingCallEvent,
@@ -245,6 +245,50 @@ export default function App() {
       localStorage.setItem('kempo_user_chats', JSON.stringify(chats));
     }
   }, [chats]);
+
+  // Auto-heal existing chats with raw ID names (e.g. KEMPO-81889P) to true registered account names
+  useEffect(() => {
+    const rawIdChats = chats.filter((c) => isRawIdString(c.name) || !c.avatarUrl);
+    if (rawIdChats.length === 0) return;
+
+    let isMounted = true;
+    (async () => {
+      let didUpdate = false;
+      const updatedChats = [...chats];
+
+      for (let i = 0; i < updatedChats.length; i++) {
+        const c = updatedChats[i];
+        if (isRawIdString(c.name) || !c.avatarUrl) {
+          const partnerId = c.kempoId || c.about?.replace('KEMPO ID: ', '').trim() || c.phoneNumber || c.id;
+          const found = await findUserByKempoId(partnerId);
+          if (found && isMounted) {
+            let realName = found.displayName;
+            if (!realName || isRawIdString(realName)) {
+              realName = found.email ? formatNameFromEmail(found.email) : 'Kempo Contact';
+            }
+            updatedChats[i] = {
+              ...c,
+              name: realName,
+              avatarUrl: found.avatarUrl || c.avatarUrl,
+              coverUrl: found.coverUrl || c.coverUrl,
+              coverType: found.coverType || c.coverType,
+              email: found.email || c.email,
+            };
+            didUpdate = true;
+          }
+        }
+      }
+
+      if (didUpdate && isMounted) {
+        setChats(updatedChats);
+        localStorage.setItem('kempo_user_chats', JSON.stringify(updatedChats));
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<TabType>('chats');
@@ -749,8 +793,12 @@ export default function App() {
     const isContactOwner = isOwnerEmail(foundProfile.email);
     const contactKempoId = isContactOwner ? OWNER_FIXED_ID : (foundProfile.kempoId || cleanId);
     let contactName = foundProfile.displayName;
-    if (!contactName || contactName.toLowerCase().startsWith('kempo pro +') || contactName === cleanId) {
-      contactName = isContactOwner ? 'Precious Ddkid' : 'Kempo Contact';
+    if (!contactName || isRawIdString(contactName) || contactName === cleanId) {
+      contactName = foundProfile.email
+        ? formatNameFromEmail(foundProfile.email)
+        : isContactOwner
+        ? 'Precious Ddkid'
+        : 'Kempo Contact';
     }
     const contactAvatar = foundProfile.avatarUrl || (isContactOwner ? '/pwa-512x512.png' : '');
 
@@ -855,10 +903,17 @@ export default function App() {
         syncChatToSupabase(updatedChat);
         return newChats;
       } else {
+        let initialChatName = dm.senderName;
+        if (!initialChatName || isRawIdString(initialChatName)) {
+          initialChatName = dm.senderKempoId && dm.senderKempoId.includes('@')
+            ? formatNameFromEmail(dm.senderKempoId)
+            : 'Kempo Contact';
+        }
+
         const newChat: Chat = {
           id: `user-${senderKempoId}`,
           kempoId: senderKempoId,
-          name: dm.senderName && !dm.senderName.toLowerCase().startsWith('kempo pro +') ? dm.senderName : 'Kempo Contact',
+          name: initialChatName,
           avatarUrl: dm.senderAvatar || '',
           avatarBg: '#251a24',
           avatarType: dm.senderAvatar ? 'photo' : 'initials',
@@ -1172,11 +1227,25 @@ export default function App() {
     // Real-time Supabase postgres_changes listener on messages table
     const unsubPostgres = realtimeService.subscribeToPostgresMessages(
       myId,
-      (msg, senderId, receiverId) => {
+      async (msg, senderId, receiverId) => {
+        let senderName = senderId;
+        let senderAvatar = '';
+        try {
+          const senderProfile = await findUserByKempoId(senderId);
+          if (senderProfile) {
+            senderName = senderProfile.displayName;
+            if (!senderName || isRawIdString(senderName)) {
+              senderName = senderProfile.email ? formatNameFromEmail(senderProfile.email) : 'Kempo Contact';
+            }
+            senderAvatar = senderProfile.avatarUrl || '';
+          }
+        } catch {}
+
         handleIncomingDirectMessage({
           message: msg,
           senderKempoId: senderId,
-          senderName: senderId,
+          senderName,
+          senderAvatar,
           recipientKempoId: receiverId,
         });
       },
@@ -1212,6 +1281,81 @@ export default function App() {
         });
       }
     );
+
+    // Real-time Profile Updates Subscription (Live photo, cover wallpaper, name sync)
+    const unsubProfiles = realtimeService.subscribeToProfileUpdates((updatedProf) => {
+      if (!updatedProf) return;
+      const targetKempoId = (updatedProf.kempoId || updatedProf.id || '').toUpperCase();
+      const targetEmail = (updatedProf.email || '').toLowerCase();
+
+      setChats((prevChats) => {
+        let changed = false;
+        const newChats = prevChats.map((c) => {
+          const cKempo = (c.kempoId || '').toUpperCase();
+          const cId = (c.id || '').toUpperCase();
+          const cEmail = (c.email || '').toLowerCase();
+
+          const matches =
+            (targetKempoId && (cKempo === targetKempoId || cKempo.includes(targetKempoId) || targetKempoId.includes(cKempo))) ||
+            (cId === targetKempoId) ||
+            (targetEmail && cEmail === targetEmail);
+
+          if (matches) {
+            changed = true;
+            let newName = c.name;
+            if (updatedProf.displayName && !isRawIdString(updatedProf.displayName)) {
+              newName = updatedProf.displayName;
+            } else if (isRawIdString(newName) && (updatedProf.email || c.email)) {
+              newName = formatNameFromEmail(updatedProf.email || c.email);
+            }
+
+            return {
+              ...c,
+              name: newName,
+              avatarUrl: updatedProf.avatarUrl !== undefined ? updatedProf.avatarUrl : c.avatarUrl,
+              coverUrl: updatedProf.coverUrl !== undefined ? updatedProf.coverUrl : c.coverUrl,
+              coverType: updatedProf.coverType !== undefined ? updatedProf.coverType : c.coverType,
+            };
+          }
+          return c;
+        });
+
+        if (changed) {
+          localStorage.setItem('kempo_user_chats', JSON.stringify(newChats));
+        }
+        return changed ? newChats : prevChats;
+      });
+
+      setSelectedChat((prev) => {
+        if (!prev) return null;
+        const cKempo = (prev.kempoId || '').toUpperCase();
+        const cId = (prev.id || '').toUpperCase();
+        const cEmail = (prev.email || '').toLowerCase();
+
+        const matches =
+          (targetKempoId && (cKempo === targetKempoId || cKempo.includes(targetKempoId) || targetKempoId.includes(cKempo))) ||
+          (cId === targetKempoId) ||
+          (targetEmail && cEmail === targetEmail);
+
+        if (matches) {
+          let newName = prev.name;
+          if (updatedProf.displayName && !isRawIdString(updatedProf.displayName)) {
+            newName = updatedProf.displayName;
+          } else if (isRawIdString(newName) && (updatedProf.email || prev.email)) {
+            newName = formatNameFromEmail(updatedProf.email || prev.email);
+          }
+
+          return {
+            ...prev,
+            name: newName,
+            avatarUrl: updatedProf.avatarUrl !== undefined ? updatedProf.avatarUrl : prev.avatarUrl,
+            coverUrl: updatedProf.coverUrl !== undefined ? updatedProf.coverUrl : prev.coverUrl,
+            coverType: updatedProf.coverType !== undefined ? updatedProf.coverType : prev.coverType,
+          };
+        }
+        return prev;
+      });
+    });
 
     // Sync real Supabase chat conversations on login / connect
     if (userProfile?.kempoId) {
@@ -1253,6 +1397,7 @@ export default function App() {
     return () => {
       unsubPresence();
       unsubPostgres();
+      unsubProfiles();
       unsubPresenceChange();
     };
   }, [userProfile?.kempoId, currentUserName, selectedChat, activeCallingChat, isVideoCall, chats]);

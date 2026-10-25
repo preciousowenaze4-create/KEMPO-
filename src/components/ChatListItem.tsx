@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Check,
   CheckCheck,
@@ -8,8 +8,9 @@ import {
   MoreHorizontal,
   Archive,
 } from 'lucide-react';
-import { Chat } from '../types';
-import { isOwnerIdFormat, isOwnerEmail } from '../lib/accountRules';
+import { Chat, UserProfileData } from '../types';
+import { isOwnerIdFormat, isOwnerEmail, isRawIdString, formatNameFromEmail } from '../lib/accountRules';
+import { findUserByKempoId } from '../lib/supabase';
 
 interface ChatListItemProps {
   chat: Chat;
@@ -32,21 +33,43 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
   const startX = useRef(0);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // Dynamic state for auto-fetched profile info if chat had raw ID or missing photo
+  const [dynamicProfile, setDynamicProfile] = useState<UserProfileData | null>(null);
+
   // Check if contact is strictly the official owner email
-  const isOwner = Boolean(chat.email && isOwnerEmail(chat.email));
+  const isOwner = Boolean(
+    (dynamicProfile?.email && isOwnerEmail(dynamicProfile.email)) ||
+    (chat.email && isOwnerEmail(chat.email))
+  );
 
   // Format real registered display name (avoid showing raw ID strings as title)
-  const rawName = chat.name || '';
-  const isNameAnId =
-    rawName.toLowerCase().startsWith('kempo pro +') ||
-    rawName.toLowerCase().startsWith('kempo pro') ||
-    rawName.includes('+234');
+  const rawName = dynamicProfile?.displayName || chat.name || '';
+  const isNameAnId = isRawIdString(rawName);
+
   const displayTitle =
     !isNameAnId && rawName.trim()
       ? rawName.trim()
+      : dynamicProfile?.displayName && !isRawIdString(dynamicProfile.displayName)
+      ? dynamicProfile.displayName
       : isOwner
       ? 'Precious Ddkid'
-      : (rawName.trim() || 'Kempo Contact');
+      : (dynamicProfile?.email || chat.email)
+      ? formatNameFromEmail(dynamicProfile?.email || chat.email)
+      : 'Kempo Contact';
+
+  const effectiveAvatar = dynamicProfile?.avatarUrl || chat.avatarUrl || (isOwner ? '/pwa-512x512.png' : '');
+
+  // Auto-fetch profile from Supabase if name is an ID or avatar/email is missing
+  useEffect(() => {
+    const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
+    if (isNameAnId || !chat.avatarUrl || !chat.email) {
+      findUserByKempoId(partnerId).then((prof) => {
+        if (prof) {
+          setDynamicProfile(prof);
+        }
+      });
+    }
+  }, [chat.id, chat.kempoId, chat.name, isNameAnId, chat.avatarUrl, chat.email]);
 
   const initialLetter = (displayTitle || 'K').charAt(0).toUpperCase();
 
@@ -166,9 +189,9 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
                 : ''
             }`}
           >
-            {chat.avatarUrl ? (
+            {effectiveAvatar ? (
               <img
-                src={chat.avatarUrl}
+                src={effectiveAvatar}
                 alt={displayTitle}
                 className="w-full h-full rounded-full object-cover"
                 loading="lazy"

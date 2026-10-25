@@ -32,6 +32,7 @@ import {
 import { UserProfileData, Chat, AppPreferences } from '../types';
 import { uploadAvatarToSupabase, saveFullUserProfile, isVideoMediaUrl } from '../lib/supabase';
 import { getMediaFromOfflineCache } from '../lib/mediaCache';
+import { realtimeService } from '../lib/realtimeService';
 import {
   isOwnerEmail,
   isOwnerIdFormat,
@@ -285,6 +286,15 @@ export const YouTab: React.FC<YouTabProps> = ({
             const finalProfile = { ...userProfile, avatarUrl: publicUrl };
             await saveFullUserProfile(finalProfile);
             onUpdateProfile?.(finalProfile);
+            realtimeService.broadcastProfileUpdate({
+              id: finalProfile.id,
+              kempoId: finalProfile.kempoId,
+              displayName: finalProfile.displayName,
+              avatarUrl: publicUrl,
+              coverUrl: finalProfile.coverUrl,
+              coverType: finalProfile.coverType,
+              email: finalProfile.email,
+            });
           }
         }
       } catch (err) {
@@ -295,7 +305,17 @@ export const YouTab: React.FC<YouTabProps> = ({
     } else if (userProfile) {
       // Preset chosen
       try {
-        await saveFullUserProfile({ ...userProfile, avatarUrl: urlOrDataUrl });
+        const finalProfile = { ...userProfile, avatarUrl: urlOrDataUrl };
+        await saveFullUserProfile(finalProfile);
+        realtimeService.broadcastProfileUpdate({
+          id: finalProfile.id,
+          kempoId: finalProfile.kempoId,
+          displayName: finalProfile.displayName,
+          avatarUrl: urlOrDataUrl,
+          coverUrl: finalProfile.coverUrl,
+          coverType: finalProfile.coverType,
+          email: finalProfile.email,
+        });
       } catch (err) {
         console.warn('Saved profile locally:', err);
       }
