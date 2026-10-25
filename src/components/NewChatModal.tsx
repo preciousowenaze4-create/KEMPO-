@@ -57,7 +57,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         onSelectContact(foundChat);
         onClose();
       } else {
-        setIdFeedback(`User ID "${targetId.trim().toUpperCase()}" not found.`);
+        setIdFeedback('ID is not correct. Please enter a valid Kempo ID (e.g. Kempo Pro OWNER or Kempo Pro +234 9B7K24), phone number, or email.');
       }
     } catch (err: any) {
       setIdFeedback(err.message || 'Lookup failed.');

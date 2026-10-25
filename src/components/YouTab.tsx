@@ -135,25 +135,30 @@ export const YouTab: React.FC<YouTabProps> = ({
     (isOwner ? 'Precious Ddkid' : 'Kempo User');
   const accountType = isOwner ? 'creator' : userProfile?.category || userProfile?.accountType || 'personal';
 
+  const defaultCover =
+    'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
+
   // Ensure user's permanent ID is saved to profile if it was using placeholder
   useEffect(() => {
-    if (userProfile && (userProfile.kempoId !== kempoId || (isOwner && userProfile.kempoId !== OWNER_FIXED_ID))) {
+    if (
+      userProfile &&
+      ((userProfile.kempoId !== kempoId && kempoId) || (isOwner && userProfile.kempoId !== OWNER_FIXED_ID))
+    ) {
       const updatedProfile = { ...userProfile, kempoId };
       saveFullUserProfile(updatedProfile);
-      onUpdateProfile?.(updatedProfile);
     }
   }, [isOwner, kempoId, userProfile?.kempoId]);
 
   // Offline-resilient avatar state (loaded from cache instantly)
   const [avatarUrl, setAvatarUrl] = useState<string>(() => {
+    if (userProfile?.avatarUrl) return userProfile.avatarUrl;
     if (typeof window !== 'undefined') {
       return (
-        userProfile?.avatarUrl ||
         localStorage.getItem('kempo_user_avatar') ||
         ''
       );
     }
-    return userProfile?.avatarUrl || '';
+    return '';
   });
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
@@ -168,15 +173,14 @@ export const YouTab: React.FC<YouTabProps> = ({
 
   // Cover photo / video header background state (Supports Images & Videos)
   const [coverUrl, setCoverUrl] = useState<string>(() => {
+    if (userProfile?.coverUrl) return userProfile.coverUrl;
     if (typeof window !== 'undefined') {
-      return (
-        userProfile?.coverUrl ||
-        localStorage.getItem('kempo_user_cover') ||
-        ''
-      );
+      const stored = localStorage.getItem('kempo_user_cover');
+      if (stored) return stored;
     }
-    return userProfile?.coverUrl || '';
+    return defaultCover;
   });
+
   const [coverType, setCoverType] = useState<'image' | 'video'>(() => {
     if (userProfile?.coverType) return userProfile.coverType;
     if (typeof window !== 'undefined') {
@@ -185,13 +189,13 @@ export const YouTab: React.FC<YouTabProps> = ({
       const url = localStorage.getItem('kempo_user_cover');
       if (isVideoMediaUrl(url || '')) return 'video';
     }
-    return isVideoMediaUrl(userProfile?.coverUrl) ? 'video' : 'image';
+    return isVideoMediaUrl(userProfile?.coverUrl || defaultCover) ? 'video' : 'image';
   });
 
   // Sync cover photo/video if userProfile changes
   useEffect(() => {
-    if (userProfile?.coverUrl !== undefined) {
-      setCoverUrl(userProfile.coverUrl || '');
+    if (userProfile?.coverUrl) {
+      setCoverUrl(userProfile.coverUrl);
       setCoverType(userProfile.coverType || (isVideoMediaUrl(userProfile.coverUrl) ? 'video' : 'image'));
     }
   }, [userProfile?.coverUrl, userProfile?.coverType]);

@@ -24,6 +24,7 @@ import {
   Flag,
   Check,
   Copy,
+  X,
 } from 'lucide-react';
 import { Chat, UserProfileData } from '../types';
 import { fetchContactProfile, getCachedContactProfile, isVideoMediaUrl, formatLastSeen } from '../lib/supabase';
@@ -70,6 +71,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
   const [showBlockConfirm, setShowBlockConfirm] = useState(false);
   const [showReportConfirm, setShowReportConfirm] = useState(false);
   const [showEncryptionModal, setShowEncryptionModal] = useState(false);
+  const [showFullPicture, setShowFullPicture] = useState(false);
 
   // Derive unique contact identifier
   const cleanPartnerId =
@@ -321,7 +323,11 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
         {/* 1. Top Profile Section & Quick Actions (Direct Glass Overlay) */}
         <div className="flex flex-col items-center text-center pt-2">
           {/* Centered Circular Avatar with Signature Red Ring */}
-          <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600/90 shadow-2xl shadow-black/90 bg-black/50 flex items-center justify-center relative">
+          <div
+            onClick={() => setShowFullPicture(true)}
+            title="Tap to view full picture"
+            className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600/90 shadow-2xl shadow-black/90 bg-black/50 flex items-center justify-center relative cursor-pointer active:scale-95 transition hover:brightness-110"
+          >
             {avatarUrl ? (
               <img
                 src={avatarUrl}
@@ -861,6 +867,49 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
             >
               Done
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Full Picture Viewer Modal (WhatsApp style) */}
+      {showFullPicture && (
+        <div
+          className="fixed inset-0 z-70 bg-black/95 flex flex-col items-center justify-between p-4 animate-in fade-in select-none"
+          onClick={() => setShowFullPicture(false)}
+        >
+          <div className="w-full max-w-lg flex items-center justify-between text-white py-2">
+            <span className="text-base font-bold truncate pr-4">{displayName}</span>
+            <button
+              onClick={() => setShowFullPicture(false)}
+              className="p-2 rounded-full hover:bg-neutral-800 text-neutral-300 hover:text-white cursor-pointer"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <div
+            className="flex-1 flex items-center justify-center w-full max-w-lg overflow-hidden my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={displayName}
+                className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl ring-1 ring-white/10"
+              />
+            ) : isContactOwner ? (
+              <img
+                src="/pwa-512x512.png"
+                alt="Owner"
+                className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl ring-1 ring-white/10"
+              />
+            ) : (
+              <div className="w-64 h-64 rounded-3xl bg-gradient-to-br from-red-600 via-red-800 to-red-950 flex items-center justify-center text-white font-black text-8xl shadow-2xl">
+                {initialLetter}
+              </div>
+            )}
+          </div>
+          <div className="text-xs text-neutral-400 font-mono pb-4">
+            {shareableKempoId}
           </div>
         </div>
       )}

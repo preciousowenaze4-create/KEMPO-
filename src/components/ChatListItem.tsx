@@ -151,7 +151,7 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
         <div
           className="relative shrink-0"
           onClick={(e) => {
-            if (chat.hasStatusStory && onAvatarClick) {
+            if (onAvatarClick) {
               e.stopPropagation();
               onAvatarClick();
             }

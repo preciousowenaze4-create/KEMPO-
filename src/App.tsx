@@ -24,6 +24,7 @@ import { ThemeSettingsModal } from './components/ThemeSettingsModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { ChatActionSheetModal } from './components/ChatActionSheetModal';
 import { InAppNotificationBanner } from './components/InAppNotificationBanner';
+import { ProfilePhotoModal } from './components/ProfilePhotoModal';
 import { PhoneMissed, MessageCircle, ShieldAlert, Loader2 } from 'lucide-react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
@@ -300,6 +301,9 @@ export default function App() {
     kempoId?: string;
     isVideo: boolean;
   } | null>(null);
+
+  // WhatsApp-style quick profile photo preview modal
+  const [previewPhotoChat, setPreviewPhotoChat] = useState<Chat | null>(null);
 
   // In-app Notification Banner state (real-time popup for missed calls & incoming messages)
   const [bannerNotification, setBannerNotification] = useState<{
@@ -1229,9 +1233,27 @@ export default function App() {
       });
     }
 
+    // Real-time Presence listener to update online status across all chats dynamically
+    const unsubPresenceChange = realtimeService.onPresenceChange((onlineUsers) => {
+      setChats((prevChats) => {
+        let changed = false;
+        const updated = prevChats.map((c) => {
+          const partnerId = c.kempoId || c.phoneNumber || c.id;
+          const isOnline = onlineUsers.has(realtimeService.normalizeId(partnerId));
+          if (c.online !== isOnline) {
+            changed = true;
+            return { ...c, online: isOnline };
+          }
+          return c;
+        });
+        return changed ? updated : prevChats;
+      });
+    });
+
     return () => {
       unsubPresence();
       unsubPostgres();
+      unsubPresenceChange();
     };
   }, [userProfile?.kempoId, currentUserName, selectedChat, activeCallingChat, isVideoCall, chats]);
 
@@ -1616,8 +1638,12 @@ export default function App() {
                   onAvatarClick={() => {
                     if (chat.hasStatusStory) {
                       const story = stories.find((s) => s.userName === chat.name);
-                      if (story) setActiveStory(story);
+                      if (story) {
+                        setActiveStory(story);
+                        return;
+                      }
                     }
+                    setPreviewPhotoChat(chat);
                   }}
                   onMore={(c) => setActionSheetChat(c)}
                   onArchive={(id) => handleArchiveChat(id)}
@@ -1822,6 +1848,26 @@ export default function App() {
           onAddNewContact={handleAddNewContact}
           onAddContactById={handleAddContactById}
         />
+
+        {/* WhatsApp-Style Contact Profile Photo Preview Modal */}
+        {previewPhotoChat && (
+          <ProfilePhotoModal
+            chat={previewPhotoChat}
+            onClose={() => setPreviewPhotoChat(null)}
+            onOpenChat={(c) => {
+              setPreviewPhotoChat(null);
+              handleOpenChat(c);
+            }}
+            onStartCall={(c, isVideo) => {
+              setPreviewPhotoChat(null);
+              handleStartCall(c, isVideo);
+            }}
+            onViewInfo={(c) => {
+              setPreviewPhotoChat(null);
+              handleOpenChat(c);
+            }}
+          />
+        )}
 
         {/* PWA Home Screen Installation Guide Modal */}
         <PWAInstallModal
