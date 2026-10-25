@@ -101,21 +101,29 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const isContactOwner =
     isOwnerIdFormat(chat.kempoId) ||
-    (chat.kempoId && chat.kempoId.toLowerCase().includes('owner')) ||
-    (chat.name && chat.name.toLowerCase().includes('kempo')) ||
+    isOwnerIdFormat(contactProfile?.kempoId) ||
     (contactProfile?.email && isOwnerAccount({ email: contactProfile.email, kempoId: contactProfile.kempoId }));
-
-  const defaultAvatar = isContactOwner
-    ? '/pwa-512x512.png'
-    : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80';
 
   const defaultCover =
     'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
 
-  // Effective Contact Media (photo from Supabase, chat, or guaranteed real avatar)
-  const effectiveAvatarUrl = contactProfile?.avatarUrl || chat.avatarUrl || defaultAvatar;
+  // Effective Contact Media
+  const effectiveAvatarUrl = contactProfile?.avatarUrl || chat.avatarUrl || (isContactOwner ? '/pwa-512x512.png' : '');
   const effectiveCoverUrl = contactProfile?.coverUrl || chat.coverUrl || defaultCover;
   const effectiveCoverType = contactProfile?.coverType || chat.coverType || (isVideoMediaUrl(effectiveCoverUrl) ? 'video' : 'image');
+
+  // Registered display name formatting
+  const rawContactName = contactProfile?.displayName || chat.name || '';
+  const isNameAnId =
+    rawContactName.toLowerCase().startsWith('kempo pro +') ||
+    rawContactName.toLowerCase().startsWith('kempo pro') ||
+    rawContactName.includes('+234');
+  const headerDisplayName =
+    !isNameAnId && rawContactName.trim()
+      ? rawContactName.trim()
+      : isContactOwner
+      ? 'Precious Ddkid'
+      : 'Kempo Contact';
 
   // Fetch contact's actual profile from Supabase and listen for real-time presence
   useEffect(() => {
@@ -422,14 +430,24 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             {/* Contact Avatar */}
             <div className="relative shrink-0 ml-1">
               <div className="w-9 h-9 rounded-full overflow-hidden flex items-center justify-center bg-neutral-800 ring-1 ring-red-500/40">
-                <img
-                  src={effectiveAvatarUrl || defaultAvatar}
-                  alt={chat.name}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = defaultAvatar;
-                  }}
-                />
+                {effectiveAvatarUrl ? (
+                  <img
+                    src={effectiveAvatarUrl}
+                    alt={headerDisplayName}
+                    className="w-full h-full object-cover"
+                    onError={() => setContactProfile((prev) => (prev ? { ...prev, avatarUrl: '' } : null))}
+                  />
+                ) : isContactOwner ? (
+                  <img
+                    src="/pwa-512x512.png"
+                    alt="Owner"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full rounded-full bg-gradient-to-br from-red-600 to-red-950 flex items-center justify-center text-white font-bold text-xs select-none">
+                    {headerDisplayName.charAt(0).toUpperCase()}
+                  </div>
+                )}
               </div>
               {isContactOnline && (
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black">
@@ -441,7 +459,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             {/* Contact info */}
             <div className="ml-2 min-w-0">
               <h2 className="text-[15.5px] font-semibold text-white truncate tracking-tight hover:text-red-400 transition">
-                {contactProfile?.displayName || chat.name}
+                {headerDisplayName}
               </h2>
               <p className="text-[11.5px] text-neutral-400 truncate">
                 {isTyping ? (

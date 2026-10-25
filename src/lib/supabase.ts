@@ -1073,6 +1073,24 @@ export function formatLastSeen(timestampOrDate?: string | Date): string {
   }
 }
 
+// In-memory contact profile cache for 0ms instant loading without flickering
+export const profileMemoryCache = new Map<string, UserProfileData>();
+
+export function getCachedContactProfile(key?: string | null): UserProfileData | null {
+  if (!key) return null;
+  const clean = key.trim().toLowerCase();
+  return profileMemoryCache.get(clean) || null;
+}
+
+export function setCachedContactProfile(key: string, profile: UserProfileData): void {
+  if (!key || !profile) return;
+  profileMemoryCache.set(key.trim().toLowerCase(), profile);
+  if (profile.kempoId) profileMemoryCache.set(profile.kempoId.trim().toLowerCase(), profile);
+  if (profile.id) profileMemoryCache.set(profile.id.trim().toLowerCase(), profile);
+  if (profile.phoneNumber) profileMemoryCache.set(profile.phoneNumber.trim().toLowerCase(), profile);
+  if (profile.email) profileMemoryCache.set(profile.email.trim().toLowerCase(), profile);
+}
+
 // Fetch complete contact profile from Supabase with multi-key resolution and offline caching
 export async function fetchContactProfile(contact: {
   id?: string;
@@ -1088,34 +1106,37 @@ export async function fetchContactProfile(contact: {
   const cleanId = (contact.id || '').trim();
   const cleanName = (contact.name || '').trim();
 
-  // 1. Check if contact represents the recognized App Owner / Admin or Official Kempo Account
+  // 1. Check synchronous in-memory cache for 0ms render
+  const inMemory =
+    getCachedContactProfile(cleanKempoId) ||
+    getCachedContactProfile(cleanId) ||
+    getCachedContactProfile(cleanPhone) ||
+    getCachedContactProfile(cleanName);
+  if (inMemory) {
+    return inMemory;
+  }
+
+  // 2. Check if contact represents the recognized App Owner / Admin strictly
   const lowerName = cleanName.toLowerCase();
-  const lowerKempoId = cleanKempoId.toLowerCase();
   const isTargetOwner =
-    isOwnerIdFormat(cleanKempoId) ||
-    lowerKempoId.includes('owner') ||
-    lowerKempoId.includes('admin') ||
-    lowerName.includes('owner') ||
-    lowerName.includes('admin') ||
-    lowerName.includes('kempo') ||
-    lowerName.includes('ddkid') ||
-    lowerName.includes('precious') ||
-    isOwnerEmail(cleanId);
+    isOwnerEmail(cleanId) ||
+    (cleanKempoId && isOwnerIdFormat(cleanKempoId)) ||
+    lowerName === 'kempo pro owner' ||
+    lowerName === 'kempo pro admin' ||
+    lowerName === 'precious ddkid';
 
   if (isTargetOwner) {
-    // 1a. Check local storage if current user or cached owner
     let ownerAvatar = typeof window !== 'undefined' ? localStorage.getItem('kempo_user_avatar') || '' : '';
     let ownerCover = typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : '';
     let ownerCoverType: 'image' | 'video' = typeof window !== 'undefined'
       ? (localStorage.getItem('kempo_user_cover_type') as 'image' | 'video') || 'video'
       : 'video';
 
-    // 1b. Query Supabase profiles for latest owner photo & cover video
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .or(`email.ilike.${OWNER_EMAILS[0]},email.ilike.${OWNER_EMAILS[1]},kempo_id.ilike.%owner%,is_admin.eq.true`)
+        .or(`email.ilike.${OWNER_EMAILS[0]},email.ilike.${OWNER_EMAILS[1]}`)
         .limit(1)
         .maybeSingle();
 
@@ -1130,14 +1151,13 @@ export async function fetchContactProfile(contact: {
       console.info('fetchContactProfile Owner query notice:', e);
     }
 
-    // Default to official Kempo Pro Crest & Cyber Red cover if not yet customized
-    const finalAvatar = ownerAvatar || contact.avatarUrl || '/pwa-512x512.png';
-    const finalCover = ownerCover || contact.coverUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80';
+    const finalAvatar = ownerAvatar || contact.avatarUrl || '';
+    const finalCover = ownerCover || contact.coverUrl || 'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
 
     const ownerProfile: UserProfileData = {
       id: 'kempo-owner-account',
       email: OWNER_EMAILS[0],
-      displayName: cleanName || 'Kempo Pro OWNER',
+      displayName: 'Precious Ddkid',
       avatarUrl: finalAvatar,
       coverUrl: finalCover,
       coverType: ownerCoverType || (isVideoMediaUrl(finalCover) ? 'video' : 'image'),
@@ -1154,47 +1174,56 @@ export async function fetchContactProfile(contact: {
       lastSeen: new Date().toISOString(),
     };
 
-    // Cache locally for instant 0ms access
-    if (typeof window !== 'undefined') {
-      try {
-        if (cleanKempoId) localStorage.setItem(`kempo_contact_${cleanKempoId}`, JSON.stringify(ownerProfile));
-        if (cleanId) localStorage.setItem(`kempo_contact_${cleanId}`, JSON.stringify(ownerProfile));
-        if (cleanName) localStorage.setItem(`kempo_contact_${cleanName}`, JSON.stringify(ownerProfile));
-      } catch {}
-    }
+    setCachedContactProfile('kempo-owner-account', ownerProfile);
+    if (cleanKempoId) setCachedContactProfile(cleanKempoId, ownerProfile);
 
     return ownerProfile;
   }
 
-  // 2. Query Supabase profiles table for standard user
+  // 3. Query Supabase profiles table for standard user with clean exact matching
   try {
-    let query = supabase.from('profiles').select('*');
+    let data: any = null;
 
     if (cleanKempoId) {
-      query = query.or(`kempo_id.eq.${cleanKempoId},kempo_id.ilike.%${cleanKempoId}%,email.ilike.${cleanKempoId}`);
-    } else if (cleanId && !cleanId.startsWith('user-') && !cleanId.startsWith('temp-')) {
-      query = query.eq('id', cleanId);
-    } else if (cleanPhone) {
-      query = query.eq('phone_number', cleanPhone);
-    } else if (cleanName) {
-      query = query.ilike('display_name', `%${cleanName}%`);
+      const res = await supabase.from('profiles').select('*').eq('kempo_id', cleanKempoId).maybeSingle();
+      data = res.data;
+      if (!data) {
+        const stripped = cleanKempoId.replace(/^kempo\s*pro\s*/i, '').trim();
+        if (stripped && stripped !== cleanKempoId) {
+          const res2 = await supabase.from('profiles').select('*').eq('kempo_id', stripped).maybeSingle();
+          data = res2.data;
+        }
+      }
     }
 
-    const { data, error } = await query.limit(1).maybeSingle();
+    if (!data && cleanId && !cleanId.startsWith('user-') && !cleanId.startsWith('temp-') && !cleanId.startsWith('c-')) {
+      const res = await supabase.from('profiles').select('*').eq('id', cleanId).maybeSingle();
+      data = res.data;
+    }
 
-    if (!error && data) {
-      const rawCoverUrl = data.cover_url || contact.coverUrl || 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=1000&auto=format&fit=crop&q=80';
+    if (!data && cleanPhone) {
+      const res = await supabase.from('profiles').select('*').eq('phone_number', cleanPhone).maybeSingle();
+      data = res.data;
+    }
+
+    if (!data && cleanName && !cleanName.toLowerCase().startsWith('kempo pro +') && cleanName !== 'Contact' && cleanName !== 'Kempo Contact') {
+      const res = await supabase.from('profiles').select('*').ilike('display_name', cleanName).maybeSingle();
+      data = res.data;
+    }
+
+    if (data) {
+      const rawCoverUrl = data.cover_url || contact.coverUrl || 'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
       const resolvedCoverType: 'image' | 'video' =
         data.cover_type ||
         contact.coverType ||
         (isVideoMediaUrl(rawCoverUrl) ? 'video' : 'image');
 
-      const resolvedAvatar = data.avatar_url || contact.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80';
+      const resolvedAvatar = data.avatar_url || contact.avatarUrl || '';
 
       const resolvedProfile: UserProfileData = {
         id: data.id,
         email: data.email || '',
-        displayName: data.display_name || cleanName || 'Kempo User',
+        displayName: data.display_name || cleanName || 'Kempo Contact',
         avatarUrl: resolvedAvatar,
         coverUrl: rawCoverUrl,
         coverType: resolvedCoverType,
@@ -1208,12 +1237,14 @@ export async function fetchContactProfile(contact: {
         lastSeen: data.last_seen || data.updated_at,
       };
 
-      // Fast cache in localStorage for instant 0ms retrieval next time
+      setCachedContactProfile(resolvedProfile.kempoId || cleanKempoId || resolvedProfile.id, resolvedProfile);
+
       if (typeof window !== 'undefined') {
         try {
           if (cleanKempoId) localStorage.setItem(`kempo_contact_${cleanKempoId}`, JSON.stringify(resolvedProfile));
           if (cleanId) localStorage.setItem(`kempo_contact_${cleanId}`, JSON.stringify(resolvedProfile));
-          if (cleanName) localStorage.setItem(`kempo_contact_${cleanName}`, JSON.stringify(resolvedProfile));
+          if (resolvedProfile.avatarUrl) localStorage.setItem(`kempo_contact_avatar_${cleanKempoId}`, resolvedProfile.avatarUrl);
+          if (resolvedProfile.coverUrl) localStorage.setItem(`kempo_contact_cover_${cleanKempoId}`, resolvedProfile.coverUrl);
         } catch {}
       }
 
@@ -1223,53 +1254,68 @@ export async function fetchContactProfile(contact: {
     console.info('fetchContactProfile Supabase query notice:', err);
   }
 
-  // 3. Check local registered users cache & instant cache
+  // 4. Check local registered users cache & persistent cache
   if (typeof window !== 'undefined') {
     try {
       if (cleanKempoId) {
         const cached = localStorage.getItem(`kempo_contact_${cleanKempoId}`);
-        if (cached) return JSON.parse(cached);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          setCachedContactProfile(cleanKempoId, parsed);
+          return parsed;
+        }
       }
 
       const raw = localStorage.getItem('kempo_registered_users');
       if (raw) {
         const users: UserProfileData[] = JSON.parse(raw);
         const match = users.find((u) => {
-          if (cleanKempoId && u.kempoId?.toLowerCase().includes(cleanKempoId.toLowerCase())) return true;
+          if (cleanKempoId && u.kempoId?.toLowerCase() === cleanKempoId.toLowerCase()) return true;
           if (cleanPhone && u.phoneNumber === cleanPhone) return true;
           if (cleanId && u.id === cleanId) return true;
           if (cleanName && u.displayName?.toLowerCase() === cleanName.toLowerCase()) return true;
           return false;
         });
         if (match) {
-          return {
+          const resProfile = {
             ...match,
-            coverUrl: match.coverUrl || contact.coverUrl || 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=1000&auto=format&fit=crop&q=80',
+            coverUrl: match.coverUrl || contact.coverUrl || 'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4',
             coverType: match.coverType || contact.coverType || (isVideoMediaUrl(match.coverUrl || contact.coverUrl) ? 'video' : 'image'),
-            avatarUrl: match.avatarUrl || contact.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
+            avatarUrl: match.avatarUrl || contact.avatarUrl || '',
           };
+          setCachedContactProfile(cleanKempoId || cleanId, resProfile);
+          return resProfile;
         }
       }
     } catch {}
   }
 
-  // 4. Fallback based on provided contact props with aesthetic cover
-  const fallbackCover = contact.coverUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80';
-  const fallbackAvatar = contact.avatarUrl || (isTargetOwner ? '/pwa-512x512.png' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80');
+  // 5. Fallback based on provided contact props with clean avatar & aesthetic cover
+  const fallbackCover = contact.coverUrl || 'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
+  const fallbackAvatar = contact.avatarUrl || '';
 
-  return {
+  // Determine human-readable display name (never raw ID as name)
+  let resolvedDisplayName = cleanName;
+  if (!resolvedDisplayName || resolvedDisplayName.toLowerCase().startsWith('kempo pro +') || resolvedDisplayName === cleanKempoId) {
+    resolvedDisplayName = 'Kempo Contact';
+  }
+
+  const fallbackProfile: UserProfileData = {
     id: cleanId || 'contact',
     email: '',
-    displayName: cleanName || cleanKempoId || 'Contact',
+    displayName: resolvedDisplayName,
     avatarUrl: fallbackAvatar,
     coverUrl: fallbackCover,
     coverType: contact.coverType || (isVideoMediaUrl(fallbackCover) ? 'video' : 'image'),
     accountType: 'personal',
-    kempoId: cleanKempoId || (isTargetOwner ? OWNER_FIXED_ID : 'Kempo Pro ID'),
+    kempoId: cleanKempoId || 'Kempo Pro ID',
     phoneNumber: cleanPhone,
     preferences: DEFAULT_PREFERENCES,
     isOnboarded: true,
   };
+
+  setCachedContactProfile(cleanKempoId || cleanId, fallbackProfile);
+  return fallbackProfile;
 }
 
 // Find another user by their unique permanent KEMPO-ID, Owner ID, or Phone ID in Supabase
@@ -1277,19 +1323,22 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
   const cleanId = (kempoId || '').trim();
   if (!cleanId) return null;
 
-  // 1. Dedicated App Owner / Admin lookup:
-  // If user searched "Kempo Pro OWNER", "Kempo Pro ADMIN", "kempo pro", "owner", or "admin"
+  // 1. Check in-memory cache
+  const cached = getCachedContactProfile(cleanId);
+  if (cached) return cached;
+
+  // 2. Dedicated App Owner / Admin lookup:
   if (isOwnerIdFormat(cleanId)) {
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .or(`email.ilike.${OWNER_EMAILS[0]},email.ilike.${OWNER_EMAILS[1]},kempo_id.ilike.%owner%,is_admin.eq.true`)
+        .or(`email.ilike.${OWNER_EMAILS[0]},email.ilike.${OWNER_EMAILS[1]}`)
         .limit(1)
         .maybeSingle();
 
       if (!error && data) {
-        return {
+        const ownerProfile: UserProfileData = {
           id: data.id,
           email: data.email || OWNER_EMAILS[0],
           displayName: data.display_name || 'Precious Ddkid',
@@ -1308,13 +1357,15 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
           isAdmin: true,
           lastSeen: data.last_seen || data.updated_at,
         };
+        setCachedContactProfile(OWNER_FIXED_ID, ownerProfile);
+        setCachedContactProfile(cleanId, ownerProfile);
+        return ownerProfile;
       }
     } catch (e) {
       console.info('Owner ID search notice:', e);
     }
 
-    // Direct fallback for Owner ID
-    return {
+    const defaultOwner: UserProfileData = {
       id: 'kempo-owner-account',
       email: OWNER_EMAILS[0],
       displayName: 'Precious Ddkid',
@@ -1332,25 +1383,38 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
       isVerified: true,
       isAdmin: true,
     };
+    setCachedContactProfile(OWNER_FIXED_ID, defaultOwner);
+    setCachedContactProfile(cleanId, defaultOwner);
+    return defaultOwner;
   }
 
-  // 2. Standard user search in Supabase database by unique permanent ID
+  // 3. Standard user search in Supabase database by unique permanent ID
   const stripped = cleanId.replace(/^kempo\s*pro\s*/i, '').trim();
 
   try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .or(`kempo_id.eq.${cleanId},kempo_id.ilike.%${cleanId}%,kempo_id.ilike.%${stripped}%,email.ilike.${cleanId},phone_number.eq.${cleanId}`)
-      .limit(1)
-      .maybeSingle();
+    let { data } = await supabase.from('profiles').select('*').eq('kempo_id', cleanId).maybeSingle();
 
-    if (!error && data) {
+    if (!data && stripped && stripped !== cleanId) {
+      const res = await supabase.from('profiles').select('*').eq('kempo_id', stripped).maybeSingle();
+      data = res.data;
+    }
+
+    if (!data && cleanId.includes('+')) {
+      const res = await supabase.from('profiles').select('*').eq('phone_number', cleanId).maybeSingle();
+      data = res.data;
+    }
+
+    if (!data && cleanId.includes('@')) {
+      const res = await supabase.from('profiles').select('*').ilike('email', cleanId).maybeSingle();
+      data = res.data;
+    }
+
+    if (data) {
       const coverUrl = data.cover_url || '';
-      return {
+      const userProf: UserProfileData = {
         id: data.id,
         email: data.email || '',
-        displayName: data.display_name || cleanId,
+        displayName: data.display_name || 'Kempo Contact',
         avatarUrl: data.avatar_url || '',
         coverUrl,
         coverType: data.cover_type || (isVideoMediaUrl(coverUrl) ? 'video' : 'image'),
@@ -1363,12 +1427,15 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
         isOnboarded: true,
         lastSeen: data.last_seen || data.updated_at,
       };
+      setCachedContactProfile(cleanId, userProf);
+      if (userProf.kempoId) setCachedContactProfile(userProf.kempoId, userProf);
+      return userProf;
     }
   } catch (err) {
     console.info('findUserByKempoId query:', err);
   }
 
-  // 3. Check local registered users cache for instant local testing
+  // 4. Check local registered users cache for instant local testing
   if (typeof window !== 'undefined') {
     try {
       const raw = localStorage.getItem('kempo_registered_users');
@@ -1382,7 +1449,10 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
             (u.phoneNumber && u.phoneNumber === cleanId) ||
             (u.email && u.email.toLowerCase() === cleanId.toLowerCase())
         );
-        if (match) return match;
+        if (match) {
+          setCachedContactProfile(cleanId, match);
+          return match;
+        }
       }
 
       const completedRaw = localStorage.getItem('kempo_completed_accounts');
@@ -1397,6 +1467,7 @@ export async function findUserByKempoId(kempoId: string): Promise<UserProfileDat
             (u.phoneNumber && u.phoneNumber === cleanId) ||
             (u.email && u.email.toLowerCase() === cleanId.toLowerCase())
           ) {
+            setCachedContactProfile(cleanId, u);
             return u;
           }
         }

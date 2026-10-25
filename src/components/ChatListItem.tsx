@@ -9,6 +9,7 @@ import {
   Archive,
 } from 'lucide-react';
 import { Chat } from '../types';
+import { isOwnerIdFormat } from '../lib/accountRules';
 
 interface ChatListItemProps {
   chat: Chat;
@@ -30,6 +31,27 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
   const [isSwiping, setIsSwiping] = useState(false);
   const startX = useRef(0);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // Check if contact is official owner
+  const isOwner =
+    isOwnerIdFormat(chat.kempoId) ||
+    (chat.kempoId && chat.kempoId.toLowerCase() === 'kempo pro owner') ||
+    chat.id === 'kempo-owner-account';
+
+  // Format real registered display name (avoid showing raw ID strings as title)
+  const rawName = chat.name || '';
+  const isNameAnId =
+    rawName.toLowerCase().startsWith('kempo pro +') ||
+    rawName.toLowerCase().startsWith('kempo pro') ||
+    rawName.includes('+234');
+  const displayTitle =
+    !isNameAnId && rawName.trim()
+      ? rawName.trim()
+      : isOwner
+      ? 'Precious Ddkid'
+      : 'Kempo Contact';
+
+  const initialLetter = (displayTitle || 'K').charAt(0).toUpperCase();
 
   // Touch Swipe handlers matching iOS WhatsApp behavior (IMG_4777)
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -147,21 +169,25 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
                 : ''
             }`}
           >
-            {(() => {
-              const isKempo = chat.name?.toLowerCase().includes('kempo') || chat.kempoId?.toLowerCase().includes('owner');
-              const itemAvatar = chat.avatarUrl || (isKempo ? '/pwa-512x512.png' : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80');
-              return (
-                <img
-                  src={itemAvatar}
-                  alt={chat.name}
-                  className="w-full h-full rounded-full object-cover"
-                  loading="lazy"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = '/pwa-512x512.png';
-                  }}
-                />
-              );
-            })()}
+            {chat.avatarUrl ? (
+              <img
+                src={chat.avatarUrl}
+                alt={displayTitle}
+                className="w-full h-full rounded-full object-cover"
+                loading="lazy"
+              />
+            ) : isOwner ? (
+              <img
+                src="/pwa-512x512.png"
+                alt="Owner"
+                className="w-full h-full rounded-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <div className="w-full h-full rounded-full bg-gradient-to-br from-red-600 via-red-800 to-red-950 flex items-center justify-center text-white font-bold text-base select-none shadow-inner">
+                {initialLetter}
+              </div>
+            )}
           </div>
 
           {/* Active online dot if applicable */}
@@ -175,7 +201,7 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
           {/* Top row: Name & Timestamp */}
           <div className="flex items-center justify-between gap-1 mb-0.5">
             <h2 className="text-[16.5px] font-semibold text-white truncate tracking-tight">
-              {chat.name}
+              {displayTitle}
             </h2>
             <span
               className={`text-[12.5px] font-medium shrink-0 ${

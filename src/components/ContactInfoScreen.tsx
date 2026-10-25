@@ -26,7 +26,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { Chat, UserProfileData } from '../types';
-import { fetchContactProfile, isVideoMediaUrl, formatLastSeen } from '../lib/supabase';
+import { fetchContactProfile, getCachedContactProfile, isVideoMediaUrl, formatLastSeen } from '../lib/supabase';
 import { getMediaFromOfflineCache, saveMediaToOfflineCache } from '../lib/mediaCache';
 import { isOwnerAccount, OWNER_FIXED_ID, isOwnerIdFormat } from '../lib/accountRules';
 
@@ -78,73 +78,62 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
     chat.phoneNumber ||
     chat.id;
 
+  // Strict check: Only true owner accounts get the Owner badge
   const isContactOwner =
     isOwnerAccount({
       email: initialProfile?.email,
       kempoId: initialProfile?.kempoId || chat.kempoId,
     }) ||
     isOwnerIdFormat(chat.kempoId) ||
-    (chat.name && chat.name.toLowerCase().includes('kempo'));
-
-  // Default avatars: NEVER letter placeholders like 'K'
-  const defaultAvatar = isContactOwner
-    ? '/pwa-512x512.png'
-    : 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80';
+    isOwnerIdFormat(initialProfile?.kempoId);
 
   // High performance dynamic default cover matching Settings view
   const defaultCover =
     'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
 
+  // Synchronous cache lookup for 0ms lag-free render
+  const syncCached =
+    initialProfile ||
+    getCachedContactProfile(cleanPartnerId) ||
+    getCachedContactProfile(chat.kempoId) ||
+    getCachedContactProfile(chat.id);
+
+  const [profile, setProfile] = useState<UserProfileData | null>(syncCached || null);
+
   // Instant local cache avatar resolution for 0ms lag
   const [avatarUrl, setAvatarUrl] = useState<string>(() => {
     if (propAvatarUrl) return propAvatarUrl;
-    if (initialProfile?.avatarUrl) return initialProfile.avatarUrl;
+    if (syncCached?.avatarUrl) return syncCached.avatarUrl;
     if (chat.avatarUrl) return chat.avatarUrl;
     if (typeof window !== 'undefined') {
       const cached =
         localStorage.getItem(`kempo_contact_avatar_${chat.id}`) ||
         localStorage.getItem(`kempo_contact_avatar_${cleanPartnerId}`);
       if (cached) return cached;
-      const cachedProfile = localStorage.getItem(`kempo_contact_${cleanPartnerId}`);
-      if (cachedProfile) {
-        try {
-          const parsed = JSON.parse(cachedProfile);
-          if (parsed.avatarUrl) return parsed.avatarUrl;
-        } catch {}
-      }
     }
-    return defaultAvatar;
+    return isContactOwner ? '/pwa-512x512.png' : '';
   });
 
   // Instant local cache cover resolution
   const [coverUrl, setCoverUrl] = useState<string>(() => {
     if (propCoverUrl) return propCoverUrl;
-    if (initialProfile?.coverUrl) return initialProfile.coverUrl;
+    if (syncCached?.coverUrl) return syncCached.coverUrl;
     if (chat.coverUrl) return chat.coverUrl;
     if (typeof window !== 'undefined') {
       const cached =
         localStorage.getItem(`kempo_contact_cover_${chat.id}`) ||
         localStorage.getItem(`kempo_contact_cover_${cleanPartnerId}`);
       if (cached) return cached;
-      const cachedProfile = localStorage.getItem(`kempo_contact_${cleanPartnerId}`);
-      if (cachedProfile) {
-        try {
-          const parsed = JSON.parse(cachedProfile);
-          if (parsed.coverUrl) return parsed.coverUrl;
-        } catch {}
-      }
     }
     return defaultCover;
   });
 
   const [coverType, setCoverType] = useState<'image' | 'video'>(() => {
     if (propCoverType) return propCoverType;
-    if (initialProfile?.coverType) return initialProfile.coverType;
+    if (syncCached?.coverType) return syncCached.coverType;
     if (chat.coverType) return chat.coverType;
     return isVideoMediaUrl(coverUrl) ? 'video' : 'image';
   });
-
-  const [profile, setProfile] = useState<UserProfileData | null>(initialProfile || null);
 
   // Pre-cache media locally from IndexedDB and fetch live profile asynchronously for 60fps zero lag
   useEffect(() => {
@@ -216,9 +205,26 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
       (chat.about?.startsWith('KEMPO ID: ')
         ? chat.about.replace('KEMPO ID: ', '').trim()
         : '') ||
-      (chat.phoneNumber ? `Kempo Pro ${chat.phoneNumber}` : '');
+      (chat.phoneNumber ? `Kempo Pro ${chat.phoneNumber}` : `Kempo Pro ${cleanPartnerId}`);
 
-  const displayName = profile?.displayName || chat.name;
+  // Real registered display name (avoid showing raw ID strings as title)
+  const rawName = profile?.displayName || chat.name || '';
+  const isNameAnId =
+    rawName.toLowerCase().startsWith('kempo pro +') ||
+    rawName.toLowerCase().startsWith('kempo pro') ||
+    rawName.includes('+234') ||
+    rawName === shareableKempoId;
+
+  const displayName =
+    !isNameAnId && rawName.trim()
+      ? rawName.trim()
+      : profile?.displayName && !profile.displayName.toLowerCase().startsWith('kempo pro +')
+      ? profile.displayName
+      : isContactOwner
+      ? 'Precious Ddkid'
+      : 'Kempo Contact';
+
+  const initialLetter = (displayName || 'K').trim().charAt(0).toUpperCase();
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -251,7 +257,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 text-white flex flex-col select-none overflow-hidden animate-in slide-in-from-right duration-200">
+    <div className="fixed inset-0 z-50 bg-[#09090c] text-white flex flex-col select-none overflow-hidden animate-in slide-in-from-right duration-200">
       {/* 1. Full-Height Vertical Stretch for Contact's Cover Media (Live Video or Photo) */}
       <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
         {coverUrl && (isVideoMediaUrl(coverUrl) || coverType === 'video') ? (
@@ -280,7 +286,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
           />
         )}
         {/* Subtle translucent vignette mirroring Settings view so the media is completely visible */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/60 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/20 to-black/70 pointer-events-none" />
       </div>
 
       {/* Toast Notification */}
@@ -317,17 +323,28 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
       <div className="relative z-10 flex-1 overflow-y-auto max-w-lg mx-auto w-full px-4 py-4 space-y-4 pb-28">
         {/* 1. Top Profile Section & Quick Actions (Direct Glass Overlay) */}
         <div className="flex flex-col items-center text-center pt-2">
-          {/* Centered Circular Avatar with Signature Red Ring (Guaranteed Real Photo - Never Placeholder 'K') */}
-          <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600/90 shadow-2xl shadow-black/90 bg-black/40 flex items-center justify-center relative">
-            <img
-              src={avatarUrl || defaultAvatar}
-              alt={displayName}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                // If remote photo fails to load, gracefully fall back to official Kempo crest or user avatar
-                (e.currentTarget as HTMLImageElement).src = defaultAvatar;
-              }}
-            />
+          {/* Centered Circular Avatar with Signature Red Ring */}
+          <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600/90 shadow-2xl shadow-black/90 bg-black/50 flex items-center justify-center relative">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={displayName}
+                className="w-full h-full object-cover"
+                onError={() => {
+                  setAvatarUrl('');
+                }}
+              />
+            ) : isContactOwner ? (
+              <img
+                src="/pwa-512x512.png"
+                alt="Kempo Pro Owner"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full rounded-full bg-gradient-to-br from-red-600 via-red-800 to-red-950 flex items-center justify-center text-white font-black text-4xl shadow-inner select-none drop-shadow">
+                {initialLetter}
+              </div>
+            )}
             {effectiveIsOnline && (
               <span className="absolute bottom-1 right-2 w-4 h-4 rounded-full bg-emerald-500 ring-2 ring-black">
                 <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
@@ -335,12 +352,12 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
             )}
           </div>
 
-          {/* Contact Display Name */}
+          {/* Contact Display Name (Real Registered Account Name) */}
           <h2 className="text-2xl font-black text-white tracking-tight mt-3 drop-shadow-[0_2px_8px_rgba(0,0,0,1)]">
             {displayName}
           </h2>
 
-          {/* Permanent Kempo Pro ID Badge with One-Tap Copy (Mirroring Settings View) */}
+          {/* Permanent Kempo Pro ID Badge with One-Tap Copy */}
           <div
             onClick={handleCopyId}
             className="mt-2 inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-black/50 hover:bg-black/70 border border-white/20 shadow-xl drop-shadow cursor-pointer active:scale-95 transition group"

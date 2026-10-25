@@ -737,7 +737,10 @@ export default function App() {
     // Query Supabase for user profile by unique permanent ID or Owner ID
     const foundProfile = await findUserByKempoId(cleanId);
 
-    const contactName = foundProfile?.displayName || (isTargetOwner ? 'Precious Ddkid' : `User (${cleanId})`);
+    let contactName = foundProfile?.displayName;
+    if (!contactName || contactName.toLowerCase().startsWith('kempo pro +') || contactName === cleanId) {
+      contactName = isTargetOwner ? 'Precious Ddkid' : 'Kempo Contact';
+    }
     const contactAvatar = foundProfile?.avatarUrl || '';
     const contactKempoId = foundProfile?.kempoId || (isTargetOwner ? OWNER_FIXED_ID : cleanId);
     const contactAbout = `KEMPO ID: ${contactKempoId}`;
@@ -842,7 +845,7 @@ export default function App() {
         const newChat: Chat = {
           id: `user-${senderKempoId}`,
           kempoId: senderKempoId,
-          name: dm.senderName || `User (${senderKempoId})`,
+          name: dm.senderName && !dm.senderName.toLowerCase().startsWith('kempo pro +') ? dm.senderName : 'Kempo Contact',
           avatarUrl: dm.senderAvatar || '',
           avatarBg: '#251a24',
           avatarType: dm.senderAvatar ? 'photo' : 'initials',
@@ -1227,7 +1230,7 @@ export default function App() {
       const found = await findUserByKempoId(cleanId);
       const newContact: Chat = {
         id: `c-${found?.id || Date.now()}`,
-        name: found?.displayName || `User (${cleanId})`,
+        name: found?.displayName && !found.displayName.toLowerCase().startsWith('kempo pro +') ? found.displayName : 'Kempo Contact',
         kempoId: cleanId,
         phoneNumber: cleanId,
         avatarUrl: found?.avatarUrl || '',

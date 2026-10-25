@@ -15,9 +15,6 @@ export const OWNER_ADMIN_ID = 'Kempo Pro ADMIN';
 export const OWNER_RECOGNIZED_IDS = [
   'kempo pro owner',
   'kempo pro admin',
-  'kempo pro',
-  'owner',
-  'admin',
 ];
 
 /**
@@ -30,7 +27,7 @@ export function isOwnerEmail(email?: string | null): boolean {
 }
 
 /**
- * Check if an ID string matches the dedicated Owner or Admin format
+ * Check if an ID string matches the dedicated Owner or Admin format strictly
  */
 export function isOwnerIdFormat(id?: string | null): boolean {
   if (!id) return false;
@@ -39,8 +36,8 @@ export function isOwnerIdFormat(id?: string | null): boolean {
     OWNER_RECOGNIZED_IDS.includes(clean) ||
     clean === OWNER_FIXED_ID.toLowerCase() ||
     clean === OWNER_ADMIN_ID.toLowerCase() ||
-    clean.includes('kempo pro owner') ||
-    clean.includes('kempo pro admin')
+    clean === 'kempo pro owner' ||
+    clean === 'kempo pro admin'
   );
 }
 
@@ -49,11 +46,11 @@ export function isOwnerIdFormat(id?: string | null): boolean {
  */
 export function isOwnerAccount(profile?: { email?: string; kempoId?: string; isAdmin?: boolean } | null): boolean {
   if (!profile) return false;
-  if (profile.isAdmin) return true;
   if (isOwnerEmail(profile.email)) return true;
   if (profile.kempoId && isOwnerIdFormat(profile.kempoId)) {
     return true;
   }
+  if (profile.isAdmin && isOwnerEmail(profile.email)) return true;
   return false;
 }
 
