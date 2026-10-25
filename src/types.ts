@@ -38,6 +38,7 @@ export interface Chat {
   coverType?: 'image' | 'video';
   about?: string;
   phoneNumber?: string;
+  email?: string;
   messages: Message[];
 }
 

@@ -461,12 +461,13 @@ export class KempoRealtimeService {
     });
   }
 
-  // 3. Subscribe to real-time chat room messages and read receipts
+  // 3. Subscribe to real-time chat room messages, read receipts, and typing indicators
   subscribeToChatRoom(
     myId: string,
     partnerId: string,
     onMessage: (msg: Message) => void,
-    onReadReceipt: (readerId: string) => void
+    onReadReceipt: (readerId: string) => void,
+    onTyping?: (isTyping: boolean) => void
   ) {
     const channelName = this.getRoomChannelName(myId, partnerId);
     const cleanMyId = this.normalizeId(myId);
@@ -499,6 +500,12 @@ export class KempoRealtimeService {
           onReadReceipt(payload.readerId);
         }
       })
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (payload && this.normalizeId(payload.senderId) !== cleanMyId) {
+          this.markUserActive(partnerId);
+          onTyping?.(Boolean(payload.isTyping));
+        }
+      })
       .on('broadcast', { event: 'heartbeat' }, ({ payload }) => {
         if (payload && this.normalizeId(payload.senderId) !== cleanMyId) {
           this.markUserActive(partnerId);
@@ -527,6 +534,19 @@ export class KempoRealtimeService {
       } catch {}
       this.activeChannels.delete(channelName);
     };
+  }
+
+  // Send typing indicator over room channel
+  sendTyping(myId: string, partnerId: string, isTyping: boolean) {
+    const channelName = this.getRoomChannelName(myId, partnerId);
+    const channel = this.activeChannels.get(channelName);
+    if (channel) {
+      channel.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { senderId: myId, isTyping, timestamp: new Date().toISOString() },
+      });
+    }
   }
 
   // Send a message over both Supabase Postgres Table and Realtime Channels

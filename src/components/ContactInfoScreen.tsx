@@ -28,7 +28,7 @@ import {
 import { Chat, UserProfileData } from '../types';
 import { fetchContactProfile, getCachedContactProfile, isVideoMediaUrl, formatLastSeen } from '../lib/supabase';
 import { getMediaFromOfflineCache, saveMediaToOfflineCache } from '../lib/mediaCache';
-import { isOwnerAccount, OWNER_FIXED_ID, isOwnerIdFormat } from '../lib/accountRules';
+import { isOwnerAccount, OWNER_FIXED_ID, isOwnerIdFormat, isOwnerEmail } from '../lib/accountRules';
 
 interface ContactInfoScreenProps {
   chat: Chat;
@@ -79,13 +79,10 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
     chat.id;
 
   // Strict check: Only true owner accounts get the Owner badge
-  const isContactOwner =
-    isOwnerAccount({
-      email: initialProfile?.email,
-      kempoId: initialProfile?.kempoId || chat.kempoId,
-    }) ||
-    isOwnerIdFormat(chat.kempoId) ||
-    isOwnerIdFormat(initialProfile?.kempoId);
+  const isContactOwner = Boolean(
+    (initialProfile?.email && isOwnerEmail(initialProfile.email)) ||
+    (chat.email && isOwnerEmail(chat.email))
+  );
 
   // High performance dynamic default cover matching Settings view
   const defaultCover =

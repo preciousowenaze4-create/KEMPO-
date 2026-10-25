@@ -26,8 +26,8 @@ import { ContactInfoScreen } from './ContactInfoScreen';
 import { realtimeService } from '../lib/realtimeService';
 import { compressImage, saveLocalMedia } from '../lib/mediaStorage';
 import { offlineQueue } from '../lib/offlineQueue';
-import { uploadChatMediaToSupabase, fetchContactProfile, formatLastSeen, isVideoMediaUrl } from '../lib/supabase';
-import { isOwnerIdFormat, isOwnerAccount } from '../lib/accountRules';
+import { uploadChatMediaToSupabase, fetchContactProfile, formatLastSeen, isVideoMediaUrl, fetchSupabaseMessages } from '../lib/supabase';
+import { isOwnerIdFormat, isOwnerAccount, isOwnerEmail } from '../lib/accountRules';
 
 interface ChatRoomProps {
   chat: Chat;
@@ -82,6 +82,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const typingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -99,10 +100,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   // Partner ID for real-time signaling & profile lookups
   const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
 
-  const isContactOwner =
-    isOwnerIdFormat(chat.kempoId) ||
-    isOwnerIdFormat(contactProfile?.kempoId) ||
-    (contactProfile?.email && isOwnerAccount({ email: contactProfile.email, kempoId: contactProfile.kempoId }));
+  // STRICT owner check: Only true verified owner email is owner
+  const isContactOwner = Boolean(
+    (contactProfile?.email && isOwnerEmail(contactProfile.email)) ||
+    (chat.email && isOwnerEmail(chat.email))
+  );
 
   const defaultCover =
     'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
@@ -175,13 +177,35 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     };
   }, [chat.id, chat.kempoId, chat.phoneNumber, chat.name]);
 
-  // Subscribe to real-time chat messages and read receipts between both participants
+  // Subscribe to real-time chat messages, read receipts, and typing indicators
   useEffect(() => {
     if (!chat.id) return;
+    let isMounted = true;
 
     // Notify that we have opened and read this chat
     onMarkRead?.(chat.id);
     realtimeService.sendReadReceipt(myId, partnerId);
+
+    // Fetch existing real message history between participants from Supabase
+    fetchSupabaseMessages(myId, partnerId).then((history) => {
+      if (!isMounted || !history || history.length === 0) return;
+      // Merge any messages that aren't already present in chat.messages
+      const existingIds = new Set((chat.messages || []).map((m) => m.id));
+      history.forEach((msg) => {
+        if (!existingIds.has(msg.id)) {
+          onSendMessage(
+            chat.id,
+            msg.text || '',
+            msg.mediaType,
+            msg.mediaUrl,
+            msg.senderId,
+            msg.timestamp,
+            msg.id,
+            msg.status as any
+          );
+        }
+      });
+    });
 
     const unsub = realtimeService.subscribeToChatRoom(
       myId,
@@ -193,19 +217,38 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           incomingMsg.mediaType,
           incomingMsg.mediaUrl,
           incomingMsg.senderId,
-          incomingMsg.timestamp
+          incomingMsg.timestamp,
+          incomingMsg.id,
+          incomingMsg.status as any
         );
       },
       () => {
         // Partner has seen our messages -> turns ticks to double blue mark!
         onMarkRead?.(chat.id);
+      },
+      (partnerIsTyping) => {
+        setIsTyping(partnerIsTyping);
       }
     );
 
     return () => {
+      isMounted = false;
       unsub();
     };
-  }, [chat.id, myId]);
+  }, [chat.id, myId, partnerId]);
+
+  // Handle typing change in input
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+
+    // Broadcast typing signal
+    realtimeService.sendTyping(myId, partnerId, true);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      realtimeService.sendTyping(myId, partnerId, false);
+    }, 2000);
+  };
 
   // Handle Text Message Send
   const handleSend = () => {
@@ -214,8 +257,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     setInputText('');
     setShowAttachMenu(false);
 
-    const partnerId =
-      chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    realtimeService.sendTyping(myId, partnerId, false);
+
     const now = new Date();
     let hours = now.getHours();
     const minutes = now.getMinutes().toString().padStart(2, '0');
@@ -777,7 +821,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               <input
                 type="text"
                 value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 placeholder="Message"
                 className="w-full bg-transparent text-[15px] text-white placeholder-neutral-400 focus:outline-none"

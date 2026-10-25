@@ -119,22 +119,12 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
             <form onSubmit={handleConnectById} className="p-3 bg-[#18181c] rounded-xl my-2 space-y-2 border border-red-900/50">
               <input
                 type="text"
-                placeholder="e.g. Kempo Pro OWNER or Kempo Pro +234 9B7K24"
+                placeholder="Enter user's Kempo ID, phone, or email"
                 value={targetId}
                 onChange={(e) => setTargetId(e.target.value)}
                 required
-                className="w-full px-3 py-2 rounded-lg bg-[#222228] text-white text-sm font-mono focus:outline-none focus:ring-1 focus:ring-red-500"
+                className="w-full px-3 py-2 rounded-lg bg-[#222228] text-white text-sm focus:outline-none focus:ring-1 focus:ring-red-500"
               />
-              <div className="flex items-center gap-1.5 pt-0.5">
-                <span className="text-[11px] text-neutral-400">Quick connect:</span>
-                <button
-                  type="button"
-                  onClick={() => setTargetId('Kempo Pro OWNER')}
-                  className="px-2 py-0.5 rounded-md bg-red-950/60 hover:bg-red-900/80 border border-red-600/40 text-[11px] font-mono font-bold text-red-300 transition cursor-pointer"
-                >
-                  Kempo Pro OWNER
-                </button>
-              </div>
               {idFeedback && (
                 <div className="text-xs text-red-400 flex items-center gap-1.5 py-1">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />

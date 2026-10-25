@@ -50,6 +50,8 @@ import {
   DEFAULT_PREFERENCES,
   generateKempoId,
   getOrCreatePermanentKempoId,
+  fetchSupabaseMessages,
+  fetchUserRealChatsFromSupabase,
 } from './lib/supabase';
 import {
   INITIAL_CHATS,
@@ -187,7 +189,17 @@ export default function App() {
         const saved = localStorage.getItem('kempo_user_chats');
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) return parsed;
+          if (Array.isArray(parsed)) {
+            // Strictly exclude any legacy dummy chats or placeholder mock messages
+            const cleanChats = parsed.filter(
+              (c: any) =>
+                c.id !== 'kempo-owner-account' &&
+                !c.lastMessage?.includes('Connected with Kempo Pro Creator') &&
+                !c.lastMessage?.includes('Tap to chat')
+            );
+            localStorage.setItem('kempo_user_chats', JSON.stringify(cleanChats));
+            return cleanChats;
+          }
         }
       } catch (e) {
         console.error(e);
@@ -708,65 +720,62 @@ export default function App() {
     const cleanId = targetId.trim();
     if (!cleanId) return null;
 
-    const isTargetOwner = isOwnerIdFormat(cleanId);
-    const lookupId = isTargetOwner ? OWNER_FIXED_ID : cleanId;
-
     // Check if user already exists in current chats list
-    const existing = chats.find((c) => {
-      if (isTargetOwner) {
-        return (
-          isOwnerIdFormat(c.kempoId) ||
-          c.name.toLowerCase().includes('precious') ||
-          (c.about && isOwnerIdFormat(c.about.replace('KEMPO ID: ', '')))
-        );
-      }
-      return (
+    const existing = chats.find(
+      (c) =>
         (c.kempoId && c.kempoId.toUpperCase() === cleanId.toUpperCase()) ||
         (c.kempoId && c.kempoId.replace(/\s+/g, '').toUpperCase() === cleanId.replace(/\s+/g, '').toUpperCase()) ||
         (c.about && c.about.toUpperCase().includes(cleanId.toUpperCase())) ||
+        (c.email && c.email.toLowerCase() === cleanId.toLowerCase()) ||
         c.name.toUpperCase() === cleanId.toUpperCase() ||
         c.id === `user-${cleanId}`
-      );
-    });
+    );
 
     if (existing) {
       setSelectedChat(existing);
       return existing;
     }
 
-    // Query Supabase for user profile by unique permanent ID or Owner ID
+    // Query Supabase for real user profile by ID, phone, or email
     const foundProfile = await findUserByKempoId(cleanId);
-
-    let contactName = foundProfile?.displayName;
-    if (!contactName || contactName.toLowerCase().startsWith('kempo pro +') || contactName === cleanId) {
-      contactName = isTargetOwner ? 'Precious Ddkid' : 'Kempo Contact';
+    if (!foundProfile) {
+      return null;
     }
-    const contactAvatar = foundProfile?.avatarUrl || '';
-    const contactKempoId = foundProfile?.kempoId || (isTargetOwner ? OWNER_FIXED_ID : cleanId);
-    const contactAbout = `KEMPO ID: ${contactKempoId}`;
+
+    const isContactOwner = isOwnerEmail(foundProfile.email);
+    const contactKempoId = isContactOwner ? OWNER_FIXED_ID : (foundProfile.kempoId || cleanId);
+    let contactName = foundProfile.displayName;
+    if (!contactName || contactName.toLowerCase().startsWith('kempo pro +') || contactName === cleanId) {
+      contactName = isContactOwner ? 'Precious Ddkid' : 'Kempo Contact';
+    }
+    const contactAvatar = foundProfile.avatarUrl || (isContactOwner ? '/pwa-512x512.png' : '');
+
+    // Fetch any real message history between the current user and this contact
+    const myKempoId = userProfile?.kempoId || 'me';
+    const pastMessages = await fetchSupabaseMessages(myKempoId, contactKempoId);
+    const lastMsg = pastMessages[pastMessages.length - 1];
 
     const newChat: Chat = {
-      id: foundProfile?.id || (isTargetOwner ? 'kempo-owner-account' : `user-${cleanId.replace(/\s+/g, '_')}`),
+      id: foundProfile.id || `user-${contactKempoId.replace(/\s+/g, '_')}`,
       kempoId: contactKempoId,
+      email: foundProfile.email,
       name: contactName,
       avatarUrl: contactAvatar,
-      avatarBg: isTargetOwner ? '#451a24' : '#251a24',
+      avatarBg: isContactOwner ? '#451a24' : '#251a24',
       avatarType: contactAvatar ? 'photo' : 'initials',
-      timestamp: 'Just now',
-      lastMessage: isTargetOwner
-        ? 'Connected with Kempo Pro Creator! Tap to chat.'
-        : 'Connected on KEMPO PRo! Tap to chat.',
-      lastMessageStatus: 'none',
+      timestamp: lastMsg?.timestamp || 'Just now',
+      lastMessage: lastMsg?.text || (lastMsg?.mediaType === 'audio' ? '🎤 Voice message' : ''),
+      lastMessageStatus: (lastMsg?.status as any) || 'none',
       unreadCount: 0,
-      online: true,
-      about: contactAbout,
-      phoneNumber: foundProfile?.phoneNumber || cleanId,
-      coverUrl: foundProfile?.coverUrl,
-      coverType: foundProfile?.coverType,
-      messages: [],
+      online: realtimeService.isUserOnline(contactKempoId),
+      about: `KEMPO ID: ${contactKempoId}`,
+      phoneNumber: foundProfile.phoneNumber || cleanId,
+      coverUrl: foundProfile.coverUrl,
+      coverType: foundProfile.coverType,
+      messages: pastMessages,
     };
 
-    setChats((prev) => [newChat, ...prev]);
+    setChats((prev) => [newChat, ...prev.filter((c) => c.id !== newChat.id && c.kempoId !== newChat.kempoId)]);
     setSelectedChat(newChat);
     syncChatToSupabase(newChat);
     return newChat;
@@ -1156,8 +1165,73 @@ export default function App() {
       }
     );
 
+    // Real-time Supabase postgres_changes listener on messages table
+    const unsubPostgres = realtimeService.subscribeToPostgresMessages(
+      myId,
+      (msg, senderId, receiverId) => {
+        handleIncomingDirectMessage({
+          message: msg,
+          senderKempoId: senderId,
+          senderName: senderId,
+          recipientKempoId: receiverId,
+        });
+      },
+      (messageId, status) => {
+        setChats((prev) =>
+          prev.map((c) => ({
+            ...c,
+            lastMessageStatus:
+              c.messages[c.messages.length - 1]?.id === messageId
+                ? status === 'read'
+                  ? 'double_tick_blue'
+                  : 'double_tick_grey'
+                : c.lastMessageStatus,
+            messages: c.messages.map((m) =>
+              m.id === messageId ? { ...m, status } : m
+            ),
+          }))
+        );
+        setSelectedChat((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            lastMessageStatus:
+              prev.messages[prev.messages.length - 1]?.id === messageId
+                ? status === 'read'
+                  ? 'double_tick_blue'
+                  : 'double_tick_grey'
+                : prev.lastMessageStatus,
+            messages: prev.messages.map((m) =>
+              m.id === messageId ? { ...m, status } : m
+            ),
+          };
+        });
+      }
+    );
+
+    // Sync real Supabase chat conversations on login / connect
+    if (userProfile?.kempoId) {
+      fetchUserRealChatsFromSupabase(userProfile.kempoId).then((realChats) => {
+        if (realChats && realChats.length > 0) {
+          setChats((prevChats) => {
+            const existingKempoIds = new Set(
+              prevChats.map((c) => (c.kempoId || '').toUpperCase())
+            );
+            const toAdd = realChats.filter(
+              (rc) => !existingKempoIds.has((rc.kempoId || '').toUpperCase())
+            );
+            if (toAdd.length === 0) return prevChats;
+            const merged = [...prevChats, ...toAdd];
+            localStorage.setItem('kempo_user_chats', JSON.stringify(merged));
+            return merged;
+          });
+        }
+      });
+    }
+
     return () => {
       unsubPresence();
+      unsubPostgres();
     };
   }, [userProfile?.kempoId, currentUserName, selectedChat, activeCallingChat, isVideoCall, chats]);
 

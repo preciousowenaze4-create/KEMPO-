@@ -9,7 +9,7 @@ import {
   Archive,
 } from 'lucide-react';
 import { Chat } from '../types';
-import { isOwnerIdFormat } from '../lib/accountRules';
+import { isOwnerIdFormat, isOwnerEmail } from '../lib/accountRules';
 
 interface ChatListItemProps {
   chat: Chat;
@@ -32,11 +32,8 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
   const startX = useRef(0);
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // Check if contact is official owner
-  const isOwner =
-    isOwnerIdFormat(chat.kempoId) ||
-    (chat.kempoId && chat.kempoId.toLowerCase() === 'kempo pro owner') ||
-    chat.id === 'kempo-owner-account';
+  // Check if contact is strictly the official owner email
+  const isOwner = Boolean(chat.email && isOwnerEmail(chat.email));
 
   // Format real registered display name (avoid showing raw ID strings as title)
   const rawName = chat.name || '';
@@ -49,7 +46,7 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
       ? rawName.trim()
       : isOwner
       ? 'Precious Ddkid'
-      : 'Kempo Contact';
+      : (rawName.trim() || 'Kempo Contact');
 
   const initialLetter = (displayTitle || 'K').charAt(0).toUpperCase();
 

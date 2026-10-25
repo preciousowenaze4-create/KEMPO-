@@ -3,10 +3,8 @@
  * Enforces owner identification, dedicated owner ID formatting, and unique permanent standard user IDs.
  */
 
-export const OWNER_EMAILS = [
-  'preciousowenaze4@gmail.com',
-  'preciousddkid@gmail.com',
-];
+export const OFFICIAL_OWNER_EMAIL = 'preciousowenaze4@gmail.com';
+export const OWNER_EMAILS = [OFFICIAL_OWNER_EMAIL];
 
 // Dedicated Owner ID format requested: Prefix "Kempo Pro", Role Tag "OWNER"
 export const OWNER_FIXED_ID = 'Kempo Pro OWNER';
@@ -18,12 +16,12 @@ export const OWNER_RECOGNIZED_IDS = [
 ];
 
 /**
- * Check if the given email corresponds to the application owner (case-insensitive)
+ * Check if the given email corresponds to the single official application owner (case-insensitive)
  */
 export function isOwnerEmail(email?: string | null): boolean {
   if (!email) return false;
   const clean = email.trim().toLowerCase();
-  return OWNER_EMAILS.some((ownerEmail) => ownerEmail.toLowerCase() === clean);
+  return clean === OFFICIAL_OWNER_EMAIL.toLowerCase();
 }
 
 /**
@@ -33,25 +31,20 @@ export function isOwnerIdFormat(id?: string | null): boolean {
   if (!id) return false;
   const clean = id.trim().toLowerCase();
   return (
-    OWNER_RECOGNIZED_IDS.includes(clean) ||
-    clean === OWNER_FIXED_ID.toLowerCase() ||
-    clean === OWNER_ADMIN_ID.toLowerCase() ||
     clean === 'kempo pro owner' ||
-    clean === 'kempo pro admin'
+    clean === 'kempo pro admin' ||
+    clean === OWNER_FIXED_ID.toLowerCase() ||
+    clean === OWNER_ADMIN_ID.toLowerCase()
   );
 }
 
 /**
- * Check if a profile or ID belongs to the application owner
+ * Check if a profile belongs to the application owner.
+ * STRICT: Only accounts with the verified official owner email are granted owner privileges!
  */
 export function isOwnerAccount(profile?: { email?: string; kempoId?: string; isAdmin?: boolean } | null): boolean {
-  if (!profile) return false;
-  if (isOwnerEmail(profile.email)) return true;
-  if (profile.kempoId && isOwnerIdFormat(profile.kempoId)) {
-    return true;
-  }
-  if (profile.isAdmin && isOwnerEmail(profile.email)) return true;
-  return false;
+  if (!profile || !profile.email) return false;
+  return isOwnerEmail(profile.email);
 }
 
 /**
