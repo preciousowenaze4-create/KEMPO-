@@ -8,7 +8,7 @@ interface NewChatModalProps {
   contacts: Chat[];
   onSelectContact: (chat: Chat) => void;
   onAddNewContact: (name: string, phone: string) => void;
-  onAddContactById?: (kempoId: string) => Promise<Chat | null>;
+  onAddContactById?: (kempoId: string, customName?: string) => Promise<Chat | null>;
 }
 
 export const NewChatModal: React.FC<NewChatModalProps> = ({
@@ -25,6 +25,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [targetId, setTargetId] = useState('');
+  const [targetName, setTargetName] = useState('');
   const [isSearchingId, setIsSearchingId] = useState(false);
   const [idFeedback, setIdFeedback] = useState<string | null>(null);
 
@@ -52,7 +53,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     setIdFeedback(null);
 
     try {
-      const foundChat = await onAddContactById(targetId.trim());
+      const foundChat = await onAddContactById(targetId.trim(), targetName.trim());
       if (foundChat) {
         onSelectContact(foundChat);
         onClose();
@@ -117,6 +118,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
           {/* Form: Add by ID */}
           {showIdForm && (
             <form onSubmit={handleConnectById} className="p-3 bg-[#18181c] rounded-xl my-2 space-y-2 border border-red-900/50">
+              <input
+                type="text"
+                placeholder="Contact name (e.g. Precious Owenaze) - optional"
+                value={targetName}
+                onChange={(e) => setTargetName(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-[#222228] text-white text-sm focus:outline-none focus:ring-1 focus:ring-red-500"
+              />
               <input
                 type="text"
                 placeholder="Enter user's Kempo ID, phone, or email"

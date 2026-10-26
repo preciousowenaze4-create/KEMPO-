@@ -45,6 +45,7 @@ interface ContactInfoScreenProps {
   onClearChat?: (chatId: string) => void;
   onBlockContact?: (chatId: string) => void;
   onReportContact?: (chatId: string) => void;
+  onUpdateContactName?: (chatId: string, newName: string) => void;
 }
 
 export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
@@ -61,6 +62,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
   onClearChat,
   onBlockContact,
   onReportContact,
+  onUpdateContactName,
 }) => {
   const [isLocked, setIsLocked] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -72,6 +74,8 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
   const [showReportConfirm, setShowReportConfirm] = useState(false);
   const [showEncryptionModal, setShowEncryptionModal] = useState(false);
   const [showFullPicture, setShowFullPicture] = useState(false);
+  const [showEditNameModal, setShowEditNameModal] = useState(false);
+  const [editedNameInput, setEditedNameInput] = useState('');
 
   // Derive unique contact identifier
   const cleanPartnerId =
@@ -209,31 +213,70 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
   const shareableKempoId = formatDisplayKempoId(rawShareableKempoId);
 
   // Real registered display name (avoid showing raw ID strings as title or fake 'Kempo Contact')
-  const rawName = profile?.displayName || chat.name || '';
+  const [customName, setCustomName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return (
+        localStorage.getItem(`kempo_contact_name_${cleanPartnerId}`) ||
+        localStorage.getItem(`kempo_contact_name_${chat.id}`) ||
+        ''
+      );
+    }
+    return '';
+  });
+
+  const rawName = customName || profile?.displayName || chat.name || '';
   const isNameAnId = isRawIdString(rawName) || rawName === shareableKempoId || rawName === rawShareableKempoId;
 
-  const resolvedLocalName = typeof window !== 'undefined'
-    ? localStorage.getItem(`kempo_contact_name_${cleanPartnerId}`) || localStorage.getItem(`kempo_contact_name_${chat.id}`)
-    : null;
+  const registeredUser = typeof window !== 'undefined' ? (() => {
+    try {
+      const raw = localStorage.getItem('kempo_registered_users');
+      if (raw) {
+        const users = JSON.parse(raw);
+        return users.find((u: any) =>
+          (cleanPartnerId && u.kempoId && u.kempoId.toUpperCase() === cleanPartnerId.toUpperCase()) ||
+          (cleanPartnerId && u.id === cleanPartnerId) ||
+          (profile?.email && u.email && u.email.toLowerCase() === profile.email.toLowerCase()) ||
+          (chat.email && u.email && u.email.toLowerCase() === chat.email.toLowerCase())
+        );
+      }
+    } catch {}
+    return null;
+  })() : null;
 
   const displayName =
-    !isNameAnId && rawName.trim() && rawName !== 'Kempo Contact' && rawName !== 'Contact'
+    customName.trim()
+      ? customName.trim()
+      : !isNameAnId && rawName.trim() && rawName !== 'Kempo Contact' && rawName !== 'Contact'
       ? rawName.trim()
       : profile?.displayName && !isRawIdString(profile.displayName) && profile.displayName !== 'Kempo Contact'
       ? profile.displayName
-      : resolvedLocalName && !isRawIdString(resolvedLocalName) && resolvedLocalName !== 'Kempo Contact'
-      ? resolvedLocalName
+      : registeredUser?.displayName && !isRawIdString(registeredUser.displayName)
+      ? registeredUser.displayName
       : isContactOwner
       ? 'Precious Ddkid'
-      : (profile?.email || chat.email)
-      ? formatNameFromEmail(profile?.email || chat.email)
-      : formatDisplayKempoId(cleanPartnerId || shareableKempoId);
+      : (profile?.email || chat.email || registeredUser?.email)
+      ? formatNameFromEmail(profile?.email || chat.email || registeredUser?.email)
+      : 'Precious Owenaze';
 
   const initialLetter = (displayName || 'K').trim().charAt(0).toUpperCase();
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 2500);
+  };
+
+  const handleSaveEditedName = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = editedNameInput.trim();
+    if (!clean) return;
+    setCustomName(clean);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`kempo_contact_name_${cleanPartnerId}`, clean);
+      localStorage.setItem(`kempo_contact_name_${chat.id}`, clean);
+    }
+    onUpdateContactName?.(chat.id, clean);
+    setShowEditNameModal(false);
+    showToast('Contact name updated');
   };
 
   const handleCopyId = () => {
@@ -263,42 +306,30 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-[#09090c] text-white flex flex-col select-none overflow-hidden animate-in slide-in-from-right duration-200">
-      {/* 1. Full-Height Vertical Stretch for Contact's Cover Media (Live Video or Photo) */}
+      {/* 1. Full-Height Vertical Stretch for Contact's Setting Wallpaper (Live Video or Photo) */}
       <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        {/* Persistent base wallpaper so it NEVER shows black on iOS low power mode */}
-        <img
-          src={
-            coverUrl && !isVideoMediaUrl(coverUrl) && coverType !== 'video'
-              ? coverUrl
-              : 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&auto=format&fit=crop&q=80'
-          }
-          alt="Cover Wallpaper Backdrop"
-          className="w-full h-full object-cover absolute inset-0"
-        />
-
-        {coverUrl && (isVideoMediaUrl(coverUrl) || coverType === 'video') ? (
-          <video
-            src={coverUrl}
-            autoPlay
-            loop
-            muted
-            playsInline
-            poster="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&auto=format&fit=crop&q=80"
-            className="w-full h-full object-cover relative z-1"
-          />
-        ) : !coverUrl ? (
-          <video
-            src={defaultCover}
-            autoPlay
-            loop
-            muted
-            playsInline
-            poster="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&auto=format&fit=crop&q=80"
-            className="w-full h-full object-cover relative z-1"
-          />
-        ) : null}
+        {coverUrl ? (
+          isVideoMediaUrl(coverUrl) || coverType === 'video' ? (
+            <video
+              src={coverUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <img
+              src={coverUrl}
+              alt="Contact Setting Wallpaper"
+              className="w-full h-full object-cover"
+            />
+          )
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-[#0c0c10] via-[#15151c] to-[#0a0a0d]" />
+        )}
         {/* Subtle translucent vignette mirroring Settings view so the media is completely visible */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/60 pointer-events-none z-2" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/60 pointer-events-none" />
       </div>
 
       {/* Toast Notification */}
@@ -323,8 +354,11 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
 
         <div className="w-12 flex justify-end">
           <button
-            onClick={() => showToast('Contact is synced via Kempo Pro')}
-            className="text-red-500 hover:text-red-400 text-sm font-semibold cursor-pointer drop-shadow-[0_1px_3px_rgba(0,0,0,1)]"
+            onClick={() => {
+              setEditedNameInput(displayName);
+              setShowEditNameModal(true);
+            }}
+            className="text-red-500 hover:text-red-400 text-sm font-semibold cursor-pointer drop-shadow-[0_1px_3px_rgba(0,0,0,1)] active:scale-95 transition"
           >
             Edit
           </button>
@@ -335,11 +369,11 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
       <div className="relative z-10 flex-1 overflow-y-auto max-w-lg mx-auto w-full px-4 py-4 space-y-4 pb-28">
         {/* 1. Top Profile Section & Quick Actions (Direct Glass Overlay) */}
         <div className="flex flex-col items-center text-center pt-2">
-          {/* Centered Circular Avatar with Signature Red Ring */}
+          {/* Centered Circular Avatar matching Settings view */}
           <div
             onClick={() => setShowFullPicture(true)}
             title="Tap to view full picture"
-            className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600/90 shadow-2xl shadow-black/90 bg-black/40 flex items-center justify-center relative cursor-pointer active:scale-95 transition hover:brightness-110"
+            className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-black/40 border border-white/10 shadow-2xl shadow-black/90 flex items-center justify-center relative cursor-pointer active:scale-95 transition hover:brightness-110"
           >
             {avatarUrl ? (
               <img
@@ -923,6 +957,61 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
           </div>
           <div className="text-xs text-neutral-400 font-mono pb-4">
             {shareableKempoId}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Contact Name Modal (WhatsApp style) */}
+      {showEditNameModal && (
+        <div
+          className="fixed inset-0 z-70 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in select-none"
+          onClick={() => setShowEditNameModal(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-[#18181c] border border-white/10 rounded-2xl p-5 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white">Edit Contact Name</h3>
+              <button
+                type="button"
+                onClick={() => setShowEditNameModal(false)}
+                className="text-neutral-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEditedName} className="space-y-4">
+              <div>
+                <label className="text-xs text-neutral-400 font-medium block mb-1.5">
+                  Contact Name
+                </label>
+                <input
+                  type="text"
+                  value={editedNameInput}
+                  onChange={(e) => setEditedNameInput(e.target.value)}
+                  placeholder="Enter name (e.g. Precious Owenaze)"
+                  autoFocus
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#222228] border border-neutral-700 text-white text-sm focus:outline-none focus:border-red-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowEditNameModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-400 hover:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!editedNameInput.trim()}
+                  className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold shadow-lg shadow-red-950 cursor-pointer active:scale-95 transition"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

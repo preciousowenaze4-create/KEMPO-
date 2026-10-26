@@ -204,7 +204,7 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
                 loading="lazy"
               />
             ) : (
-              <div className="w-full h-full rounded-full bg-gradient-to-br from-red-600 via-red-800 to-red-950 flex items-center justify-center text-white font-bold text-base select-none shadow-inner">
+              <div className="w-full h-full rounded-full bg-neutral-800 border border-neutral-700/60 flex items-center justify-center text-white font-bold text-base select-none shadow-inner">
                 {initialLetter}
               </div>
             )}

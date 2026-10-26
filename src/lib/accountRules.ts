@@ -85,6 +85,30 @@ export function isRawIdString(val?: string | null): boolean {
 }
 
 /**
+ * Extract canonical alphanumeric identifier for consistent routing across devices & channel subscriptions
+ * E.g. "Kempo Pro +234 81889P" -> "23481889P"
+ * E.g. "+234KEMPO-81889P" -> "23481889P"
+ * E.g. "+234 81889P" -> "23481889P"
+ * E.g. "81889P" -> "81889P"
+ * E.g. "Kempo Pro OWNER" -> "OWNER"
+ * E.g. "preciousowenaze4@gmail.com" -> "OWNER"
+ */
+export function getCanonicalUserId(val?: string | null): string {
+  if (!val) return '';
+  const s = val.trim().toLowerCase();
+  if (isOwnerEmail(s) || isOwnerIdFormat(s) || s === 'owner' || s === 'admin') {
+    return 'OWNER';
+  }
+  // Remove "kempo", "pro", and any non-alphanumeric chars
+  const stripped = s
+    .replace(/^kempo[\s\-_]*(pro)?[\s\-_]*/g, '')
+    .replace(/kempo[\-_]/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .toUpperCase();
+  return stripped || s.replace(/[^a-z0-9]/gi, '_').toUpperCase();
+}
+
+/**
  * Format any user ID for clean presentation without ugly concatenations like "+234KEMPO-81889P"
  */
 export function formatDisplayKempoId(rawId?: string | null): string {

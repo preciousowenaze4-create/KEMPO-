@@ -48,6 +48,7 @@ interface ChatRoomProps {
   onStartCall?: (chat: Chat, isVideo: boolean) => void;
   onMarkRead?: (chatId: string) => void;
   onClearChat?: (chatId: string) => void;
+  onUpdateContactName?: (chatId: string, newName: string) => void;
 }
 
 export const ChatRoom: React.FC<ChatRoomProps> = ({
@@ -60,6 +61,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   onStartCall,
   onMarkRead,
   onClearChat,
+  onUpdateContactName,
 }) => {
   const [inputText, setInputText] = useState('');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -114,19 +116,30 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const effectiveCoverUrl = contactProfile?.coverUrl || chat.coverUrl || defaultCover;
   const effectiveCoverType = contactProfile?.coverType || chat.coverType || (isVideoMediaUrl(effectiveCoverUrl) ? 'video' : 'image');
 
+  const [localContactName, setLocalContactName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const stored =
+        localStorage.getItem(`kempo_contact_name_${partnerId}`) ||
+        localStorage.getItem(`kempo_contact_name_${chat.id}`);
+      if (stored) return stored;
+    }
+    return '';
+  });
+
   // Registered display name formatting
-  const rawContactName = contactProfile?.displayName || chat.name || '';
+  const rawContactName = localContactName || contactProfile?.displayName || chat.name || '';
   const isNameAnId = isRawIdString(rawContactName);
   const headerDisplayName =
-    !isNameAnId && rawContactName.trim()
+    localContactName ||
+    (!isNameAnId && rawContactName.trim() && rawContactName !== 'Kempo Contact' && rawContactName !== 'Contact'
       ? rawContactName.trim()
-      : contactProfile?.displayName && !isRawIdString(contactProfile.displayName)
+      : contactProfile?.displayName && !isRawIdString(contactProfile.displayName) && contactProfile.displayName !== 'Kempo Contact'
       ? contactProfile.displayName
       : isContactOwner
       ? 'Precious Ddkid'
       : (contactProfile?.email || chat.email)
       ? formatNameFromEmail(contactProfile?.email || chat.email)
-      : 'Kempo Contact';
+      : 'Precious Owenaze');
 
   // Fetch contact's actual profile from Supabase and listen for real-time presence
   useEffect(() => {
@@ -963,6 +976,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             onClearChat?.(chatId);
           }}
           onReportContact={() => {}}
+          onUpdateContactName={(chatId, newName) => {
+            setLocalContactName(newName);
+            onUpdateContactName?.(chatId, newName);
+          }}
         />
       )}
     </div>

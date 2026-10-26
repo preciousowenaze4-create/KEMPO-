@@ -764,9 +764,13 @@ export default function App() {
   };
 
   // Add Contact by shareable KEMPO-ID (or dedicated Owner ID)
-  const handleAddContactById = async (targetId: string): Promise<Chat | null> => {
+  const handleAddContactById = async (targetId: string, customName?: string): Promise<Chat | null> => {
     const cleanId = targetId.trim();
     if (!cleanId) return null;
+
+    if (customName && customName.trim()) {
+      localStorage.setItem(`kempo_contact_name_${cleanId}`, customName.trim());
+    }
 
     // Check if user already exists in current chats list
     const existing = chats.find(
@@ -780,27 +784,39 @@ export default function App() {
     );
 
     if (existing) {
+      if (customName && customName.trim() && existing.name !== customName.trim()) {
+        const updated = { ...existing, name: customName.trim() };
+        setChats((prev) => prev.map((c) => (c.id === existing.id ? updated : c)));
+        setSelectedChat(updated);
+        return updated;
+      }
       setSelectedChat(existing);
       return existing;
     }
 
     // Query Supabase for real user profile by ID, phone, or email
     const foundProfile = await findUserByKempoId(cleanId);
-    if (!foundProfile) {
-      return null;
-    }
 
-    const isContactOwner = isOwnerEmail(foundProfile.email);
-    const contactKempoId = isContactOwner ? OWNER_FIXED_ID : (foundProfile.kempoId || cleanId);
-    let contactName = foundProfile.displayName;
+    const isContactOwner = Boolean(
+      (foundProfile?.email && isOwnerEmail(foundProfile.email)) ||
+      isOwnerIdFormat(cleanId)
+    );
+    const contactKempoId = isContactOwner ? OWNER_FIXED_ID : (foundProfile?.kempoId || cleanId);
+    
+    let contactName = (customName && customName.trim()) || foundProfile?.displayName || '';
     if (!contactName || isRawIdString(contactName) || contactName === cleanId) {
-      contactName = foundProfile.email
+      contactName = foundProfile?.email
         ? formatNameFromEmail(foundProfile.email)
         : isContactOwner
         ? 'Precious Ddkid'
-        : 'Kempo Contact';
+        : 'Precious Owenaze';
     }
-    const contactAvatar = foundProfile.avatarUrl || (isContactOwner ? '/pwa-512x512.png' : '');
+
+    if (customName && customName.trim()) {
+      localStorage.setItem(`kempo_contact_name_${contactKempoId}`, customName.trim());
+    }
+
+    const contactAvatar = foundProfile?.avatarUrl || (isContactOwner ? '/pwa-512x512.png' : '');
 
     // Fetch any real message history between the current user and this contact
     const myKempoId = userProfile?.kempoId || 'me';
@@ -808,9 +824,9 @@ export default function App() {
     const lastMsg = pastMessages[pastMessages.length - 1];
 
     const newChat: Chat = {
-      id: foundProfile.id || `user-${contactKempoId.replace(/\s+/g, '_')}`,
+      id: foundProfile?.id || `user-${contactKempoId.replace(/\s+/g, '_')}`,
       kempoId: contactKempoId,
-      email: foundProfile.email,
+      email: foundProfile?.email,
       name: contactName,
       avatarUrl: contactAvatar,
       avatarBg: isContactOwner ? '#451a24' : '#251a24',
@@ -821,9 +837,9 @@ export default function App() {
       unreadCount: 0,
       online: realtimeService.isUserOnline(contactKempoId),
       about: `KEMPO ID: ${contactKempoId}`,
-      phoneNumber: foundProfile.phoneNumber || cleanId,
-      coverUrl: foundProfile.coverUrl,
-      coverType: foundProfile.coverType,
+      phoneNumber: foundProfile?.phoneNumber || cleanId,
+      coverUrl: foundProfile?.coverUrl,
+      coverType: foundProfile?.coverType,
       messages: pastMessages,
     };
 
@@ -831,6 +847,15 @@ export default function App() {
     setSelectedChat(newChat);
     syncChatToSupabase(newChat);
     return newChat;
+  };
+
+  const handleUpdateContactName = (chatId: string, newName: string) => {
+    setChats((prev) => {
+      const updated = prev.map((c) => (c.id === chatId ? { ...c, name: newName } : c));
+      localStorage.setItem('kempo_user_chats', JSON.stringify(updated));
+      return updated;
+    });
+    setSelectedChat((prev) => (prev && prev.id === chatId ? { ...prev, name: newName } : prev));
   };
 
   // Compute total unread chats
@@ -1970,6 +1995,7 @@ export default function App() {
                 prev && prev.id === chatId ? { ...prev, messages: [], lastMessage: '' } : prev
               );
             }}
+            onUpdateContactName={handleUpdateContactName}
           />
         )}
 

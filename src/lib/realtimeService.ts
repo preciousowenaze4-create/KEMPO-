@@ -1,5 +1,6 @@
 import { supabase, insertSupabaseMessage, updateSupabaseMessageStatus } from './supabase';
 import { Message } from '../types';
+import { getCanonicalUserId } from './accountRules';
 
 export interface IncomingCallEvent {
   callId: string;
@@ -33,6 +34,7 @@ export interface DirectMessagePayload {
 
 export class KempoRealtimeService {
   private activeChannels: Map<string, any> = new Map();
+  private userChannels: any[] = [];
   private userChannel: any = null;
   private postgresMessagesChannel: any = null;
   private presenceChannel: any = null;
@@ -49,9 +51,9 @@ export class KempoRealtimeService {
 
   // Get deterministic room ID between two participants (order invariant)
   getRoomChannelName(myId: string, partnerId: string): string {
-    const clean1 = this.normalizeId(myId);
-    const clean2 = this.normalizeId(partnerId);
-    const sorted = [clean1, clean2].sort();
+    const c1 = getCanonicalUserId(myId) || this.normalizeId(myId);
+    const c2 = getCanonicalUserId(partnerId) || this.normalizeId(partnerId);
+    const sorted = [c1, c2].sort();
     return `kempo_chat_${sorted[0]}_${sorted[1]}`;
   }
 
@@ -286,181 +288,283 @@ export class KempoRealtimeService {
   ) {
     if (!myKempoId) return;
 
+    if (this.userChannels.length > 0) {
+      this.userChannels.forEach((ch) => {
+        try {
+          supabase.removeChannel(ch);
+        } catch {}
+      });
+      this.userChannels = [];
+    }
     if (this.userChannel) {
       try {
         supabase.removeChannel(this.userChannel);
       } catch (e) {
         console.warn(e);
       }
+      this.userChannel = null;
     }
 
-    const cleanChannelName = `user_${this.normalizeId(myKempoId)}`;
-    const channel = supabase.channel(cleanChannelName, {
-      config: { broadcast: { self: false } },
-    });
+    const cleanMyId = this.normalizeId(myKempoId);
+    const canonicalMyId = getCanonicalUserId(myKempoId);
 
-    channel
-      .on('broadcast', { event: 'incoming_call' }, ({ payload }) => {
-        if (payload) {
-          onIncomingCall(payload as IncomingCallEvent);
-        }
-      })
-      .on('broadcast', { event: 'call_accepted' }, () => {
-        onCallAccepted?.();
-      })
-      .on('broadcast', { event: 'call_declined' }, () => {
-        onCallDeclined?.();
-      })
-      .on('broadcast', { event: 'call_ended' }, () => {
-        onCallEnded?.();
-      })
-      .on('broadcast', { event: 'missed_call' }, ({ payload }) => {
-        if (payload && onMissedCall) {
-          onMissedCall(payload as MissedCallEvent);
-        }
-      })
-      .on('broadcast', { event: 'direct_message' }, ({ payload }) => {
-        if (payload && onIncomingDirectMessage) {
-          const dm = payload as DirectMessagePayload;
-          if (dm?.message?.id) {
-            if (this.seenMessageIds.has(dm.message.id)) return;
-            this.seenMessageIds.add(dm.message.id);
-          }
-          onIncomingDirectMessage(dm);
-        }
-      })
-      .subscribe((status: string) => {
-        if (status === 'SUBSCRIBED') {
-          console.info(`Subscribed to personal channel: ${cleanChannelName}`);
-        }
+    const isMatch = (targetId?: string) => {
+      if (!targetId) return false;
+      const tClean = this.normalizeId(targetId);
+      const tCanonical = getCanonicalUserId(targetId);
+      return (
+        tClean === cleanMyId ||
+        tCanonical === canonicalMyId ||
+        (canonicalMyId && tClean.includes(canonicalMyId)) ||
+        (cleanMyId && tCanonical.includes(cleanMyId))
+      );
+    };
+
+    const channelNames = Array.from(
+      new Set([`user_${cleanMyId}`, `user_${canonicalMyId}`, 'kempo_global_direct_signals'])
+    ).filter(Boolean);
+
+    channelNames.forEach((chName) => {
+      const channel = supabase.channel(chName, {
+        config: { broadcast: { self: false } },
       });
 
-    this.userChannel = channel;
+      channel
+        .on('broadcast', { event: 'incoming_call' }, ({ payload }) => {
+          if (
+            payload &&
+            (chName !== 'kempo_global_direct_signals' || isMatch((payload as any).targetId || (payload as any).callerKempoId))
+          ) {
+            onIncomingCall(payload as IncomingCallEvent);
+          }
+        })
+        .on('broadcast', { event: 'call_accepted' }, ({ payload }) => {
+          if (!payload || !payload.targetId || isMatch(payload.targetId)) {
+            onCallAccepted?.();
+          }
+        })
+        .on('broadcast', { event: 'call_declined' }, ({ payload }) => {
+          if (!payload || !payload.targetId || isMatch(payload.targetId)) {
+            onCallDeclined?.();
+          }
+        })
+        .on('broadcast', { event: 'call_ended' }, ({ payload }) => {
+          if (!payload || !payload.targetId || isMatch(payload.targetId)) {
+            onCallEnded?.();
+          }
+        })
+        .on('broadcast', { event: 'missed_call' }, ({ payload }) => {
+          if (
+            payload &&
+            onMissedCall &&
+            (chName !== 'kempo_global_direct_signals' || isMatch((payload as any).targetId))
+          ) {
+            onMissedCall(payload as MissedCallEvent);
+          }
+        })
+        .on('broadcast', { event: 'direct_message' }, ({ payload }) => {
+          if (payload && onIncomingDirectMessage) {
+            const dm = payload as DirectMessagePayload;
+            if (isMatch(dm.recipientKempoId)) {
+              if (dm?.message?.id) {
+                if (this.seenMessageIds.has(dm.message.id)) return;
+                this.seenMessageIds.add(dm.message.id);
+              }
+              onIncomingDirectMessage(dm);
+            }
+          }
+        })
+        .subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') {
+            console.info(`Subscribed to personal channel: ${chName}`);
+          }
+        });
+
+      this.userChannels.push(channel);
+    });
+
+    this.userChannel = this.userChannels[0] || null;
   }
 
   // Send a direct message to a user's personal channel
   sendDirectMessage(recipientKempoId: string, payload: DirectMessagePayload) {
     if (!recipientKempoId) return;
     const cleanChannelName = `user_${this.normalizeId(recipientKempoId)}`;
-    const channel = supabase.channel(cleanChannelName, {
-      config: { broadcast: { self: false } },
-    });
+    const canonicalChannelName = `user_${getCanonicalUserId(recipientKempoId)}`;
 
-    channel.subscribe((status: string) => {
-      if (status === 'SUBSCRIBED') {
-        channel.send({
-          type: 'broadcast',
-          event: 'direct_message',
-          payload,
-        });
-        setTimeout(() => {
-          try {
-            supabase.removeChannel(channel);
-          } catch {}
-        }, 1500);
-      }
+    const targetChannels = Array.from(
+      new Set([cleanChannelName, canonicalChannelName, 'kempo_global_direct_signals'])
+    );
+
+    targetChannels.forEach((chName) => {
+      const channel = supabase.channel(chName, {
+        config: { broadcast: { self: false } },
+      });
+
+      channel.subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast',
+            event: 'direct_message',
+            payload,
+          });
+          setTimeout(() => {
+            try {
+              supabase.removeChannel(channel);
+            } catch {}
+          }, 2000);
+        }
+      });
     });
   }
 
   // Trigger an incoming call on recipient's screen
   sendCallInvite(targetKempoId: string, callData: IncomingCallEvent) {
     const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
-    const channel = supabase.channel(cleanChannelName, {
-      config: { broadcast: { self: false } },
-    });
+    const canonicalChannelName = `user_${getCanonicalUserId(targetKempoId)}`;
+    const targetChannels = Array.from(
+      new Set([cleanChannelName, canonicalChannelName, 'kempo_global_direct_signals'])
+    );
 
-    channel.subscribe((status: string) => {
-      if (status === 'SUBSCRIBED') {
-        channel.send({
-          type: 'broadcast',
-          event: 'incoming_call',
-          payload: callData,
-        });
-      }
+    targetChannels.forEach((chName) => {
+      const channel = supabase.channel(chName, {
+        config: { broadcast: { self: false } },
+      });
+
+      channel.subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast',
+            event: 'incoming_call',
+            payload: { ...callData, targetId: targetKempoId },
+          });
+          setTimeout(() => {
+            try {
+              supabase.removeChannel(channel);
+            } catch {}
+          }, 3000);
+        }
+      });
     });
   }
 
   // Send Call Accepted signal back to caller
   sendCallAccepted(targetKempoId: string) {
     const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
-    const channel = supabase.channel(cleanChannelName, {
-      config: { broadcast: { self: false } },
-    });
+    const canonicalChannelName = `user_${getCanonicalUserId(targetKempoId)}`;
+    const targetChannels = Array.from(
+      new Set([cleanChannelName, canonicalChannelName, 'kempo_global_direct_signals'])
+    );
 
-    channel.subscribe((status: string) => {
-      if (status === 'SUBSCRIBED') {
-        channel.send({
-          type: 'broadcast',
-          event: 'call_accepted',
-          payload: {},
-        });
-        setTimeout(() => {
-          try { supabase.removeChannel(channel); } catch {}
-        }, 1500);
-      }
+    targetChannels.forEach((chName) => {
+      const channel = supabase.channel(chName, {
+        config: { broadcast: { self: false } },
+      });
+
+      channel.subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast',
+            event: 'call_accepted',
+            payload: { targetId: targetKempoId },
+          });
+          setTimeout(() => {
+            try {
+              supabase.removeChannel(channel);
+            } catch {}
+          }, 1500);
+        }
+      });
     });
   }
 
   // Send Call Declined signal back to caller
   sendCallDeclined(targetKempoId: string) {
     const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
-    const channel = supabase.channel(cleanChannelName, {
-      config: { broadcast: { self: false } },
-    });
+    const canonicalChannelName = `user_${getCanonicalUserId(targetKempoId)}`;
+    const targetChannels = Array.from(
+      new Set([cleanChannelName, canonicalChannelName, 'kempo_global_direct_signals'])
+    );
 
-    channel.subscribe((status: string) => {
-      if (status === 'SUBSCRIBED') {
-        channel.send({
-          type: 'broadcast',
-          event: 'call_declined',
-          payload: {},
-        });
-        setTimeout(() => {
-          try { supabase.removeChannel(channel); } catch {}
-        }, 1500);
-      }
+    targetChannels.forEach((chName) => {
+      const channel = supabase.channel(chName, {
+        config: { broadcast: { self: false } },
+      });
+
+      channel.subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast',
+            event: 'call_declined',
+            payload: { targetId: targetKempoId },
+          });
+          setTimeout(() => {
+            try {
+              supabase.removeChannel(channel);
+            } catch {}
+          }, 1500);
+        }
+      });
     });
   }
 
   // Send Missed Call signal to recipient
   sendMissedCall(targetKempoId: string, event: MissedCallEvent) {
     const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
-    const channel = supabase.channel(cleanChannelName, {
-      config: { broadcast: { self: false } },
-    });
+    const canonicalChannelName = `user_${getCanonicalUserId(targetKempoId)}`;
+    const targetChannels = Array.from(
+      new Set([cleanChannelName, canonicalChannelName, 'kempo_global_direct_signals'])
+    );
 
-    channel.subscribe((status: string) => {
-      if (status === 'SUBSCRIBED') {
-        channel.send({
-          type: 'broadcast',
-          event: 'missed_call',
-          payload: event,
-        });
-        setTimeout(() => {
-          try { supabase.removeChannel(channel); } catch {}
-        }, 1500);
-      }
+    targetChannels.forEach((chName) => {
+      const channel = supabase.channel(chName, {
+        config: { broadcast: { self: false } },
+      });
+
+      channel.subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast',
+            event: 'missed_call',
+            payload: { ...event, targetId: targetKempoId },
+          });
+          setTimeout(() => {
+            try {
+              supabase.removeChannel(channel);
+            } catch {}
+          }, 1500);
+        }
+      });
     });
   }
 
   // Send Call Ended signal to recipient
   sendCallEnded(targetKempoId: string) {
     const cleanChannelName = `user_${this.normalizeId(targetKempoId)}`;
-    const channel = supabase.channel(cleanChannelName, {
-      config: { broadcast: { self: false } },
-    });
+    const canonicalChannelName = `user_${getCanonicalUserId(targetKempoId)}`;
+    const targetChannels = Array.from(
+      new Set([cleanChannelName, canonicalChannelName, 'kempo_global_direct_signals'])
+    );
 
-    channel.subscribe((status: string) => {
-      if (status === 'SUBSCRIBED') {
-        channel.send({
-          type: 'broadcast',
-          event: 'call_ended',
-          payload: {},
-        });
-        setTimeout(() => {
-          try { supabase.removeChannel(channel); } catch {}
-        }, 1500);
-      }
+    targetChannels.forEach((chName) => {
+      const channel = supabase.channel(chName, {
+        config: { broadcast: { self: false } },
+      });
+
+      channel.subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          channel.send({
+            type: 'broadcast',
+            event: 'call_ended',
+            payload: { targetId: targetKempoId },
+          });
+          setTimeout(() => {
+            try {
+              supabase.removeChannel(channel);
+            } catch {}
+          }, 1500);
+        }
+      });
     });
   }
 
