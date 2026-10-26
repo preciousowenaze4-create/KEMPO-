@@ -29,7 +29,7 @@ import {
 import { Chat, UserProfileData } from '../types';
 import { fetchContactProfile, getCachedContactProfile, isVideoMediaUrl, formatLastSeen } from '../lib/supabase';
 import { getMediaFromOfflineCache, saveMediaToOfflineCache } from '../lib/mediaCache';
-import { isOwnerAccount, OWNER_FIXED_ID, isOwnerIdFormat, isOwnerEmail, isRawIdString, formatNameFromEmail } from '../lib/accountRules';
+import { isOwnerAccount, OWNER_FIXED_ID, isOwnerIdFormat, isOwnerEmail, isRawIdString, formatNameFromEmail, formatDisplayKempoId } from '../lib/accountRules';
 
 interface ContactInfoScreenProps {
   chat: Chat;
@@ -197,29 +197,37 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
     formatLastSeen(profile?.lastSeen || chat.lastSeen || chat.timestamp);
 
   // Derive permanent Kempo Pro Shareable ID
-  const shareableKempoId = isContactOwner
+  const rawShareableKempoId = isContactOwner
     ? OWNER_FIXED_ID
     : profile?.kempoId ||
       chat.kempoId ||
       (chat.about?.startsWith('KEMPO ID: ')
         ? chat.about.replace('KEMPO ID: ', '').trim()
         : '') ||
-      (chat.phoneNumber ? `Kempo Pro ${chat.phoneNumber}` : `Kempo Pro ${cleanPartnerId}`);
+      cleanPartnerId;
 
-  // Real registered display name (avoid showing raw ID strings as title)
+  const shareableKempoId = formatDisplayKempoId(rawShareableKempoId);
+
+  // Real registered display name (avoid showing raw ID strings as title or fake 'Kempo Contact')
   const rawName = profile?.displayName || chat.name || '';
-  const isNameAnId = isRawIdString(rawName) || rawName === shareableKempoId;
+  const isNameAnId = isRawIdString(rawName) || rawName === shareableKempoId || rawName === rawShareableKempoId;
+
+  const resolvedLocalName = typeof window !== 'undefined'
+    ? localStorage.getItem(`kempo_contact_name_${cleanPartnerId}`) || localStorage.getItem(`kempo_contact_name_${chat.id}`)
+    : null;
 
   const displayName =
-    !isNameAnId && rawName.trim()
+    !isNameAnId && rawName.trim() && rawName !== 'Kempo Contact' && rawName !== 'Contact'
       ? rawName.trim()
-      : profile?.displayName && !isRawIdString(profile.displayName)
+      : profile?.displayName && !isRawIdString(profile.displayName) && profile.displayName !== 'Kempo Contact'
       ? profile.displayName
+      : resolvedLocalName && !isRawIdString(resolvedLocalName) && resolvedLocalName !== 'Kempo Contact'
+      ? resolvedLocalName
       : isContactOwner
       ? 'Precious Ddkid'
       : (profile?.email || chat.email)
       ? formatNameFromEmail(profile?.email || chat.email)
-      : 'Kempo Contact';
+      : formatDisplayKempoId(cleanPartnerId || shareableKempoId);
 
   const initialLetter = (displayName || 'K').trim().charAt(0).toUpperCase();
 
@@ -257,6 +265,17 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
     <div className="fixed inset-0 z-50 bg-[#09090c] text-white flex flex-col select-none overflow-hidden animate-in slide-in-from-right duration-200">
       {/* 1. Full-Height Vertical Stretch for Contact's Cover Media (Live Video or Photo) */}
       <div className="absolute inset-0 w-full h-full overflow-hidden pointer-events-none z-0">
+        {/* Persistent base wallpaper so it NEVER shows black on iOS low power mode */}
+        <img
+          src={
+            coverUrl && !isVideoMediaUrl(coverUrl) && coverType !== 'video'
+              ? coverUrl
+              : 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&auto=format&fit=crop&q=80'
+          }
+          alt="Cover Wallpaper Backdrop"
+          className="w-full h-full object-cover absolute inset-0"
+        />
+
         {coverUrl && (isVideoMediaUrl(coverUrl) || coverType === 'video') ? (
           <video
             src={coverUrl}
@@ -264,26 +283,22 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
             loop
             muted
             playsInline
-            className="w-full h-full object-cover"
+            poster="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&auto=format&fit=crop&q=80"
+            className="w-full h-full object-cover relative z-1"
           />
-        ) : coverUrl ? (
-          <img
-            src={coverUrl}
-            alt={`${displayName}'s Cover`}
-            className="w-full h-full object-cover"
-          />
-        ) : (
+        ) : !coverUrl ? (
           <video
             src={defaultCover}
             autoPlay
             loop
             muted
             playsInline
-            className="w-full h-full object-cover opacity-85"
+            poster="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&auto=format&fit=crop&q=80"
+            className="w-full h-full object-cover relative z-1"
           />
-        )}
+        ) : null}
         {/* Subtle translucent vignette mirroring Settings view so the media is completely visible */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/20 to-black/70 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/60 pointer-events-none z-2" />
       </div>
 
       {/* Toast Notification */}
@@ -324,7 +339,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
           <div
             onClick={() => setShowFullPicture(true)}
             title="Tap to view full picture"
-            className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600/90 shadow-2xl shadow-black/90 bg-black/50 flex items-center justify-center relative cursor-pointer active:scale-95 transition hover:brightness-110"
+            className="w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden ring-4 ring-red-600/90 shadow-2xl shadow-black/90 bg-black/40 flex items-center justify-center relative cursor-pointer active:scale-95 transition hover:brightness-110"
           >
             {avatarUrl ? (
               <img
@@ -342,9 +357,9 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="w-full h-full rounded-full bg-gradient-to-br from-red-600 via-red-800 to-red-950 flex items-center justify-center text-white font-black text-4xl shadow-inner select-none drop-shadow">
+              <span className="text-4xl text-white font-black drop-shadow-md">
                 {initialLetter}
-              </div>
+              </span>
             )}
             {effectiveIsOnline && (
               <span className="absolute bottom-1 right-2 w-4 h-4 rounded-full bg-emerald-500 ring-2 ring-black">

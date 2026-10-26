@@ -85,6 +85,36 @@ export function isRawIdString(val?: string | null): boolean {
 }
 
 /**
+ * Format any user ID for clean presentation without ugly concatenations like "+234KEMPO-81889P"
+ */
+export function formatDisplayKempoId(rawId?: string | null): string {
+  if (!rawId) return 'Kempo Pro';
+  const clean = rawId.trim();
+  if (isOwnerIdFormat(clean)) return OWNER_FIXED_ID;
+
+  // Extract core suffix/code
+  let suffix = clean
+    .replace(/^kempo[\s\-_]*(pro)?[\s\-_]*/i, '')
+    .trim();
+
+  // If already starts with + (e.g. +234 81889P or +234KEMPO-81889P)
+  if (suffix.startsWith('+')) {
+    // Strip KEMPO- or KEMPO_ after dial code
+    suffix = suffix.replace(/(\+\d{1,4})[\s\-_]*kempo[\s\-_]*/i, '$1 ');
+    return `Kempo Pro ${suffix}`;
+  }
+
+  // If suffix starts with KEMPO- or KEMPO_
+  suffix = suffix.replace(/^kempo[\-_]/i, '');
+
+  if (/^\d{7,15}$/.test(suffix)) {
+    return `Kempo Pro +${suffix}`;
+  }
+
+  return `Kempo Pro ${suffix}`;
+}
+
+/**
  * Check if the given email corresponds to the single official application owner (case-insensitive)
  */
 export function isOwnerEmail(email?: string | null): boolean {

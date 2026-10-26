@@ -25,6 +25,9 @@ export interface DirectMessagePayload {
   senderKempoId: string;
   senderName: string;
   senderAvatar?: string;
+  senderCoverUrl?: string;
+  senderCoverType?: 'image' | 'video';
+  senderEmail?: string;
   recipientKempoId: string;
 }
 
@@ -467,7 +470,22 @@ export class KempoRealtimeService {
     partnerId: string,
     onMessage: (msg: Message) => void,
     onReadReceipt: (readerId: string) => void,
-    onTyping?: (isTyping: boolean) => void
+    onTyping?: (isTyping: boolean) => void,
+    onProfileSync?: (partnerProfile: {
+      kempoId?: string;
+      displayName?: string;
+      avatarUrl?: string;
+      coverUrl?: string;
+      coverType?: 'image' | 'video';
+      email?: string;
+    }) => void,
+    myProfile?: {
+      displayName?: string;
+      avatarUrl?: string;
+      coverUrl?: string;
+      coverType?: 'image' | 'video';
+      email?: string;
+    }
   ) {
     const channelName = this.getRoomChannelName(myId, partnerId);
     const cleanMyId = this.normalizeId(myId);
@@ -506,6 +524,12 @@ export class KempoRealtimeService {
           onTyping?.(Boolean(payload.isTyping));
         }
       })
+      .on('broadcast', { event: 'profile_exchange' }, ({ payload }) => {
+        if (payload && this.normalizeId(payload.kempoId) !== cleanMyId) {
+          this.markUserActive(partnerId);
+          onProfileSync?.(payload);
+        }
+      })
       .on('broadcast', { event: 'heartbeat' }, ({ payload }) => {
         if (payload && this.normalizeId(payload.senderId) !== cleanMyId) {
           this.markUserActive(partnerId);
@@ -513,12 +537,20 @@ export class KempoRealtimeService {
       })
       .subscribe((status: string) => {
         if (status === 'SUBSCRIBED') {
-          // Send room heartbeat
+          // Send room heartbeat and profile sync
           channel.send({
             type: 'broadcast',
             event: 'heartbeat',
             payload: { senderId: myId, timestamp: new Date().toISOString() },
           });
+
+          if (myProfile) {
+            channel.send({
+              type: 'broadcast',
+              event: 'profile_exchange',
+              payload: { ...myProfile, kempoId: myId },
+            });
+          }
         }
       });
 
@@ -556,7 +588,10 @@ export class KempoRealtimeService {
     message: Message,
     senderName?: string,
     senderAvatar?: string,
-    onDelivered?: () => void
+    onDelivered?: () => void,
+    senderCoverUrl?: string,
+    senderCoverType?: 'image' | 'video',
+    senderEmail?: string
   ): Promise<boolean> {
     // Record message id locally
     this.seenMessageIds.add(message.id);
@@ -606,6 +641,9 @@ export class KempoRealtimeService {
       senderKempoId: myId,
       senderName: senderName || myId,
       senderAvatar: senderAvatar || '',
+      senderCoverUrl,
+      senderCoverType,
+      senderEmail,
       recipientKempoId: partnerId,
     });
 

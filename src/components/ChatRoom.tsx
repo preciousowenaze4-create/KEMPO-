@@ -208,6 +208,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       });
     });
 
+    const myCover = typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : '';
+    const myCoverType = typeof window !== 'undefined' ? (localStorage.getItem('kempo_user_cover_type') as 'image' | 'video') || 'video' : 'video';
+    const myEmail = typeof window !== 'undefined' ? localStorage.getItem('kempo_auth_user') || '' : '';
+    const myAvatar = currentUserAvatar || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_avatar') || '' : '');
+    const myName = currentUserName || (typeof window !== 'undefined' ? localStorage.getItem('kempo_auth_name') || '' : '');
+
     const unsub = realtimeService.subscribeToChatRoom(
       myId,
       partnerId,
@@ -229,6 +235,40 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       },
       (partnerIsTyping) => {
         setIsTyping(partnerIsTyping);
+      },
+      (partnerProfile) => {
+        if (!partnerProfile) return;
+        setContactProfile((prev) => ({
+          id: prev?.id || partnerId,
+          email: partnerProfile.email || prev?.email || '',
+          displayName: partnerProfile.displayName || prev?.displayName || '',
+          avatarUrl: partnerProfile.avatarUrl || prev?.avatarUrl || '',
+          coverUrl: partnerProfile.coverUrl || prev?.coverUrl || '',
+          coverType: partnerProfile.coverType || prev?.coverType || 'video',
+          accountType: prev?.accountType || 'personal',
+          kempoId: partnerProfile.kempoId || prev?.kempoId || partnerId,
+          preferences: prev?.preferences || ({} as any),
+          isOnboarded: true,
+          status: 'active',
+          isVerified: false,
+          isAdmin: false,
+        }));
+        if (partnerProfile.avatarUrl && typeof window !== 'undefined') {
+          localStorage.setItem(`kempo_contact_avatar_${partnerId}`, partnerProfile.avatarUrl);
+        }
+        if (partnerProfile.coverUrl && typeof window !== 'undefined') {
+          localStorage.setItem(`kempo_contact_cover_${partnerId}`, partnerProfile.coverUrl);
+        }
+        if (partnerProfile.displayName && typeof window !== 'undefined') {
+          localStorage.setItem(`kempo_contact_name_${partnerId}`, partnerProfile.displayName);
+        }
+      },
+      {
+        displayName: myName,
+        avatarUrl: myAvatar,
+        coverUrl: myCover,
+        coverType: myCoverType,
+        email: myEmail,
       }
     );
 
@@ -236,7 +276,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       isMounted = false;
       unsub();
     };
-  }, [chat.id, myId, partnerId]);
+  }, [chat.id, myId, partnerId, currentUserName, currentUserAvatar]);
 
   // Handle typing change in input
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -285,12 +325,21 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     onSendMessage(chat.id, text, undefined, undefined, myId, timeStr, msgId, initialStatus);
 
     if (isOnline) {
-      realtimeService.sendMessage(myId, partnerId, newMsg);
+      const myCover = typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : '';
+      const myCoverType = typeof window !== 'undefined' ? (localStorage.getItem('kempo_user_cover_type') as 'image' | 'video') || 'video' : 'video';
+      const myEmail = typeof window !== 'undefined' ? localStorage.getItem('kempo_auth_user') || '' : '';
+      const myAvatar = currentUserAvatar || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_avatar') || '' : '');
+      const myName = currentUserName || (typeof window !== 'undefined' ? localStorage.getItem('kempo_auth_name') || '' : '');
+
+      realtimeService.sendMessage(myId, partnerId, newMsg, myName, myAvatar);
       realtimeService.sendDirectMessage(partnerId, {
         message: newMsg,
         senderKempoId: myId,
-        senderName: currentUserName || myId,
-        senderAvatar: currentUserAvatar || '',
+        senderName: myName || myId,
+        senderAvatar: myAvatar,
+        senderCoverUrl: myCover,
+        senderCoverType: myCoverType,
+        senderEmail: myEmail,
         recipientKempoId: partnerId,
       });
     } else {
@@ -345,12 +394,21 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       onSendMessage(chat.id, text, 'audio', base64Audio, myId, timeStr, msgId, initialStatus);
 
       if (isOnline) {
-        realtimeService.sendMessage(myId, partnerId, newMsg);
+        const myCover = typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : '';
+        const myCoverType = typeof window !== 'undefined' ? (localStorage.getItem('kempo_user_cover_type') as 'image' | 'video') || 'video' : 'video';
+        const myEmail = typeof window !== 'undefined' ? localStorage.getItem('kempo_auth_user') || '' : '';
+        const myAvatar = currentUserAvatar || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_avatar') || '' : '');
+        const myName = currentUserName || (typeof window !== 'undefined' ? localStorage.getItem('kempo_auth_name') || '' : '');
+
+        realtimeService.sendMessage(myId, partnerId, newMsg, myName, myAvatar);
         realtimeService.sendDirectMessage(partnerId, {
           message: newMsg,
           senderKempoId: myId,
-          senderName: currentUserName || myId,
-          senderAvatar: currentUserAvatar || '',
+          senderName: myName || myId,
+          senderAvatar: myAvatar,
+          senderCoverUrl: myCover,
+          senderCoverType: myCoverType,
+          senderEmail: myEmail,
           recipientKempoId: partnerId,
         });
       } else {

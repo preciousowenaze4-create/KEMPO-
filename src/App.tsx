@@ -29,7 +29,7 @@ import { PhoneMissed, MessageCircle, ShieldAlert, Loader2 } from 'lucide-react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { BannedAccountScreen } from './components/BannedAccountScreen';
-import { isOwnerEmail, OWNER_FIXED_ID, isOwnerIdFormat, generateStandardUserKempoId, isRawIdString, formatNameFromEmail } from './lib/accountRules';
+import { isOwnerEmail, OWNER_FIXED_ID, isOwnerIdFormat, generateStandardUserKempoId, isRawIdString, formatNameFromEmail, formatDisplayKempoId } from './lib/accountRules';
 import {
   realtimeService,
   IncomingCallEvent,
@@ -884,8 +884,30 @@ export default function App() {
         if (existing.messages.some((m) => m.id === msg.id)) {
           return prevChats;
         }
+        if (dm.senderAvatar && typeof window !== 'undefined') {
+          localStorage.setItem(`kempo_contact_avatar_${senderKempoId}`, dm.senderAvatar);
+        }
+        if (dm.senderCoverUrl && typeof window !== 'undefined') {
+          localStorage.setItem(`kempo_contact_cover_${senderKempoId}`, dm.senderCoverUrl);
+        }
+        if (dm.senderName && !isRawIdString(dm.senderName) && typeof window !== 'undefined') {
+          localStorage.setItem(`kempo_contact_name_${senderKempoId}`, dm.senderName);
+        }
+
         const updatedChat: Chat = {
           ...existing,
+          name:
+            dm.senderName && !isRawIdString(dm.senderName)
+              ? dm.senderName
+              : existing.name && !isRawIdString(existing.name)
+              ? existing.name
+              : dm.senderEmail
+              ? formatNameFromEmail(dm.senderEmail)
+              : existing.name,
+          avatarUrl: dm.senderAvatar || existing.avatarUrl || '',
+          coverUrl: dm.senderCoverUrl || existing.coverUrl,
+          coverType: dm.senderCoverType || existing.coverType || 'video',
+          email: dm.senderEmail || existing.email,
           lastMessage: msg.text || (msg.mediaType === 'audio' ? '🎤 Voice message' : '📸 Photo'),
           lastMessageStatus: 'none',
           timestamp: msg.timestamp || 'Just now',
@@ -905,24 +927,39 @@ export default function App() {
       } else {
         let initialChatName = dm.senderName;
         if (!initialChatName || isRawIdString(initialChatName)) {
-          initialChatName = dm.senderKempoId && dm.senderKempoId.includes('@')
+          initialChatName = dm.senderEmail
+            ? formatNameFromEmail(dm.senderEmail)
+            : dm.senderKempoId && dm.senderKempoId.includes('@')
             ? formatNameFromEmail(dm.senderKempoId)
-            : 'Kempo Contact';
+            : formatDisplayKempoId(senderKempoId);
+        }
+
+        if (dm.senderAvatar && typeof window !== 'undefined') {
+          localStorage.setItem(`kempo_contact_avatar_${senderKempoId}`, dm.senderAvatar);
+        }
+        if (dm.senderCoverUrl && typeof window !== 'undefined') {
+          localStorage.setItem(`kempo_contact_cover_${senderKempoId}`, dm.senderCoverUrl);
+        }
+        if (initialChatName && !isRawIdString(initialChatName) && typeof window !== 'undefined') {
+          localStorage.setItem(`kempo_contact_name_${senderKempoId}`, initialChatName);
         }
 
         const newChat: Chat = {
           id: `user-${senderKempoId}`,
           kempoId: senderKempoId,
           name: initialChatName,
+          email: dm.senderEmail || '',
           avatarUrl: dm.senderAvatar || '',
           avatarBg: '#251a24',
           avatarType: dm.senderAvatar ? 'photo' : 'initials',
+          coverUrl: dm.senderCoverUrl,
+          coverType: dm.senderCoverType || 'video',
           timestamp: msg.timestamp || 'Just now',
           lastMessage: msg.text || (msg.mediaType === 'audio' ? '🎤 Voice message' : '📸 Photo'),
           lastMessageStatus: 'none',
           unreadCount: 1,
           online: true,
-          about: `KEMPO ID: ${senderKempoId}`,
+          about: `KEMPO ID: ${formatDisplayKempoId(senderKempoId)}`,
           phoneNumber: senderKempoId,
           messages: [{ ...msg, status: 'delivered' }],
         };
