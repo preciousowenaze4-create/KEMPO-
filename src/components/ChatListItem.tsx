@@ -42,12 +42,26 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
     (chat.email && isOwnerEmail(chat.email))
   );
 
-  // Format real registered display name (avoid showing raw ID strings as title)
-  const rawName = dynamicProfile?.displayName || chat.name || '';
+  const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
+
+  // Retrieve any custom name this user specifically saved for this contact
+  const savedCustomName =
+    typeof window !== 'undefined'
+      ? localStorage.getItem(`kempo_contact_name_${partnerId}`) ||
+        localStorage.getItem(`kempo_contact_name_${chat.id}`)
+      : null;
+
+  // Format real registered display name (user's saved custom name takes absolute priority!)
+  const rawName =
+    savedCustomName ||
+    (!isRawIdString(chat.name) && chat.name ? chat.name : '') ||
+    dynamicProfile?.displayName ||
+    '';
   const isNameAnId = isRawIdString(rawName);
 
   const displayTitle =
-    !isNameAnId && rawName.trim()
+    savedCustomName ||
+    (!isNameAnId && rawName.trim()
       ? rawName.trim()
       : dynamicProfile?.displayName && !isRawIdString(dynamicProfile.displayName)
       ? dynamicProfile.displayName
@@ -55,7 +69,7 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
       ? 'Precious Ddkid'
       : (dynamicProfile?.email || chat.email)
       ? formatNameFromEmail(dynamicProfile?.email || chat.email)
-      : 'Kempo Contact';
+      : 'Kempo Contact');
 
   const effectiveAvatar = dynamicProfile?.avatarUrl || chat.avatarUrl || (isOwner ? '/pwa-512x512.png' : '');
 

@@ -16,6 +16,7 @@ import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { KempoAiModal } from './components/KempoAiModal';
 import { StoryViewerModal } from './components/StoryViewerModal';
 import { NewChatModal } from './components/NewChatModal';
+import { NewContactModal } from './components/NewContactModal';
 import { ActiveCallModal } from './components/ActiveCallModal';
 import { IncomingCallModal } from './components/IncomingCallModal';
 import { ActionMenuModal } from './components/ActionMenuModal';
@@ -301,6 +302,7 @@ export default function App() {
   const [showAiModal, setShowAiModal] = useState(false);
   const [activeStory, setActiveStory] = useState<StatusStory | null>(null);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showNewContact, setShowNewContact] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
@@ -849,6 +851,42 @@ export default function App() {
     return newChat;
   };
 
+  const handleSaveNewContact = async (contactData: {
+    firstName: string;
+    lastName: string;
+    username: string;
+    countryDialCode: string;
+    rawInputId: string;
+    syncToPhone: boolean;
+    verifiedProfile?: UserProfileData | null;
+  }) => {
+    const customName =
+      [contactData.firstName, contactData.lastName].filter(Boolean).join(' ') ||
+      contactData.username ||
+      '';
+
+    let targetId = contactData.rawInputId.trim();
+    if (
+      targetId &&
+      !targetId.startsWith('+') &&
+      !targetId.toLowerCase().startsWith('kempo') &&
+      !isOwnerIdFormat(targetId)
+    ) {
+      targetId = `${contactData.countryDialCode}${targetId}`;
+    }
+
+    const createdChat = await handleAddContactById(targetId, customName);
+    if (createdChat) {
+      if (customName) {
+        localStorage.setItem(`kempo_contact_name_${createdChat.id}`, customName);
+        if (createdChat.kempoId) {
+          localStorage.setItem(`kempo_contact_name_${createdChat.kempoId}`, customName);
+        }
+      }
+      setSelectedChat(createdChat);
+    }
+  };
+
   const handleUpdateContactName = (chatId: string, newName: string) => {
     setChats((prev) => {
       const updated = prev.map((c) => (c.id === chatId ? { ...c, name: newName } : c));
@@ -915,20 +953,26 @@ export default function App() {
         if (dm.senderCoverUrl && typeof window !== 'undefined') {
           localStorage.setItem(`kempo_contact_cover_${senderKempoId}`, dm.senderCoverUrl);
         }
-        if (dm.senderName && !isRawIdString(dm.senderName) && typeof window !== 'undefined') {
+        const localSavedName =
+          typeof window !== 'undefined'
+            ? localStorage.getItem(`kempo_contact_name_${senderKempoId}`) ||
+              localStorage.getItem(`kempo_contact_name_${existing.id}`)
+            : null;
+
+        if (!localSavedName && dm.senderName && !isRawIdString(dm.senderName) && typeof window !== 'undefined') {
           localStorage.setItem(`kempo_contact_name_${senderKempoId}`, dm.senderName);
         }
 
         const updatedChat: Chat = {
           ...existing,
           name:
-            dm.senderName && !isRawIdString(dm.senderName)
+            localSavedName ||
+            (existing.name && !isRawIdString(existing.name) ? existing.name : '') ||
+            (dm.senderName && !isRawIdString(dm.senderName)
               ? dm.senderName
-              : existing.name && !isRawIdString(existing.name)
-              ? existing.name
               : dm.senderEmail
               ? formatNameFromEmail(dm.senderEmail)
-              : existing.name,
+              : existing.name),
           avatarUrl: dm.senderAvatar || existing.avatarUrl || '',
           coverUrl: dm.senderCoverUrl || existing.coverUrl,
           coverType: dm.senderCoverType || existing.coverType || 'video',
@@ -965,14 +1009,20 @@ export default function App() {
         if (dm.senderCoverUrl && typeof window !== 'undefined') {
           localStorage.setItem(`kempo_contact_cover_${senderKempoId}`, dm.senderCoverUrl);
         }
-        if (initialChatName && !isRawIdString(initialChatName) && typeof window !== 'undefined') {
+        const localSavedName =
+          typeof window !== 'undefined'
+            ? localStorage.getItem(`kempo_contact_name_${senderKempoId}`) ||
+              localStorage.getItem(`kempo_contact_name_user-${senderKempoId}`)
+            : null;
+
+        if (!localSavedName && initialChatName && !isRawIdString(initialChatName) && typeof window !== 'undefined') {
           localStorage.setItem(`kempo_contact_name_${senderKempoId}`, initialChatName);
         }
 
         const newChat: Chat = {
           id: `user-${senderKempoId}`,
           kempoId: senderKempoId,
-          name: initialChatName,
+          name: localSavedName || initialChatName,
           email: dm.senderEmail || '',
           avatarUrl: dm.senderAvatar || '',
           avatarBg: '#251a24',
@@ -2047,14 +2097,42 @@ export default function App() {
           onClose={() => setShowAiModal(false)}
         />
 
-        {/* New Chat Modal */}
+        {/* New Chat Modal matching IMG_4870_f2bc20fe.png */}
         <NewChatModal
           isOpen={showNewChat}
           onClose={() => setShowNewChat(false)}
           contacts={chats}
           onSelectContact={(c) => handleOpenChat(c)}
-          onAddNewContact={handleAddNewContact}
+          onOpenNewContact={() => {
+            setShowNewChat(false);
+            setShowNewContact(true);
+          }}
+          currentUserProfile={userProfile}
+          onOpenSelfChat={() => {
+            const selfChat: Chat = {
+              id: `self-${userProfile?.id || 'me'}`,
+              name: `${userProfile?.displayName || currentUserName || 'You'} (You)`,
+              avatarUrl: userProfile?.avatarUrl || '',
+              avatarBg: '#1e293b',
+              avatarType: userProfile?.avatarUrl ? 'photo' : 'initials',
+              timestamp: 'Just now',
+              lastMessage: 'Message yourself',
+              lastMessageStatus: 'none',
+              unreadCount: 0,
+              online: true,
+              about: 'Message yourself / Personal notes',
+              messages: [],
+            };
+            handleOpenChat(selfChat);
+          }}
           onAddContactById={handleAddContactById}
+        />
+
+        {/* New Contact Modal matching IMG_4871_4f727047.png */}
+        <NewContactModal
+          isOpen={showNewContact}
+          onClose={() => setShowNewContact(false)}
+          onSaveContact={handleSaveNewContact}
         />
 
         {/* WhatsApp-Style Contact Profile Photo Preview Modal */}
