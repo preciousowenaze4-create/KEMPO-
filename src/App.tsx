@@ -796,8 +796,11 @@ export default function App() {
       return existing;
     }
 
-    // Query Supabase for real user profile by ID, phone, or email
+    // Query Supabase & directory for real user profile by ID, phone, or email
     const foundProfile = await findUserByKempoId(cleanId);
+    if (!foundProfile && !isOwnerIdFormat(cleanId)) {
+      return null;
+    }
 
     const isContactOwner = Boolean(
       (foundProfile?.email && isOwnerEmail(foundProfile.email)) ||
@@ -811,7 +814,7 @@ export default function App() {
         ? formatNameFromEmail(foundProfile.email)
         : isContactOwner
         ? 'Precious Ddkid'
-        : 'Precious Owenaze';
+        : foundProfile?.displayName || 'Kempo Member';
     }
 
     if (customName && customName.trim()) {
@@ -865,7 +868,7 @@ export default function App() {
       contactData.username ||
       '';
 
-    let targetId = contactData.rawInputId.trim();
+    let targetId = contactData.verifiedProfile?.kempoId || contactData.rawInputId.trim();
     if (
       targetId &&
       !targetId.startsWith('+') &&

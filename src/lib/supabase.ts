@@ -1425,52 +1425,37 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
     } catch {}
   }
 
-  // 5. If the entered string is in a recognized Kempo ID format or phone/email, connect seamlessly
-  const strippedClean = cleanId.replace(/^kempo\s*pro\s*/i, '').trim();
-  const isValidFormat =
-    cleanId.toLowerCase().startsWith('kempo pro') ||
-    cleanId.startsWith('+') ||
-    cleanId.includes('@') ||
-    /^[A-Z0-9_-]{4,20}$/i.test(strippedClean) ||
-    /^\+?[\d\s-]{7,20}$/.test(cleanId);
-
-  if (isValidFormat) {
-    const formattedKempoId = cleanId.toLowerCase().startsWith('kempo pro')
-      ? cleanId
-      : cleanId.startsWith('+')
-      ? `Kempo Pro ${cleanId}`
-      : cleanId.includes('@')
-      ? cleanId
-      : `Kempo Pro +234${strippedClean}`;
-
-    const dynamicDisplayName = cleanId.includes('@')
-      ? formatNameFromEmail(cleanId)
-      : 'Kempo Contact';
-
-    const dynamicContact: UserProfileData = {
-      id: `user-${formattedKempoId.replace(/[^A-Za-z0-9]/g, '_')}`,
-      email: cleanId.includes('@') ? cleanId : '',
-      displayName: dynamicDisplayName,
-      avatarUrl: '',
-      coverUrl: 'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4',
-      coverType: 'video',
-      accountType: 'personal',
-      phoneNumber: cleanId.startsWith('+') ? cleanId : '',
-      kempoId: formattedKempoId,
-      preferences: DEFAULT_PREFERENCES,
-      isOnboarded: true,
-      status: 'active',
-      isVerified: false,
-      isAdmin: false,
-      lastSeen: new Date().toISOString(),
-    };
-
-    setCachedContactProfile(cleanId, dynamicContact);
-    setCachedContactProfile(formattedKempoId, dynamicContact);
-    return dynamicContact;
+  // Check completed accounts registry as well
+  if (typeof window !== 'undefined') {
+    try {
+      const regRaw = localStorage.getItem('kempo_completed_accounts');
+      if (regRaw) {
+        const reg = JSON.parse(regRaw);
+        const values: any[] = Object.values(reg);
+        const match = values.find((u) => {
+          if (!u || typeof u !== 'object') return false;
+          const uKempoId = (u.kempoId || '').toLowerCase();
+          const cleanLower = cleanId.toLowerCase();
+          return (
+            uKempoId === cleanLower ||
+            (cleanLower.length >= 4 && uKempoId.includes(cleanLower)) ||
+            (u.email && u.email.toLowerCase() === cleanLower) ||
+            (u.phoneNumber && u.phoneNumber === cleanId) ||
+            (u.id && u.id.toLowerCase() === cleanLower)
+          );
+        });
+        if (match) {
+          const isOwner = isOwnerEmail(match.email);
+          const resolved = { ...match, isAdmin: isOwner };
+          setCachedContactProfile(cleanId, resolved);
+          return resolved;
+        }
+      }
+    } catch {}
   }
 
-  // Not a valid ID format
+  // 5. Strictly Return NULL if the person does not exist!
+  // No fake or mock users are generated.
   return null;
 }
 

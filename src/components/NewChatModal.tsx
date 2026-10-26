@@ -1,7 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { X, Search, Users, UserPlus, UsersRound, Megaphone } from 'lucide-react';
+import {
+  X,
+  Search,
+  Users,
+  UserPlus,
+  UsersRound,
+  Megaphone,
+  Sparkles,
+  ChevronRight,
+  ShieldCheck,
+} from 'lucide-react';
 import { Chat, UserProfileData } from '../types';
-import { isRawIdString, formatNameFromEmail } from '../lib/accountRules';
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -29,9 +38,8 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 
   // Filter contacts by search query
   const filteredContacts = useMemo(() => {
-    // Only real contacts (exclude dummy mock entries)
     const valid = contacts.filter((c) => {
-      if (!c.id || c.id === 'kempo-owner-account' && !c.messages?.length) return false;
+      if (!c.id || (c.id === 'kempo-owner-account' && !c.messages?.length)) return false;
       return true;
     });
 
@@ -78,43 +86,46 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm select-none animate-in fade-in duration-200">
-      {/* iOS WhatsApp Sheet Container matching IMG_4870_f2bc20fe.png */}
-      <div className="w-full h-[94vh] max-h-[880px] bg-[#f2f2f7] dark:bg-[#121214] rounded-t-[22px] flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-250 relative">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/75 backdrop-blur-md select-none animate-in fade-in duration-200">
+      {/* Red-themed iOS WhatsApp Sheet Container */}
+      <div className="w-full h-[94vh] max-h-[890px] bg-[#0c0c0e] rounded-t-[24px] flex flex-col overflow-hidden shadow-2xl border-t border-red-900/40 animate-in slide-in-from-bottom duration-250 relative">
         
         {/* Top Header Bar */}
-        <div className="h-14 px-4 bg-[#f2f2f7] dark:bg-[#121214] border-b border-[#e5e5ea] dark:border-neutral-800 flex items-center justify-between shrink-0 relative">
+        <div className="h-14 px-4 bg-[#141417] border-b border-red-950/50 flex items-center justify-between shrink-0 relative">
           <div className="w-8" />
-          <h2 className="text-[17px] font-bold text-black dark:text-white tracking-tight">
-            New chat
-          </h2>
-          {/* Circular close 'X' button matching IMG_4870_f2bc20fe.png */}
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+            <h2 className="text-[17px] font-bold text-white tracking-tight">
+              New chat
+            </h2>
+          </div>
+          {/* Circular close button with red hover */}
           <button
             type="button"
             onClick={onClose}
             aria-label="Close new chat"
-            className="w-7 h-7 rounded-full bg-[#e5e5ea] dark:bg-neutral-800 hover:bg-[#d1d1d6] dark:hover:bg-neutral-700 text-neutral-600 dark:text-neutral-300 flex items-center justify-center transition active:scale-95 cursor-pointer"
+            className="w-7 h-7 rounded-full bg-neutral-800 hover:bg-red-600 text-neutral-300 hover:text-white flex items-center justify-center transition active:scale-95 cursor-pointer"
           >
             <X className="w-4 h-4 stroke-[2.5]" />
           </button>
         </div>
 
-        {/* Search Bar matching IMG_4870_f2bc20fe.png */}
-        <div className="px-4 py-2.5 bg-[#f2f2f7] dark:bg-[#121214] shrink-0">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#e3e3e8] dark:bg-[#1c1c1e] text-neutral-800 dark:text-neutral-200">
-            <Search className="w-4 h-4 text-neutral-500 dark:text-neutral-400 shrink-0" />
+        {/* Search Bar with red focus glow */}
+        <div className="px-4 py-2.5 bg-[#0c0c0e] shrink-0">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#18181b] border border-neutral-800 focus-within:border-red-600/70 focus-within:ring-1 focus-within:ring-red-600/30 text-white transition">
+            <Search className="w-4 h-4 text-red-500 shrink-0" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Name, number, @username"
-              className="w-full bg-transparent text-[15px] text-black dark:text-white placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus:outline-none"
+              className="w-full bg-transparent text-[15px] text-white placeholder:text-neutral-500 focus:outline-none"
             />
             {search && (
               <button
                 type="button"
                 onClick={() => setSearch('')}
-                className="w-4 h-4 rounded-full bg-neutral-400 text-white flex items-center justify-center text-[10px]"
+                className="w-4 h-4 rounded-full bg-neutral-700 hover:bg-red-600 text-white flex items-center justify-center text-[10px]"
               >
                 ×
               </button>
@@ -125,35 +136,50 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         {/* Scrollable Content Body with A-Z strip */}
         <div className="flex-1 overflow-y-auto px-4 pb-8 space-y-4 relative">
           
-          {/* Card: 4 WhatsApp Actions matching IMG_4870_f2bc20fe.png */}
-          <div className="bg-white dark:bg-[#1c1c1e] rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-[#e5e5ea] dark:border-neutral-800 overflow-hidden divide-y divide-[#e5e5ea] dark:divide-neutral-800/80">
-            {/* 1. New group */}
+          {/* Group 1: REDESIGNED "NEW CONTACT" RED SECTION */}
+          <div className="rounded-2xl overflow-hidden shadow-xl border border-neutral-800 bg-[#161619] divide-y divide-neutral-800/80">
+            
+            {/* 1. New contact: RED COLOR & SPECIAL HIGHLIGHT AS REQUESTED */}
+            <button
+              type="button"
+              onClick={onOpenNewContact}
+              className="w-full px-4 py-3.5 flex items-center justify-between bg-gradient-to-r from-red-950/80 via-red-900/30 to-[#18181b] hover:from-red-900/90 hover:via-red-800/40 hover:to-[#20181b] border-b border-red-700/50 transition text-left cursor-pointer group"
+            >
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-red-600 text-white flex items-center justify-center shrink-0 shadow-lg shadow-red-950/80 group-hover:scale-105 transition">
+                  <UserPlus className="w-5 h-5 stroke-[2.2]" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[16.5px] font-bold text-white tracking-tight">
+                      New contact
+                    </span>
+                    <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full bg-red-600 text-white shadow-sm shadow-red-900/60">
+                      Red Color
+                    </span>
+                  </div>
+                  <p className="text-[12.5px] text-red-300 font-medium truncate flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-red-400" />
+                    <span>Search, verify &amp; connect by Kempo Pro ID</span>
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-red-400 shrink-0 group-hover:translate-x-0.5 transition" />
+            </button>
+
+            {/* 2. New group */}
             <button
               type="button"
               onClick={() => {
                 alert('New group: Select members to create a group chat.');
               }}
-              className="w-full px-4 py-3 flex items-center gap-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition text-left cursor-pointer"
+              className="w-full px-4 py-3 flex items-center gap-3.5 hover:bg-neutral-800/60 transition text-left cursor-pointer"
             >
-              <div className="w-6 flex items-center justify-center text-[#25D366] dark:text-[#25D366]">
-                <Users className="w-5 h-5 stroke-[2]" />
+              <div className="w-9 h-9 rounded-full bg-neutral-800 text-neutral-300 flex items-center justify-center shrink-0">
+                <Users className="w-4.5 h-4.5 stroke-[2]" />
               </div>
-              <span className="text-[16.5px] font-medium text-black dark:text-white tracking-tight">
+              <span className="text-[16px] font-semibold text-white tracking-tight">
                 New group
-              </span>
-            </button>
-
-            {/* 2. New contact (OPENS IMG_4871_4f727047.png New Contact Screen) */}
-            <button
-              type="button"
-              onClick={onOpenNewContact}
-              className="w-full px-4 py-3 flex items-center gap-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition text-left cursor-pointer"
-            >
-              <div className="w-6 flex items-center justify-center text-[#25D366] dark:text-[#25D366]">
-                <UserPlus className="w-5 h-5 stroke-[2]" />
-              </div>
-              <span className="text-[16.5px] font-medium text-black dark:text-white tracking-tight">
-                New contact
               </span>
             </button>
 
@@ -163,12 +189,12 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
               onClick={() => {
                 alert('New community: Bring members together in topic-based channels.');
               }}
-              className="w-full px-4 py-3 flex items-center gap-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition text-left cursor-pointer"
+              className="w-full px-4 py-3 flex items-center gap-3.5 hover:bg-neutral-800/60 transition text-left cursor-pointer"
             >
-              <div className="w-6 flex items-center justify-center text-[#25D366] dark:text-[#25D366]">
-                <UsersRound className="w-5 h-5 stroke-[2]" />
+              <div className="w-9 h-9 rounded-full bg-neutral-800 text-neutral-300 flex items-center justify-center shrink-0">
+                <UsersRound className="w-4.5 h-4.5 stroke-[2]" />
               </div>
-              <span className="text-[16.5px] font-medium text-black dark:text-white tracking-tight">
+              <span className="text-[16px] font-semibold text-white tracking-tight">
                 New community
               </span>
             </button>
@@ -179,12 +205,12 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
               onClick={() => {
                 alert('New broadcast: Send broadcast messages to multiple contacts.');
               }}
-              className="w-full px-4 py-3 flex items-center gap-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition text-left cursor-pointer"
+              className="w-full px-4 py-3 flex items-center gap-3.5 hover:bg-neutral-800/60 transition text-left cursor-pointer"
             >
-              <div className="w-6 flex items-center justify-center text-[#25D366] dark:text-[#25D366]">
-                <Megaphone className="w-5 h-5 stroke-[2]" />
+              <div className="w-9 h-9 rounded-full bg-neutral-800 text-neutral-300 flex items-center justify-center shrink-0">
+                <Megaphone className="w-4.5 h-4.5 stroke-[2]" />
               </div>
-              <span className="text-[16.5px] font-medium text-black dark:text-white tracking-tight">
+              <span className="text-[16px] font-semibold text-white tracking-tight">
                 New broadcast
               </span>
             </button>
@@ -193,10 +219,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
           {/* Section: Frequently contacted (Only if real contacts exist) */}
           {frequentlyContacted.length > 0 && !search && (
             <div>
-              <h3 className="text-[14px] font-semibold text-neutral-500 dark:text-neutral-400 px-1 py-1.5 tracking-tight">
-                Frequently contacted
+              <h3 className="text-[13.5px] font-bold text-red-400 px-1 py-1.5 tracking-tight flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Frequently contacted</span>
               </h3>
-              <div className="bg-white dark:bg-[#1c1c1e] rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-[#e5e5ea] dark:border-neutral-800 overflow-hidden divide-y divide-[#e5e5ea] dark:divide-neutral-800/80">
+              <div className="bg-[#161619] rounded-2xl border border-neutral-800 overflow-hidden divide-y divide-neutral-800/80">
                 {frequentlyContacted.map((c) => {
                   const savedName =
                     (typeof window !== 'undefined'
@@ -210,9 +237,9 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                         onSelectContact(c);
                         onClose();
                       }}
-                      className="px-4 py-2.5 flex items-center gap-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition cursor-pointer"
+                      className="px-4 py-2.5 flex items-center gap-3.5 hover:bg-neutral-800/60 transition cursor-pointer"
                     >
-                      <div className="w-10 h-10 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center shrink-0">
+                      <div className="w-10 h-10 rounded-full overflow-hidden bg-neutral-800 ring-1 ring-red-900/50 flex items-center justify-center shrink-0">
                         {c.avatarUrl ? (
                           <img
                             src={c.avatarUrl}
@@ -220,15 +247,18 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                             className="w-full h-full object-cover"
                           />
                         ) : (
-                          <span className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
+                          <span className="text-sm font-bold text-red-400">
                             {savedName.charAt(0).toUpperCase()}
                           </span>
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-[16px] font-semibold text-black dark:text-white truncate">
+                        <h4 className="text-[15.5px] font-semibold text-white truncate">
                           {savedName}
                         </h4>
+                        <p className="text-[12px] text-neutral-400 truncate">
+                          {c.about || c.phoneNumber || 'Kempo Pro'}
+                        </p>
                       </div>
                     </div>
                   );
@@ -239,13 +269,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 
           {/* Section: Contacts on Kempo Pro */}
           <div>
-            <h3 className="text-[14px] font-semibold text-neutral-500 dark:text-neutral-400 px-1 py-1.5 tracking-tight">
+            <h3 className="text-[13.5px] font-bold text-neutral-400 px-1 py-1.5 tracking-tight">
               Contacts on Kempo Pro
             </h3>
             
-            <div className="bg-white dark:bg-[#1c1c1e] rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-[#e5e5ea] dark:border-neutral-800 overflow-hidden divide-y divide-[#e5e5ea] dark:divide-neutral-800/80">
+            <div className="bg-[#161619] rounded-2xl border border-neutral-800 overflow-hidden divide-y divide-neutral-800/80">
               
-              {/* 5th WhatsApp Item: Message Yourself matching IMG_4870_f2bc20fe.png */}
+              {/* Message Yourself Row */}
               <div
                 onClick={() => {
                   if (onOpenSelfChat) {
@@ -269,9 +299,9 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                   }
                   onClose();
                 }}
-                className="px-4 py-2.5 flex items-center gap-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition cursor-pointer"
+                className="px-4 py-2.5 flex items-center gap-3.5 hover:bg-neutral-800/60 transition cursor-pointer"
               >
-                <div className="w-11 h-11 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center shrink-0 ring-1 ring-[#e5e5ea] dark:ring-neutral-700">
+                <div className="w-11 h-11 rounded-full overflow-hidden bg-neutral-800 flex items-center justify-center shrink-0 ring-1.5 ring-red-600/50">
                   {currentUserAvatar ? (
                     <img
                       src={currentUserAvatar}
@@ -279,16 +309,16 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <span className="text-base font-bold text-neutral-700 dark:text-neutral-200">
+                    <span className="text-base font-bold text-red-400">
                       {currentUserName.charAt(0).toUpperCase()}
                     </span>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h4 className="text-[16px] font-semibold text-black dark:text-white truncate">
+                  <h4 className="text-[16px] font-bold text-white truncate">
                     {currentUserName} (You)
                   </h4>
-                  <p className="text-[13px] text-neutral-500 dark:text-neutral-400 truncate">
+                  <p className="text-[13px] text-neutral-400 truncate">
                     Message yourself
                   </p>
                 </div>
@@ -300,10 +330,10 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                   .sort()
                   .map((letter) => (
                     <div key={letter} id={`section-letter-${letter}`}>
-                      <div className="bg-neutral-100/80 dark:bg-neutral-850 px-4 py-1 text-[13px] font-bold text-neutral-500 dark:text-neutral-400 border-t border-b border-[#e5e5ea] dark:border-neutral-800">
+                      <div className="bg-[#121215] px-4 py-1 text-[12.5px] font-bold text-red-400 border-t border-b border-neutral-800">
                         {letter}
                       </div>
-                      <div className="divide-y divide-[#e5e5ea] dark:divide-neutral-800/80">
+                      <div className="divide-y divide-neutral-800/80">
                         {groupedContacts[letter].map((c) => {
                           const savedName =
                             (typeof window !== 'undefined'
@@ -317,9 +347,9 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                                 onSelectContact(c);
                                 onClose();
                               }}
-                              className="px-4 py-2.5 flex items-center gap-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60 transition cursor-pointer"
+                              className="px-4 py-2.5 flex items-center gap-3.5 hover:bg-neutral-800/60 transition cursor-pointer"
                             >
-                              <div className="w-10 h-10 rounded-full overflow-hidden bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center shrink-0">
+                              <div className="w-10 h-10 rounded-full overflow-hidden bg-neutral-800 flex items-center justify-center shrink-0 ring-1 ring-neutral-700">
                                 {c.avatarUrl ? (
                                   <img
                                     src={c.avatarUrl}
@@ -327,16 +357,16 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                                     className="w-full h-full object-cover"
                                   />
                                 ) : (
-                                  <span className="text-sm font-bold text-neutral-600 dark:text-neutral-300">
+                                  <span className="text-sm font-bold text-neutral-300">
                                     {savedName.charAt(0).toUpperCase()}
                                   </span>
                                 )}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <h4 className="text-[16px] font-semibold text-black dark:text-white truncate">
+                                <h4 className="text-[15.5px] font-semibold text-white truncate">
                                   {savedName}
                                 </h4>
-                                <p className="text-[12.5px] text-neutral-500 dark:text-neutral-400 truncate">
+                                <p className="text-[12.5px] text-neutral-400 truncate">
                                   {c.about || c.phoneNumber || 'Kempo Pro'}
                                 </p>
                               </div>
@@ -347,9 +377,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                     </div>
                   ))
               ) : (
-                <div className="p-6 text-center text-[13.5px] text-neutral-500 dark:text-neutral-400">
-                  <p className="font-medium text-black dark:text-white mb-1">No contacts yet</p>
-                  <p className="text-xs">Tap &ldquo;New contact&rdquo; above to add your friends by their Kempo Pro ID!</p>
+                <div className="p-6 text-center text-[13.5px] text-neutral-400">
+                  <p className="font-semibold text-white mb-1">No contacts yet</p>
+                  <p className="text-xs text-neutral-500">
+                    Tap the red &ldquo;New contact&rdquo; button above to verify &amp; connect friends by their Kempo Pro ID!
+                  </p>
                 </div>
               )}
             </div>
@@ -357,14 +389,14 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 
         </div>
 
-        {/* Alphabet Jump Strip on the right margin matching IMG_4870_f2bc20fe.png */}
+        {/* Alphabet Jump Strip on the right margin with red active letters */}
         <div className="absolute right-1 top-24 bottom-6 flex flex-col justify-center items-center gap-[2px] z-10 pointer-events-auto">
           {ALPHABET.map((letter) => (
             <button
               key={letter}
               type="button"
               onClick={() => scrollToLetter(letter)}
-              className="text-[10px] font-semibold text-[#007aff] dark:text-[#38bdf8] hover:text-[#25D366] px-1 py-[1px] leading-none cursor-pointer"
+              className="text-[10px] font-semibold text-neutral-500 hover:text-red-500 active:text-red-400 px-1 py-[1px] leading-none cursor-pointer transition"
             >
               {letter}
             </button>

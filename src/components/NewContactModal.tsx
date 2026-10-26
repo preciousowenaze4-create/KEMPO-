@@ -1,8 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRight, Check, Loader2, AlertCircle, Search, X } from 'lucide-react';
+import {
+  ChevronRight,
+  Check,
+  Loader2,
+  AlertCircle,
+  Search,
+  X,
+  UserCheck,
+  UserPlus,
+  ShieldAlert,
+  Sparkles,
+  Lock,
+} from 'lucide-react';
 import { UserProfileData } from '../types';
 import { findUserByKempoId } from '../lib/supabase';
-import { isOwnerIdFormat, isOwnerEmail, formatNameFromEmail } from '../lib/accountRules';
+import { isOwnerIdFormat, formatNameFromEmail } from '../lib/accountRules';
 
 interface CountryItem {
   name: string;
@@ -67,6 +79,7 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
   // Live lookup state
   const [isSearching, setIsSearching] = useState(false);
   const [lookupResult, setLookupResult] = useState<{
+    searched: boolean;
     found: boolean;
     profile: UserProfileData | null;
     message?: string;
@@ -89,7 +102,7 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
     }
   }, [isOpen]);
 
-  // Real-time live verification as the user types
+  // Real-time live verification as user types ID
   useEffect(() => {
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
@@ -106,37 +119,40 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
 
     debounceRef.current = setTimeout(async () => {
       try {
-        // Construct lookup identifiers
-        // 1. Dial code + input (e.g. +23481889P or +234 81889P)
         const dialPrefix = selectedCountry.dialCode;
         let queryCandidate = cleanInput;
 
-        // If user already entered + or Kempo Pro or OWNER
-        if (!cleanInput.startsWith('+') && !cleanInput.toLowerCase().startsWith('kempo') && !isOwnerIdFormat(cleanInput)) {
+        // If user didn't start with + or kempo or owner
+        if (
+          !cleanInput.startsWith('+') &&
+          !cleanInput.toLowerCase().startsWith('kempo') &&
+          !isOwnerIdFormat(cleanInput)
+        ) {
           queryCandidate = `${dialPrefix}${cleanInput}`;
         }
 
-        // Search primary candidate
+        // 1. Search with dial code prefix
         let prof = await findUserByKempoId(queryCandidate);
 
-        // If not found, search raw suffix (e.g. "81889P" or "OWNER")
+        // 2. If not found, search raw input directly
         if (!prof && queryCandidate !== cleanInput) {
           prof = await findUserByKempoId(cleanInput);
         }
 
-        // If still not found, search with space
+        // 3. If not found, search with space
         if (!prof && !cleanInput.startsWith('+')) {
           prof = await findUserByKempoId(`${dialPrefix} ${cleanInput}`);
         }
 
         if (prof) {
           setLookupResult({
+            searched: true,
             found: true,
             profile: prof,
             message: `Verified Kempo Pro User: ${prof.displayName || formatNameFromEmail(prof.email)}`,
           });
 
-          // Autofill name if user hasn't typed anything yet
+          // Autofill custom name suggestion if user has not entered anything yet
           if (!firstName.trim() && !lastName.trim()) {
             const rawName = prof.displayName || formatNameFromEmail(prof.email);
             const parts = rawName.split(' ');
@@ -148,22 +164,25 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
             }
           }
         } else {
+          // Strictly not existing!
           setLookupResult({
+            searched: true,
             found: false,
             profile: null,
-            message: 'Contact ID not registered yet. You can still save to invite & message.',
+            message: 'ID not existing',
           });
         }
       } catch (err) {
         setLookupResult({
+          searched: true,
           found: false,
           profile: null,
-          message: 'Unable to verify at the moment. You can still proceed.',
+          message: 'ID not existing',
         });
       } finally {
         setIsSearching(false);
       }
-    }, 400);
+    }, 350);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -172,8 +191,12 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
 
   if (!isOpen) return null;
 
+  // STRICT REQUIREMENT: Only allow saving if ID is verified and real profile was found!
+  const isProfileVerified = Boolean(lookupResult?.found && lookupResult.profile);
+
   const handleDone = async () => {
-    if (!phoneOrId.trim() && !firstName.trim() && !lastName.trim()) return;
+    if (!isProfileVerified || !lookupResult?.profile || isSubmitting) return;
+
     setIsSubmitting(true);
     try {
       await onSaveContact({
@@ -183,7 +206,7 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
         countryDialCode: selectedCountry.dialCode,
         rawInputId: phoneOrId.trim(),
         syncToPhone,
-        verifiedProfile: lookupResult?.profile || null,
+        verifiedProfile: lookupResult.profile,
       });
       onClose();
     } catch (e) {
@@ -193,56 +216,66 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
     }
   };
 
-  const filteredCountries = COUNTRIES.filter((c) =>
-    c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
-    c.dialCode.includes(countrySearch)
+  const filteredCountries = COUNTRIES.filter(
+    (c) =>
+      c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
+      c.dialCode.includes(countrySearch)
   );
 
-  const canSave = Boolean(phoneOrId.trim() || firstName.trim());
-
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      {/* iOS Sheet Container matching IMG_4871_4f727047.png */}
-      <div className="w-full h-[94vh] max-h-[850px] bg-[#f2f2f7] dark:bg-[#121214] rounded-t-[22px] flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-250">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/75 backdrop-blur-md animate-in fade-in duration-200 select-none">
+      {/* Red-themed iOS Sheet Container */}
+      <div className="w-full h-[94vh] max-h-[890px] bg-[#0c0c0e] rounded-t-[24px] flex flex-col overflow-hidden shadow-2xl border-t border-red-900/40 animate-in slide-in-from-bottom duration-250">
         
-        {/* iOS Top Navigation Bar */}
-        <div className="h-12 px-4 bg-[#f2f2f7] dark:bg-[#121214] border-b border-[#e5e5ea] dark:border-neutral-800 flex items-center justify-between shrink-0">
+        {/* Top Navigation Bar with RED Styling */}
+        <div className="h-14 px-4 bg-[#141417] border-b border-red-950/50 flex items-center justify-between shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="text-[#007aff] dark:text-[#38bdf8] text-[17px] font-normal hover:opacity-80 active:opacity-60 cursor-pointer"
+            className="text-red-500 font-semibold text-[17px] hover:text-red-400 active:opacity-60 transition cursor-pointer"
           >
             Cancel
           </button>
-          <h2 className="text-[17px] font-bold text-black dark:text-white tracking-tight">
-            New contact
-          </h2>
-          <button
-            type="button"
-            disabled={!canSave || isSubmitting}
-            onClick={handleDone}
-            className="text-[#007aff] dark:text-[#38bdf8] text-[17px] font-semibold hover:opacity-80 active:opacity-60 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
-          >
-            {isSubmitting ? (
-              <Loader2 className="w-4 h-4 animate-spin text-[#007aff]" />
-            ) : (
-              'Done'
-            )}
-          </button>
+          
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+            <h2 className="text-[17px] font-bold text-white tracking-tight">
+              New contact
+            </h2>
+          </div>
+
+          {/* CRITICAL: "Done" button is HIDDEN until real profile ID is verified! */}
+          {isProfileVerified ? (
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={handleDone}
+              className="text-red-500 font-bold text-[17px] hover:text-red-400 active:opacity-60 bg-red-600/15 hover:bg-red-600/25 px-3 py-1 rounded-full border border-red-600/40 flex items-center gap-1.5 transition cursor-pointer animate-in zoom-in-90"
+            >
+              {isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+              ) : (
+                'Done'
+              )}
+            </button>
+          ) : (
+            /* Spacer to keep title centered when Done is hidden */
+            <div className="w-14" />
+          )}
         </div>
 
         {/* Scrollable Form Body */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           
           {/* Card 1: First name & Last name */}
-          <div className="bg-white dark:bg-[#1c1c1e] rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-[#e5e5ea] dark:border-neutral-800 overflow-hidden divide-y divide-[#e5e5ea] dark:divide-neutral-800">
+          <div className="bg-[#161619] rounded-2xl border border-neutral-800/80 focus-within:border-red-600/60 focus-within:ring-1 focus-within:ring-red-600/30 overflow-hidden divide-y divide-neutral-800 transition">
             <div className="px-4 py-3">
               <input
                 type="text"
                 placeholder="First name"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                className="w-full bg-transparent text-[16px] text-black dark:text-white placeholder:text-neutral-400 focus:outline-none"
+                className="w-full bg-transparent text-[16px] text-white placeholder:text-neutral-500 focus:outline-none"
               />
             </div>
             <div className="px-4 py-3">
@@ -251,14 +284,14 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
                 placeholder="Last name"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                className="w-full bg-transparent text-[16px] text-black dark:text-white placeholder:text-neutral-400 focus:outline-none"
+                className="w-full bg-transparent text-[16px] text-white placeholder:text-neutral-500 focus:outline-none"
               />
             </div>
           </div>
 
           {/* Card 2: Username */}
-          <div className="bg-white dark:bg-[#1c1c1e] rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-[#e5e5ea] dark:border-neutral-800 overflow-hidden px-4 py-3 flex items-center">
-            <span className="text-[16px] font-semibold text-black dark:text-white w-28 shrink-0">
+          <div className="bg-[#161619] rounded-2xl border border-neutral-800/80 focus-within:border-red-600/60 focus-within:ring-1 focus-within:ring-red-600/30 overflow-hidden px-4 py-3 flex items-center transition">
+            <span className="text-[16px] font-semibold text-neutral-300 w-28 shrink-0">
               Username
             </span>
             <input
@@ -266,100 +299,167 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
               placeholder="Username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="flex-1 bg-transparent text-[16px] text-black dark:text-white placeholder:text-neutral-400 focus:outline-none"
+              className="flex-1 bg-transparent text-[16px] text-white placeholder:text-neutral-500 focus:outline-none"
             />
           </div>
 
-          {/* Card 3: Country & Kempo Pro ID / Phone */}
-          <div className="bg-white dark:bg-[#1c1c1e] rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-[#e5e5ea] dark:border-neutral-800 overflow-hidden divide-y divide-[#e5e5ea] dark:divide-neutral-800">
-            {/* Country Selector Row */}
-            <div
-              onClick={() => setShowCountryPicker(true)}
-              className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition"
-            >
-              <span className="text-[16px] font-semibold text-black dark:text-white w-28 shrink-0">
-                Phone
+          {/* Card 3: RED-THEMED KEMPO PRO ID & PHONE SECTION */}
+          <div className="relative rounded-2xl bg-gradient-to-b from-[#240e12] via-[#1a0c0f] to-[#120a0c] border-2 border-red-600/70 shadow-xl shadow-red-950/60 overflow-hidden">
+            
+            {/* Top red header badge */}
+            <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-red-400 text-xs font-bold uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5 text-red-500" />
+                <span>Kempo Pro ID Verification</span>
+              </div>
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-600/20 text-red-300 border border-red-600/30">
+                Network Tracked
               </span>
-              <div className="flex items-center gap-2 text-right">
-                <span className="text-[16px] text-black dark:text-white font-medium flex items-center gap-1.5">
-                  <span>{selectedCountry.flag}</span>
-                  <span>{selectedCountry.name}</span>
+            </div>
+
+            <div className="divide-y divide-red-900/40">
+              {/* Row 1: Country Picker */}
+              <div
+                onClick={() => setShowCountryPicker(true)}
+                className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-red-950/40 transition"
+              >
+                <span className="text-[16px] font-bold text-red-300 w-28 shrink-0">
+                  Phone
                 </span>
-                <ChevronRight className="w-4 h-4 text-neutral-400" />
+                <div className="flex items-center gap-2 text-right">
+                  <span className="text-[15.5px] text-white font-semibold flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-lg border border-red-900/50">
+                    <span>{selectedCountry.flag}</span>
+                    <span>{selectedCountry.name}</span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-red-400" />
+                </div>
+              </div>
+
+              {/* Row 2: Mobile / ID Input with vibrant RED accents */}
+              <div className="px-4 py-3.5 flex items-center">
+                <span className="text-[16px] font-bold text-red-400 w-28 shrink-0">
+                  Mobile
+                </span>
+                <div className="flex-1 flex items-center gap-2.5">
+                  <span className="text-[15px] font-extrabold text-white bg-red-600 px-2.5 py-1 rounded-lg shrink-0 shadow-sm shadow-red-900/60">
+                    {selectedCountry.dialCode}
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Enter Kempo Pro ID suffix"
+                    value={phoneOrId}
+                    onChange={(e) => setPhoneOrId(e.target.value)}
+                    autoFocus
+                    className="flex-1 bg-transparent text-[16.5px] text-white placeholder:text-red-400/40 font-mono font-semibold focus:outline-none caret-red-500"
+                  />
+                  {phoneOrId && (
+                    <button
+                      type="button"
+                      onClick={() => setPhoneOrId('')}
+                      className="w-5 h-5 rounded-full bg-neutral-800 hover:bg-red-600 text-neutral-400 hover:text-white flex items-center justify-center text-xs transition"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {isSearching && (
+                    <Loader2 className="w-4 h-4 text-red-500 animate-spin shrink-0" />
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Mobile / Kempo Pro ID Input Row */}
-            <div className="px-4 py-3 flex items-center">
-              <span className="text-[16px] font-semibold text-black dark:text-white w-28 shrink-0">
-                Mobile
-              </span>
-              <div className="flex-1 flex items-center gap-2">
-                <span className="text-[16px] font-semibold text-black dark:text-white shrink-0">
-                  {selectedCountry.dialCode}
-                </span>
-                <input
-                  type="text"
-                  placeholder="Kempo Pro ID or Phone"
-                  value={phoneOrId}
-                  onChange={(e) => setPhoneOrId(e.target.value)}
-                  autoFocus
-                  className="flex-1 bg-transparent text-[16px] text-black dark:text-white placeholder:text-neutral-400 focus:outline-none font-medium"
-                />
-                {isSearching && (
-                  <Loader2 className="w-4 h-4 text-[#007aff] animate-spin shrink-0" />
-                )}
-                {lookupResult?.found && (
-                  <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm animate-in zoom-in-75">
-                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+            {/* Live Search Status & Real Profile Display inside the Red Section */}
+            <div className="p-3 bg-black/40 border-t border-red-900/40">
+              {isSearching ? (
+                <div className="flex items-center gap-2 py-1 text-[13px] text-red-300">
+                  <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                  <span>Searching Kempo Pro live directory...</span>
+                </div>
+              ) : lookupResult?.searched && !lookupResult.found ? (
+                /* Strict: ID NOT EXISTING DISPLAY - NO ADD BUTTON SHOWN */
+                <div className="p-3 rounded-xl bg-red-950/60 border border-red-600/80 text-red-200 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-full bg-red-600/25 border border-red-500 flex items-center justify-center shrink-0">
+                      <ShieldAlert className="w-4 h-4 text-red-500" />
+                    </div>
+                    <div>
+                      <h4 className="text-[14px] font-bold text-red-400">
+                        ID not existing
+                      </h4>
+                      <p className="text-[12px] text-red-300/90 leading-tight">
+                        This Kempo Pro ID is not registered on the network. You cannot add an unverified account.
+                      </p>
+                    </div>
                   </div>
-                )}
-              </div>
+                </div>
+              ) : lookupResult?.found && lookupResult.profile ? (
+                /* Real Person's Live Profile Card */
+                <div className="p-3.5 rounded-xl bg-gradient-to-r from-red-950/80 via-[#2a0e14] to-red-950/60 border-2 border-red-500/80 shadow-lg animate-in zoom-in-95 duration-200 space-y-3">
+                  <div className="flex items-center gap-3">
+                    {/* Real Profile Picture */}
+                    <div className="w-13 h-13 rounded-full overflow-hidden bg-neutral-900 ring-2 ring-red-500 ring-offset-2 ring-offset-black shrink-0">
+                      {lookupResult.profile.avatarUrl ? (
+                        <img
+                          src={lookupResult.profile.avatarUrl}
+                          alt={lookupResult.profile.displayName}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center font-bold text-lg text-white bg-red-900">
+                          {lookupResult.profile.displayName?.charAt(0).toUpperCase() || 'K'}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <h4 className="text-[15.5px] font-bold text-white truncate">
+                          {lookupResult.profile.displayName}
+                        </h4>
+                        <span className="w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px]">
+                          ✓
+                        </span>
+                      </div>
+                      <p className="text-[12.5px] font-mono font-semibold text-red-300 truncate">
+                        {lookupResult.profile.kempoId}
+                      </p>
+                      <p className="text-[11px] text-neutral-400">
+                        {lookupResult.profile.accountType === 'creator'
+                          ? 'Owner / Creator Account'
+                          : 'Verified Kempo Pro Member'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* PROMINENT ADD TO CONTACT BUTTON: ONLY APPEARS WHEN ID IS REAL & FOUND */}
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={handleDone}
+                    className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:scale-[0.99] text-white font-bold text-[14.5px] shadow-lg shadow-red-950/70 flex items-center justify-center gap-2 transition cursor-pointer"
+                  >
+                    {isSubmitting ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    ) : (
+                      <>
+                        <UserPlus className="w-4 h-4" />
+                        <span>Add to Contacts &amp; Chat</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="text-[12px] text-red-300/70 py-1">
+                  Type the person&apos;s Kempo Pro ID suffix (e.g. <code>81889P</code> or <code>OWNER</code>). The person&apos;s real profile will show before you can add them.
+                </div>
+              )}
             </div>
+
           </div>
 
-          {/* Live Search Status Banner */}
-          {phoneOrId.trim().length >= 2 && (
-            <div className="px-2 py-1">
-              {isSearching ? (
-                <div className="flex items-center gap-2 text-[13px] text-neutral-500 dark:text-neutral-400">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#007aff]" />
-                  <span>Searching Kempo Pro network in real time...</span>
-                </div>
-              ) : lookupResult?.found ? (
-                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 dark:text-emerald-400 text-[13px]">
-                  <div className="w-8 h-8 rounded-full overflow-hidden bg-emerald-600/20 flex items-center justify-center shrink-0">
-                    {lookupResult.profile?.avatarUrl ? (
-                      <img
-                        src={lookupResult.profile.avatarUrl}
-                        alt="Profile"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <Check className="w-4 h-4 text-emerald-600" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-bold text-[13.5px] truncate text-emerald-900 dark:text-emerald-300">
-                      {lookupResult.profile?.displayName || 'Kempo Pro User'}
-                    </p>
-                    <p className="text-[11.5px] text-emerald-700 dark:text-emerald-400/80 truncate">
-                      {lookupResult.profile?.kempoId || `${selectedCountry.dialCode} ${phoneOrId}`} • Ready to connect
-                    </p>
-                  </div>
-                </div>
-              ) : lookupResult ? (
-                <div className="flex items-center gap-2 text-[12.5px] text-neutral-600 dark:text-neutral-400 bg-white/60 dark:bg-neutral-800/50 p-2.5 rounded-lg border border-neutral-200 dark:border-neutral-800">
-                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>{lookupResult.message}</span>
-                </div>
-              ) : null}
-            </div>
-          )}
-
-          {/* Card 4: Sync contact to phone toggle */}
-          <div className="bg-white dark:bg-[#1c1c1e] rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-[#e5e5ea] dark:border-neutral-800 overflow-hidden px-4 py-3 flex items-center justify-between">
-            <span className="text-[16px] font-normal text-black dark:text-white">
+          {/* Card 4: Sync contact to phone with RED TOGGLE */}
+          <div className="bg-[#161619] rounded-2xl border border-neutral-800/80 px-4 py-3 flex items-center justify-between">
+            <span className="text-[16px] font-medium text-white">
               Sync contact to phone
             </span>
             <button
@@ -367,22 +467,23 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
               onClick={() => setSyncToPhone(!syncToPhone)}
               aria-label="Toggle sync contact to phone"
               className={`w-[51px] h-[31px] rounded-full p-0.5 transition-colors duration-200 ease-in-out cursor-pointer relative ${
-                syncToPhone ? 'bg-[#34c759]' : 'bg-[#e5e5ea] dark:bg-neutral-700'
+                syncToPhone ? 'bg-red-600 shadow-md shadow-red-900/50' : 'bg-neutral-800'
               }`}
             >
               <div
-                className={`w-[27px] h-[27px] rounded-full bg-white shadow-[0_2px_4px_rgba(0,0,0,0.2)] transition-transform duration-200 ease-in-out ${
+                className={`w-[27px] h-[27px] rounded-full bg-white shadow-[0_2px_4px_rgba(0,0,0,0.3)] transition-transform duration-200 ease-in-out ${
                   syncToPhone ? 'translate-x-[20px]' : 'translate-x-0'
                 }`}
               />
             </button>
           </div>
 
-          {/* Name privacy explanation note matching user request */}
-          <div className="px-2 pt-2 text-[12px] text-neutral-500 dark:text-neutral-400 leading-relaxed">
+          {/* Name privacy explanation with red lock icon */}
+          <div className="p-3 rounded-xl bg-red-950/20 border border-red-950/40 text-[12px] text-red-300/80 leading-relaxed flex items-start gap-2">
+            <Lock className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
             <p>
-              🔒 <strong>Private Contact Name:</strong> Only you will see the name you save for this contact.
-              Their own chosen profile name will remain untouched on their device.
+              <strong className="text-red-400">Private Contact Name:</strong> Only you will see the name you save for this contact.
+              The person&apos;s own registered profile name will continue showing on their device.
             </p>
           </div>
 
@@ -392,32 +493,32 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
 
       {/* Country Selection Modal Sheet */}
       {showCountryPicker && (
-        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-sm flex flex-col justify-end animate-in fade-in">
-          <div className="w-full h-[80vh] bg-white dark:bg-[#1c1c1e] rounded-t-[20px] flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom">
-            <div className="h-14 px-4 border-b border-[#e5e5ea] dark:border-neutral-800 flex items-center justify-between shrink-0">
-              <h3 className="text-base font-bold text-black dark:text-white">Select Country</h3>
+        <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-sm flex flex-col justify-end animate-in fade-in">
+          <div className="w-full h-[80vh] bg-[#141417] rounded-t-[22px] flex flex-col overflow-hidden shadow-2xl border-t border-red-900/40 animate-in slide-in-from-bottom">
+            <div className="h-14 px-4 border-b border-neutral-800 flex items-center justify-between shrink-0">
+              <h3 className="text-base font-bold text-white">Select Country</h3>
               <button
                 onClick={() => setShowCountryPicker(false)}
-                className="w-8 h-8 rounded-full bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-neutral-600 dark:text-neutral-300 cursor-pointer"
+                className="w-8 h-8 rounded-full bg-neutral-800 hover:bg-red-600 flex items-center justify-center text-neutral-300 hover:text-white transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3 border-b border-[#e5e5ea] dark:border-neutral-800">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-black dark:text-white">
-                <Search className="w-4 h-4 text-neutral-400 shrink-0" />
+            <div className="p-3 border-b border-neutral-800">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#1c1c1f] text-white">
+                <Search className="w-4 h-4 text-red-400 shrink-0" />
                 <input
                   type="text"
                   placeholder="Search country or code..."
                   value={countrySearch}
                   onChange={(e) => setCountrySearch(e.target.value)}
-                  className="w-full bg-transparent text-sm focus:outline-none placeholder:text-neutral-400"
+                  className="w-full bg-transparent text-sm focus:outline-none placeholder:text-neutral-500 text-white"
                 />
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto divide-y divide-[#e5e5ea] dark:divide-neutral-800">
+            <div className="flex-1 overflow-y-auto divide-y divide-neutral-850">
               {filteredCountries.map((c) => (
                 <div
                   key={c.code}
@@ -426,15 +527,15 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
                     setShowCountryPicker(false);
                     setCountrySearch('');
                   }}
-                  className="px-4 py-3 flex items-center justify-between hover:bg-neutral-50 dark:hover:bg-neutral-800/60 cursor-pointer"
+                  className="px-4 py-3 flex items-center justify-between hover:bg-red-950/30 transition cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-xl">{c.flag}</span>
-                    <span className="text-[15px] font-medium text-black dark:text-white">
+                    <span className="text-[15px] font-medium text-white">
                       {c.name}
                     </span>
                   </div>
-                  <span className="text-[14px] font-semibold text-neutral-500 dark:text-neutral-400">
+                  <span className="text-[14px] font-bold text-red-400">
                     {c.dialCode}
                   </span>
                 </div>
