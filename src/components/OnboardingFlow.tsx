@@ -11,15 +11,18 @@ import {
   Briefcase,
   Radio,
   Gamepad2,
-  Delete,
   Loader2,
   Sparkles,
   Upload,
+  Phone,
+  X,
 } from 'lucide-react';
 import { COUNTRIES, Country, DEFAULT_COUNTRY } from '../data/countries';
 import { AccountType, AppPreferences, UserProfileData } from '../types';
 import { formatKempoUserPhoneId, isOwnerEmail, OWNER_FIXED_ID, generateUniqueIdSuffix, isOwnerIdFormat } from '../lib/accountRules';
 import { uploadAvatarToSupabase, saveFullUserProfile } from '../lib/supabase';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface OnboardingFlowProps {
   userId: string;
@@ -49,31 +52,36 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 }) => {
   const isOwner = isOwnerEmail(userEmail);
 
-  // Exact 3-step sequence after login requested by user:
-  // Step 1: Profile picture & display name setup
-  // Step 2: Country selection & Phone / ID setup (IMG_4726)
-  // Step 3: Choose Account Type / Developer selection (IMG_4722)
+  // Exact 3-step sequence as requested by user:
+  // Step 1: Country selection & Phone / Number input ("which you now select your number, like which you select your number")
+  // Step 2: Put profile picture & display name ("put profile picture, you hit next")
+  // Step 3: Choose Account Type ("then you put maybe business, maybe private, maybe game or etc.")
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  // Profile details state (Step 1)
-  const [displayName, setDisplayName] = useState(
-    initialName || (isOwner ? 'Precious Ddkid' : 'Kempo User')
-  );
-  const [avatarUrl, setAvatarUrl] = useState(initialAvatar || '');
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Country & Auto-Generated Read-Only ID state (Step 2)
-  const [selectedCountry, setSelectedCountry] = useState<Country>(DEFAULT_COUNTRY);
+  // Step 1: Country & Phone Number State
+  const [selectedCountry, setSelectedCountry] = useState<Country>(() => {
+    if (typeof window !== 'undefined') {
+      const savedCode = localStorage.getItem('kempo_country_code');
+      if (savedCode) {
+        const found = COUNTRIES.find((c) => c.dialCode === savedCode);
+        if (found) return found;
+      }
+    }
+    return DEFAULT_COUNTRY;
+  });
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
-  const [idSuffix] = useState<string>(() => {
+  
+  // User phone number input (editable!)
+  const [phoneNumber, setPhoneNumber] = useState<string>(() => {
     if (isOwner) return 'OWNER';
     if (typeof window !== 'undefined' && userEmail) {
       const cleanEmail = userEmail.toLowerCase().trim();
-      const cached = localStorage.getItem('kempo_user_id_suffix_' + cleanEmail);
-      if (cached && cached !== 'A5738' && cached !== 'OWNER' && cached.length >= 4) {
-        return cached;
+      const savedPhone = localStorage.getItem('kempo_user_phone_' + cleanEmail);
+      if (savedPhone) return savedPhone;
+      const cachedSuffix = localStorage.getItem('kempo_user_id_suffix_' + cleanEmail);
+      if (cachedSuffix && cachedSuffix !== 'A5738' && cachedSuffix !== 'OWNER') {
+        return cachedSuffix;
       }
       const fresh = generateUniqueIdSuffix(cleanEmail);
       localStorage.setItem('kempo_user_id_suffix_' + cleanEmail, fresh);
@@ -81,17 +89,24 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
     return generateUniqueIdSuffix();
   });
-  const [showMenuOptions, setShowMenuOptions] = useState(false);
 
-  // Account Type Selection state (Step 3 - IMG_4722)
+  // Step 2: Profile Picture & Display Name State
+  const [displayName, setDisplayName] = useState(
+    initialName || (isOwner ? 'Precious Ddkid' : (userEmail?.split('@')[0] || 'Kempo User'))
+  );
+  const [avatarUrl, setAvatarUrl] = useState(initialAvatar || '');
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Step 3: Account Type Selection State (Private/Personal, Business, Creator, Developer/Game)
   const [selectedAccountType, setSelectedAccountType] = useState<
     'personal' | 'business' | 'creator' | 'developer_gamer'
-  >(isOwner ? 'creator' : 'developer_gamer');
+  >(isOwner ? 'creator' : 'personal');
 
   // Saving state
   const [isSaving, setIsSaving] = useState(false);
 
-  // Default app preferences
+  // App preferences
   const [preferences] = useState<AppPreferences>({
     inAppSounds: true,
     messageTones: true,
@@ -109,13 +124,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
   }, [initialName, initialAvatar]);
 
-  // Filtered countries for the modal
+  // Filtered countries for country selection sheet
   const filteredCountries = COUNTRIES.filter(
     (c) =>
       c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
       c.dialCode.includes(countrySearch) ||
       c.code.toLowerCase().includes(countrySearch.toLowerCase())
   );
+
+  // Clean derived Kempo ID
+  const cleanNumber = phoneNumber.trim().replace(/\s+/g, '');
+  const finalDerivedKempoId = isOwner
+    ? OWNER_FIXED_ID
+    : `Kempo Pro ${selectedCountry.dialCode}${cleanNumber || 'USER'}`;
 
   // Handle avatar upload from device file
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,32 +170,35 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
   };
 
-  // Auto-formatted read-only Kempo ID (e.g. Kempo Pro +234A5738)
-  const formattedKempoId = formatKempoUserPhoneId(selectedCountry.dialCode, idSuffix);
-
   // Step 1 -> Step 2
-  const handleNextFromProfile = () => {
-    if (!displayName.trim()) {
-      setDisplayName('Kempo User');
+  const handleNextFromPhone = () => {
+    if (typeof window !== 'undefined' && userEmail) {
+      const cleanEmail = userEmail.toLowerCase().trim();
+      localStorage.setItem('kempo_user_phone_' + cleanEmail, phoneNumber.trim());
+      localStorage.setItem('kempo_country_code', selectedCountry.dialCode);
     }
     setStep(2);
   };
 
-  // Step 2 -> Step 3 (Streamlined: one tap on Next > proceeds immediately)
-  const handleNextFromPhone = () => {
+  // Step 2 -> Step 3
+  const handleNextFromProfile = () => {
+    if (!displayName.trim()) {
+      setDisplayName(userEmail?.split('@')[0] || 'Kempo User');
+    }
     setStep(3);
   };
 
-  // Step 3 -> Finish onboarding and enter dashboard
+  // Step 3 -> Finish onboarding and save permanently
   const handleFinishOnboarding = async () => {
     setIsSaving(true);
 
+    const cleanNum = phoneNumber.trim().replace(/\s+/g, '');
     const finalKempoId = isOwner
       ? OWNER_FIXED_ID
-      : formatKempoUserPhoneId(selectedCountry.dialCode, idSuffix);
+      : `Kempo Pro ${selectedCountry.dialCode}${cleanNum || 'USER'}`;
 
     const finalProfile: UserProfileData = {
-      id: userId,
+      id: userId || 'user-' + Date.now(),
       email: userEmail,
       displayName: displayName.trim() || (isOwner ? 'Precious Ddkid' : 'Kempo User'),
       avatarUrl,
@@ -187,10 +211,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           : selectedAccountType === 'business'
           ? 'business'
           : 'personal',
-      phoneNumber: `${selectedCountry.dialCode}${idSuffix}`,
+      phoneNumber: `${selectedCountry.dialCode}${cleanNum}`,
       countryCode: selectedCountry.dialCode,
       countryName: selectedCountry.name,
-      rawIdEntry: idSuffix,
+      rawIdEntry: cleanNum,
       kempoId: finalKempoId,
       preferences,
       isOnboarded: true,
@@ -201,33 +225,68 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       isAdmin: isOwner,
     };
 
+    // 1. Save permanently to local storage
     if (typeof window !== 'undefined') {
+      const cleanEmail = userEmail ? userEmail.toLowerCase().trim() : '';
       if (avatarUrl) {
         localStorage.setItem('kempo_user_avatar', avatarUrl);
       }
       localStorage.setItem('kempo_country_code', selectedCountry.dialCode);
+      localStorage.setItem('kempo_user_phone', `${selectedCountry.dialCode}${cleanNum}`);
+      if (cleanEmail) {
+        localStorage.setItem('kempo_user_phone_' + cleanEmail, cleanNum);
+      }
       localStorage.setItem('kempo_user_id', finalKempoId);
+      localStorage.setItem('kempo_auth_name', finalProfile.displayName);
       localStorage.setItem('kempo_profile_completed', 'true');
       localStorage.setItem('kempo_onboarded_completed', 'true');
       localStorage.setItem('kempo_user_profile', JSON.stringify(finalProfile));
-      if (userEmail) {
-        localStorage.setItem('kempo_completed_' + userEmail.toLowerCase().trim(), 'true');
+      if (cleanEmail) {
+        localStorage.setItem('kempo_completed_' + cleanEmail, 'true');
       }
       sessionStorage.setItem('kempo_dashboard_active', 'true');
+      sessionStorage.removeItem('kempo_google_auth_in_progress');
+
       try {
         const regRaw = localStorage.getItem('kempo_completed_accounts') || '{}';
         const reg = JSON.parse(regRaw);
-        if (userEmail) reg[userEmail.toLowerCase().trim()] = true;
-        if (userId) reg[userId] = true;
+        if (cleanEmail) reg[cleanEmail] = finalProfile;
+        if (userId) reg[userId] = finalProfile;
         localStorage.setItem('kempo_completed_accounts', JSON.stringify(reg));
       } catch {}
     }
 
+    // 2. Save permanently to Supabase profiles table
     try {
-      // Save directly to Supabase profiles table, user metadata, and persistent local storage
       await saveFullUserProfile(finalProfile);
     } catch (err) {
       console.warn('Supabase profile save notice:', err);
+    }
+
+    // 3. Save permanently to Firestore users collection
+    try {
+      const docId = finalProfile.id || userEmail.replace(/[^a-zA-Z0-9]/g, '_');
+      const userRef = doc(db, 'users', docId);
+      await setDoc(
+        userRef,
+        {
+          uid: finalProfile.id,
+          email: finalProfile.email || '',
+          displayName: finalProfile.displayName,
+          avatarUrl: finalProfile.avatarUrl,
+          phoneNumber: finalProfile.phoneNumber,
+          countryCode: finalProfile.countryCode,
+          countryName: finalProfile.countryName,
+          kempoId: finalProfile.kempoId,
+          accountType: finalProfile.accountType,
+          category: finalProfile.category,
+          isOnboarded: true,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } catch (fbErr) {
+      console.warn('Firestore profile save notice:', fbErr);
     }
 
     setIsSaving(false);
@@ -236,14 +295,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   return (
     <div className="w-full h-full min-h-screen bg-black text-white flex flex-col justify-between select-none overflow-y-auto">
+      
       {/* ========================================================================= */}
-      {/* STEP 1: Profile Info (Profile Picture & Display Name)                      */}
+      {/* STEP 1: Phone / Number Selection ("which you now select your number")     */}
       {/* ========================================================================= */}
       {step === 1 && (
         <div className="w-full max-w-md mx-auto flex-1 flex flex-col justify-between p-6 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] animate-in fade-in duration-200">
           <div>
-            {/* Header with back button */}
-            <div className="flex items-center justify-between pb-6">
+            {/* Top Bar with Kempo Pro Branding Logo */}
+            <div className="flex items-center justify-between pb-3">
               <button
                 type="button"
                 onClick={() => {
@@ -263,20 +323,146 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 </span>
               </div>
 
+              <button
+                type="button"
+                onClick={() => setShowCountryModal(true)}
+                className="p-2 -mr-2 text-white hover:text-red-400 active:scale-95 transition cursor-pointer"
+                title="Select Country"
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Headline and Subtitle */}
+            <div className="text-center pt-2 mb-6">
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                Enter your number
+              </h2>
+              <p className="text-xs sm:text-sm text-neutral-400 mt-2 max-w-xs mx-auto leading-relaxed">
+                Kempo Pro will link this number to your account. Select your country and enter your phone number.
+              </p>
+            </div>
+
+            {/* Card: Country Picker & Phone Number Input */}
+            <div className="bg-[#18181c] border-2 border-red-900/50 rounded-2xl overflow-hidden shadow-2xl">
+              {/* Row 1: Country Selector */}
+              <button
+                type="button"
+                onClick={() => setShowCountryModal(true)}
+                className="w-full px-4 py-3.5 flex items-center justify-between hover:bg-neutral-800/40 active:bg-neutral-800/70 transition cursor-pointer text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl leading-none">{selectedCountry.flag}</span>
+                  <span className="text-sm font-semibold text-white">
+                    {selectedCountry.name}
+                  </span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-red-400" />
+              </button>
+
+              <div className="h-[1px] bg-neutral-800/80 mx-4" />
+
+              {/* Row 2: Editable Phone Number Input */}
+              <div className="px-4 py-3.5 flex items-center gap-3">
+                <div className="flex items-center gap-1.5 shrink-0 bg-red-600 text-white px-3 py-1.5 rounded-xl shadow-md font-mono font-bold text-sm">
+                  <span>{selectedCountry.dialCode}</span>
+                </div>
+
+                <input
+                  type="text"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="Enter phone number"
+                  autoFocus
+                  className="flex-1 bg-transparent text-base sm:text-lg font-bold text-white placeholder-neutral-500 font-mono tracking-wider focus:outline-none"
+                />
+
+                {phoneNumber && (
+                  <button
+                    type="button"
+                    onClick={() => setPhoneNumber('')}
+                    className="w-5 h-5 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-400 flex items-center justify-center text-xs"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Full Kempo Shareable ID Preview Card */}
+            <div className="mt-4 p-4 rounded-2xl bg-[#16161c] border border-red-900/40 flex items-center justify-between shadow-xl">
+              <div className="min-w-0 pr-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
+                  Your Full Kempo Shareable ID
+                </span>
+                <span className="text-sm sm:text-base font-black text-white font-mono tracking-wide mt-1 block truncate text-red-400">
+                  {finalDerivedKempoId}
+                </span>
+              </div>
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30 shrink-0">
+                {isOwner ? 'Owner / Admin' : 'Permanent'}
+              </span>
+            </div>
+          </div>
+
+          {/* Bottom Area: Next Button */}
+          <div className="mt-8 space-y-3">
+            <button
+              type="button"
+              disabled={!phoneNumber.trim()}
+              onClick={handleNextFromPhone}
+              className="w-full h-13 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-[0.98] disabled:opacity-50 text-white font-black text-base shadow-xl shadow-red-950/70 flex items-center justify-center gap-2 transition cursor-pointer"
+            >
+              <span>Next</span>
+              <ChevronRight className="w-5 h-5 stroke-[2.5]" />
+            </button>
+
+            <p className="text-[11px] text-neutral-500 text-center font-medium">
+              Step 1 of 3 • Phone &amp; ID Setup
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* STEP 2: Profile Picture & Display Name ("put profile picture, you hit next") */}
+      {/* ========================================================================= */}
+      {step === 2 && (
+        <div className="w-full max-w-md mx-auto flex-1 flex flex-col justify-between p-6 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] animate-in slide-in-from-right duration-200">
+          <div>
+            {/* Top Bar */}
+            <div className="flex items-center justify-between pb-6">
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="p-2 -ml-2 text-white hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center"
+              >
+                <ChevronLeft className="w-7 h-7 stroke-[2.5]" />
+              </button>
+
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-lg bg-red-600 flex items-center justify-center font-black text-xs text-white shadow-md shadow-red-950">
+                  K
+                </div>
+                <span className="font-black text-sm tracking-tight text-white">
+                  KEMPO <span className="text-red-500">PRO</span>
+                </span>
+              </div>
+
               <div className="w-7" />
             </div>
 
             {/* Title & Subtitle */}
-            <div className="text-center mb-8">
+            <div className="text-center mb-6">
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
                 Profile info
               </h2>
               <p className="text-xs sm:text-sm text-neutral-400 mt-2 max-w-xs mx-auto leading-relaxed">
-                Please provide your name and an optional profile photo.
+                Put your real picture and display name so your contacts can identify you.
               </p>
             </div>
 
-            {/* Real Picture Upload Straight Box Container ("Like a boss, make it straight, a box where you can upload") */}
+            {/* Picture Upload Straight Box Container */}
             <div className="flex flex-col items-center mb-6">
               <input
                 type="file"
@@ -337,7 +523,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   </div>
                 )}
 
-                {/* Boss Badge on Top Right */}
+                {/* Badge on Top Right */}
                 <div className="absolute top-3 right-3 px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/40 text-[10px] font-black text-red-400 uppercase tracking-wider">
                   Kempo Pro
                 </div>
@@ -345,7 +531,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
               {/* Quick Preset Avatars Row */}
               <div className="mt-4 flex items-center gap-2">
-                <span className="text-[11px] text-neutral-400 font-semibold">Or pick instant avatar:</span>
+                <span className="text-[11px] text-neutral-400 font-semibold">Or pick avatar:</span>
                 {PRESET_AVATARS.map((preset, idx) => (
                   <button
                     key={idx}
@@ -407,136 +593,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               <ChevronRight className="w-4 h-4 stroke-[3]" />
             </button>
             <p className="text-[11px] text-neutral-500 text-center font-medium">
-              Step 1 of 3 • Profile Setup
+              Step 2 of 3 • Profile Picture &amp; Name
             </p>
           </div>
         </div>
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 2: Country Selection & Phone / ID Setup (Exact replica of IMG_4726)  */}
-      {/* ========================================================================= */}
-      {step === 2 && (
-        <div className="w-full max-w-md mx-auto flex-1 flex flex-col justify-between p-6 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] animate-in slide-in-from-right duration-200">
-          <div>
-            {/* Top iOS Header matching IMG_4726 */}
-            <div className="flex items-center justify-between pb-3">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="p-2 -ml-2 text-white hover:text-red-400 active:scale-95 transition cursor-pointer flex items-center"
-              >
-                <ChevronLeft className="w-7 h-7 stroke-[2.5]" />
-              </button>
-
-              <div className="flex items-center gap-1.5">
-                <div className="w-6 h-6 rounded-lg bg-red-600 flex items-center justify-center font-black text-xs text-white shadow-md shadow-red-950">
-                  K
-                </div>
-                <span className="font-black text-sm tracking-tight text-white">
-                  KEMPO <span className="text-red-500">PRO</span>
-                </span>
-              </div>
-
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowCountryModal(true)}
-                  className="p-2 -mr-2 text-white hover:text-neutral-300 active:scale-95 transition cursor-pointer"
-                  title="Change Country"
-                >
-                  <MoreVertical className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Title & Subtitle matching IMG_4729 */}
-            <div className="text-center pt-2 mb-6">
-              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                Enter your phone number
-              </h2>
-              <p className="text-xs sm:text-sm text-neutral-400 mt-2 max-w-xs mx-auto leading-relaxed">
-                Kempo Pro will link this to your account. Carrier charges may apply.
-              </p>
-            </div>
-
-            {/* iOS WhatsApp Style Card matching IMG_4729 */}
-            <div className="bg-[#18181c] border border-neutral-800/90 rounded-2xl overflow-hidden shadow-2xl">
-              {/* Row 1: Country Selector */}
-              <button
-                type="button"
-                onClick={() => setShowCountryModal(true)}
-                className="w-full px-4 py-3.5 flex items-center justify-between hover:bg-neutral-800/40 active:bg-neutral-800/70 transition cursor-pointer text-left"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl leading-none">{selectedCountry.flag}</span>
-                  <span className="text-sm font-semibold text-white">
-                    {selectedCountry.name}
-                  </span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-neutral-500" />
-              </button>
-
-              <div className="h-[1px] bg-neutral-800/80 mx-4" />
-
-              {/* Row 2: Read-Only Auto-Generated ID Row */}
-              <div className="px-4 py-3.5 flex items-center gap-3 select-none">
-                <div className="flex items-center gap-1.5 shrink-0 bg-red-950/70 border border-red-600/70 px-3 py-1.5 rounded-xl shadow-md">
-                  <span className="text-xs sm:text-sm font-black text-red-500 tracking-tight">Kempo Pro</span>
-                  {!isOwner && (
-                    <span className="text-sm sm:text-base font-black text-white font-mono">
-                      {selectedCountry.dialCode}
-                    </span>
-                  )}
-                </div>
-
-                <span className="text-base sm:text-lg font-black text-white font-mono tracking-wider">
-                  {isOwner ? 'OWNER' : idSuffix}
-                </span>
-              </div>
-            </div>
-
-            {/* Live Shareable ID Preview Card */}
-            <div className="mt-4 p-4 rounded-2xl bg-[#16161c] border border-red-900/40 flex items-center justify-between shadow-xl">
-              <div className="min-w-0 pr-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
-                  Your Full Kempo Shareable ID
-                </span>
-                <span className="text-sm sm:text-base font-black text-white font-mono tracking-wide mt-1 block truncate">
-                  {isOwner ? OWNER_FIXED_ID : `Kempo Pro ${selectedCountry.dialCode}${idSuffix}`}
-                </span>
-              </div>
-              <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30 shrink-0">
-                {isOwner ? 'Owner / Admin' : 'Official'}
-              </span>
-            </div>
-          </div>
-
-          {/* Bottom Area: Prominent Red "Next >" Button (Onscreen keypad removed completely) */}
-          <div className="mt-8 space-y-3">
-            <button
-              type="button"
-              onClick={handleNextFromPhone}
-              className="w-full h-13 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-black text-base shadow-xl shadow-red-950/70 flex items-center justify-center gap-2 transition cursor-pointer"
-            >
-              <span>Next</span>
-              <ChevronRight className="w-5 h-5 stroke-[2.5]" />
-            </button>
-
-            <p className="text-[11px] text-neutral-500 text-center font-medium">
-              Step 2 of 3 • Country & ID Setup
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* STEP 3: Choose Account Type (Exact replica of IMG_4722)                   */}
+      {/* STEP 3: Choose Account Type ("maybe business, maybe private, maybe game")  */}
       {/* ========================================================================= */}
       {step === 3 && (
         <div className="w-full max-w-md mx-auto flex-1 flex flex-col justify-between p-6 pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)] animate-in slide-in-from-right duration-200">
           <div>
-            {/* Top Bar with Kempo Pro Branding Logo (matching IMG_4722) */}
+            {/* Top Bar */}
             <div className="flex items-center justify-between pb-4">
               <button
                 type="button"
@@ -558,23 +627,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               <div className="w-7" />
             </div>
 
-            {/* Headline and Subtitle matching IMG_4722 */}
+            {/* Headline and Subtitle */}
             <div className="text-center pt-2 mb-6">
               <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
                 Choose Account Type
               </h2>
               <p className="text-xs sm:text-sm text-neutral-400 mt-2 max-w-xs mx-auto leading-relaxed">
-                Select how you plan to use KEMPO PRO. You can change this anytime.
+                Select your account category: private, business, game, or creator.
               </p>
             </div>
 
-            {/* The 4 Exact Cards from IMG_4722 */}
+            {/* The 4 Cards: Private, Business, Creator, Game */}
             <div className="space-y-3">
               {[
                 {
                   id: 'personal' as const,
-                  title: 'Personal Account',
-                  badge: 'Default',
+                  title: 'Private Account',
+                  badge: 'Popular',
                   icon: Shield,
                   desc: 'Encrypted private chats, status updates & HD voice calls.',
                 },
@@ -625,7 +694,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                         <div className="flex items-center gap-2">
                           <h4 className="text-sm font-bold text-white tracking-tight">{title}</h4>
                           {badge && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-600/20 text-red-400 border border-red-500/30">
                               {badge}
                             </span>
                           )}
@@ -636,7 +705,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                       </div>
                     </div>
 
-                    {/* Radio Checkmark Circle matching IMG_4722 */}
                     <div
                       className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition ${
                         isSelected
@@ -652,100 +720,89 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             </div>
           </div>
 
-          {/* Bottom Action Area: Red "Continue >" button matching IMG_4722 */}
+          {/* Bottom Area: Finish & Enter Kempo Pro Button */}
           <div className="mt-8 space-y-3">
             <button
               type="button"
               disabled={isSaving}
               onClick={handleFinishOnboarding}
-              className="w-full h-14 rounded-full bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-extrabold text-base shadow-xl shadow-red-950/80 flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-70"
+              className="w-full h-13 rounded-2xl bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-black text-base shadow-xl shadow-red-950/70 flex items-center justify-center gap-2 transition cursor-pointer"
             >
               {isSaving ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Configuring Account...</span>
+                  <span>Saving permanently...</span>
                 </>
               ) : (
                 <>
-                  <span>Continue</span>
-                  <ChevronRight className="w-5 h-5 stroke-[2.5]" />
+                  <span>Finish Setup &amp; Start Chatting</span>
+                  <Check className="w-5 h-5 stroke-[3]" />
                 </>
               )}
             </button>
 
             <p className="text-[11px] text-neutral-500 text-center font-medium">
-              KEMPO PRO • End-to-end encrypted messaging
+              Step 3 of 3 • Account Category
             </p>
           </div>
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* COUNTRY SELECTION MODAL (Comprehensive Searchable List of 120+ Countries) */}
-      {/* ========================================================================= */}
+      {/* Country Selection Modal Sheet (Used in Step 1) */}
       {showCountryModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col justify-end sm:justify-center items-center p-0 sm:p-4 animate-in fade-in">
-          <div className="w-full max-w-md bg-[#16161a] border border-neutral-800 rounded-t-3xl sm:rounded-3xl h-[85vh] flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-300">
-            {/* Modal Header */}
-            <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col justify-end animate-in fade-in">
+          <div className="w-full h-[85vh] bg-[#141418] rounded-t-[28px] border-t border-red-900/40 flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom">
+            <div className="h-14 px-5 border-b border-neutral-800 flex items-center justify-between shrink-0">
               <h3 className="text-base font-bold text-white">Select Country</h3>
               <button
                 type="button"
                 onClick={() => setShowCountryModal(false)}
-                className="w-8 h-8 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white flex items-center justify-center text-sm transition cursor-pointer"
+                className="w-8 h-8 rounded-full bg-neutral-800 hover:bg-red-600 text-neutral-300 hover:text-white flex items-center justify-center transition cursor-pointer"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Country Search Bar */}
-            <div className="p-3 border-b border-neutral-800/80">
-              <div className="relative flex items-center">
-                <Search className="w-4 h-4 text-neutral-400 absolute left-3.5" />
+            <div className="p-3 border-b border-neutral-800">
+              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#1c1c22] border border-neutral-700/80 text-white">
+                <Search className="w-4 h-4 text-red-400 shrink-0" />
                 <input
                   type="text"
+                  placeholder="Search country name or code..."
                   value={countrySearch}
                   onChange={(e) => setCountrySearch(e.target.value)}
-                  placeholder="Search country or dial code..."
-                  className="w-full h-10 pl-10 pr-3 rounded-xl bg-[#202026] border border-neutral-700 text-white text-xs placeholder-neutral-500 focus:outline-none focus:border-red-500 transition"
+                  className="w-full bg-transparent text-sm focus:outline-none placeholder-neutral-500 text-white"
                 />
               </div>
             </div>
 
-            {/* Country List */}
             <div className="flex-1 overflow-y-auto divide-y divide-neutral-850">
-              {filteredCountries.map((country) => {
-                const isSelected = selectedCountry.code === country.code;
-                return (
-                  <button
-                    key={`${country.code}-${country.dialCode}`}
-                    type="button"
-                    onClick={() => {
-                      setSelectedCountry(country);
-                      setShowCountryModal(false);
-                      setCountrySearch('');
-                    }}
-                    className={`w-full px-4 py-3 flex items-center justify-between hover:bg-neutral-800/50 transition cursor-pointer text-left ${
-                      isSelected ? 'bg-red-950/20 text-red-400' : 'text-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl leading-none">{country.flag}</span>
-                      <span className="text-sm font-semibold">{country.name}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-bold text-neutral-400">
-                        {country.dialCode}
-                      </span>
-                      {isSelected && <Check className="w-4 h-4 text-red-500 stroke-[3]" />}
-                    </div>
-                  </button>
-                );
-              })}
+              {filteredCountries.map((c) => (
+                <div
+                  key={c.code}
+                  onClick={() => {
+                    setSelectedCountry(c);
+                    setShowCountryModal(false);
+                    setCountrySearch('');
+                  }}
+                  className="px-5 py-3.5 flex items-center justify-between hover:bg-red-950/30 active:bg-red-950/50 transition cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <span className="text-2xl leading-none">{c.flag}</span>
+                    <span className="text-sm font-semibold text-white">
+                      {c.name}
+                    </span>
+                  </div>
+                  <span className="text-sm font-bold text-red-400 font-mono">
+                    {c.dialCode}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 };
