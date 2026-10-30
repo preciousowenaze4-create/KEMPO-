@@ -112,24 +112,42 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
 
       const model = gltf.scene;
 
-      // In rest pose without the journal animation track, rotation [0, 0, 0] gives:
-      // - Eyes and face pointing directly toward the camera (+Z)
-      // - Upright orientation with top of skull pointing up (+Y) and chin down (-Y)
-      // - Left and right eyes correctly aligned horizontally
-      model.rotation.set(0, 0, 0);
+      // 1. Pitch forward ~12° (+X) so the head is looking straight at the camera with eyes locked forward
+      model.rotation.set(12 * (Math.PI / 180), 0, 0);
       model.updateMatrixWorld(true);
 
-      // Auto-center the head based on bounding box
-      const box = new THREE.Box3().setFromObject(model);
-      const center = box.getCenter(new THREE.Vector3());
+      // 2. Center specifically on the facial features (eyes, nose, mouth) rather than the elongated neck base
+      const eyeL = model.getObjectByName('Object_5');
+      const eyeR = model.getObjectByName('Object_8');
+      const teeth = model.getObjectByName('Object_13');
+      const mesh = model.getObjectByName('mesh_2');
 
-      // Center model exactly inside pivot group
-      model.position.set(-center.x, -center.y, -center.z);
+      const elPos = new THREE.Vector3();
+      const erPos = new THREE.Vector3();
+      const teethPos = new THREE.Vector3();
+      if (eyeL) eyeL.getWorldPosition(elPos);
+      if (eyeR) eyeR.getWorldPosition(erPos);
+      if (teeth) teeth.getWorldPosition(teethPos);
+
+      const noseLocal = new THREE.Vector3(0, 3.92, 9.52);
+      const noseWorld = mesh
+        ? noseLocal.clone().applyMatrix4((mesh as THREE.Mesh).matrixWorld)
+        : new THREE.Vector3(0, 0.02, 0.04);
+
+      const faceCenter = new THREE.Vector3()
+        .add(elPos)
+        .add(erPos)
+        .add(teethPos)
+        .add(noseWorld)
+        .multiplyScalar(0.25);
+
+      // Center model exactly on facial center point
+      model.position.set(-faceCenter.x, -faceCenter.y, -faceCenter.z);
       rootGroup.add(model);
 
-      // Position camera centered on the face features (eyes and nose level) with close portrait framing
-      camera.position.set(0, 0.045, 0.35);
-      camera.lookAt(0, 0.045, 0);
+      // 3. Position camera focused on center of face for an upright, clear portrait
+      camera.position.set(0, 0, 0.28);
+      camera.lookAt(0, 0, 0);
 
       // Find morph targets for speech animation & lip-sync
       model.traverse((child: any) => {
