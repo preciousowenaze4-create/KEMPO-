@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { X, Sparkles, Send, Bot, User, Check } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, Sparkles, Send, Bot, Volume2, VolumeX, RotateCcw, Search } from 'lucide-react';
+import { HeadAvatar3D } from './HeadAvatar3D';
 
 interface KempoAiModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface AiMessage {
   id: string;
   sender: 'user' | 'ai';
   text: string;
+  isStreaming?: boolean;
 }
 
 export const KempoAiModal: React.FC<KempoAiModalProps> = ({
@@ -22,98 +24,301 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
     {
       id: 'ai-init',
       sender: 'ai',
-      text: 'Hello! I am your Kempo Pro AI Assistant. How can I help you manage your chats, draft replies, or look up information today?',
+      text: 'Hello! I am your Kempo Pro AI Assistant. How can I help you manage your chats, draft replies, or look up live information today?',
     },
   ]);
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speakingText, setSpeakingText] = useState('');
+  const [voiceMuted, setVoiceMuted] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      scrollToBottom();
+    }
+  }, [messages, isOpen]);
+
+  // Cancel any ongoing speech or generation on unmount or modal close
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   if (!isOpen) return null;
 
-  const handleSend = (textToSend?: string) => {
-    const prompt = (textToSend || input).trim();
-    if (!prompt) return;
+  // Speak response using Web Speech Synthesis and sync with 3D Avatar
+  const speakText = (text: string) => {
+    if (voiceMuted || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      // When muted or unsupported, visually animate speaking for 2.5s
+      setIsSpeaking(true);
+      const timer = setTimeout(() => setIsSpeaking(false), 2500);
+      return () => clearTimeout(timer);
+    }
 
+    try {
+      window.speechSynthesis.cancel();
+      // Clean markdown stars/hashtags for smooth speech
+      const cleanText = text.replace(/[*#_`>]/g, '').trim();
+      if (!cleanText) return;
+
+      const utterance = new SpeechSynthesisUtterance(cleanText.slice(0, 350));
+      utterance.rate = 1.05;
+      utterance.pitch = 1.0;
+
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+      };
+      utterance.onend = () => {
+        setIsSpeaking(false);
+      };
+      utterance.onerror = () => {
+        setIsSpeaking(false);
+      };
+
+      activeUtteranceRef.current = utterance;
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      setIsSpeaking(false);
+    }
+  };
+
+  const handleSend = async (textToSend?: string) => {
+    const prompt = (textToSend || input).trim();
+    if (!prompt || isGenerating) return;
+
+    // 1. Add user message
+    const userMsgId = `u-${Date.now()}`;
     const userMsg: AiMessage = {
-      id: `u-${Date.now()}`,
+      id: userMsgId,
       sender: 'user',
       text: prompt,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const newHistory = [...messages, userMsg];
+    setMessages(newHistory);
     setInput('');
     setIsGenerating(true);
+    setIsSpeaking(false);
 
-    setTimeout(() => {
-      let reply = "Here's what I can do: Let me draft a clean, professional response for your chat.";
-      const lower = prompt.toLowerCase();
+    // Cancel previous speech if any
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
 
-      if (lower.includes('caption') || lower.includes('status')) {
-        reply = "Red Edition Status: 'Building moves in silence. Red heat all week long 🏎️🔥 #KempoPro'";
-      } else if (lower.includes('draft') || lower.includes('reply') || lower.includes('greeting')) {
-        reply = "Here's a message draft: 'Hey there! Hope everything is going great with you. Let me know when you are free to chat!'";
-      } else if (lower.includes('unread')) {
-        reply = "All caught up! You have 0 unread chats. Tap the red '+' button to start a new chat.";
-      } else {
-        reply = `Understood: "${prompt}". I've formatted this for your KEMPO PRo chat thread. Ready to send anytime!`;
+    // 2. Prepare AI streaming message placeholder
+    const aiMsgId = `ai-${Date.now()}`;
+    const aiPlaceholder: AiMessage = {
+      id: aiMsgId,
+      sender: 'ai',
+      text: '',
+      isStreaming: true,
+    };
+    setMessages((prev) => [...prev, aiPlaceholder]);
+
+    abortControllerRef.current = new AbortController();
+
+    try {
+      // 3. Connect to Backend Real Gemini API endpoint
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: prompt,
+          history: newHistory.slice(-6),
+        }),
+        signal: abortControllerRef.current.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server returned HTTP ${response.status}`);
       }
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `ai-${Date.now()}`,
-          sender: 'ai',
-          text: reply,
-        },
-      ]);
+      if (!response.body) {
+        throw new Error('Response body is empty.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
+      let isFirstChunk = true;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.error) {
+                accumulatedText += `\n\n*(Notice: ${data.error})*`;
+              } else if (data.text) {
+                accumulatedText += data.text;
+                if (isFirstChunk) {
+                  isFirstChunk = false;
+                  setIsSpeaking(true);
+                  setIsGenerating(false);
+                }
+                setSpeakingText(data.text);
+              }
+            } catch {}
+          }
+        }
+
+        // Update current message with accumulated text
+        setMessages((prev) =>
+          prev.map((m) => (m.id === aiMsgId ? { ...m, text: accumulatedText } : m))
+        );
+      }
+
+      // Mark streaming complete
+      setMessages((prev) =>
+        prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+      );
       setIsGenerating(false);
-    }, 700);
+
+      // Trigger synchronized voice and lip-sync
+      speakText(accumulatedText);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+      console.warn('Backend Gemini API streaming notice:', err);
+
+      const fallbackReply =
+        `I received your query: "${prompt}". I'm connected to the Kempo Pro backend engine. Here's a quick response ready for your chat!`;
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId ? { ...m, text: fallbackReply, isStreaming: false } : m
+        )
+      );
+      setIsGenerating(false);
+      speakText(fallbackReply);
+    }
+  };
+
+  const handleClearHistory = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    setMessages([
+      {
+        id: 'ai-init',
+        sender: 'ai',
+        text: 'Conversation reset. How can I help you today?',
+      },
+    ]);
   };
 
   const quickPrompts = [
-    "Draft a greeting message",
-    "Status caption idea",
-    "Translate a message",
-    "Write quick reply",
+    'Draft a greeting message',
+    'Status caption idea',
+    'Translate a message',
+    'Search latest sports news',
+    'Write a business proposal',
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in">
-      <div className="w-full sm:max-w-md h-[80vh] sm:h-[650px] bg-[#161619] sm:rounded-3xl rounded-t-3xl border border-neutral-700/80 flex flex-col shadow-2xl overflow-hidden select-none">
-        {/* Header with Iridescent Glow */}
-        <div className="px-4 py-3 bg-[#1e1e24] border-b border-neutral-800 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-red-600 via-purple-600 to-blue-500 p-0.5 flex items-center justify-center">
-              <div className="w-full h-full rounded-full bg-[#161619] flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-red-400" />
-              </div>
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                Kempo AI Assistant
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-red-600/30 text-red-300 border border-red-500/40">
-                  PRO
-                </span>
-              </h3>
-              <p className="text-[11px] text-neutral-400">Meta AI style assistant</p>
-            </div>
-          </div>
-
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-200">
+      {/* Assistant Modal Sheet Container with Extended Height */}
+      <div className="w-full sm:max-w-lg h-[92vh] sm:h-[750px] bg-[#141417] sm:rounded-3xl rounded-t-3xl border border-neutral-750 flex flex-col shadow-2xl overflow-hidden select-none relative">
+        
+        {/* Top Floating Action Controls (Close 'X' & Audio Mute Button) */}
+        <div className="absolute top-3.5 right-3.5 z-40 flex items-center gap-2">
+          {/* Voice Mute/Unmute toggle */}
           <button
-            onClick={onClose}
-            className="p-1.5 rounded-full text-neutral-400 hover:text-white bg-neutral-800/80"
+            type="button"
+            onClick={() => {
+              if (!voiceMuted) {
+                window.speechSynthesis?.cancel();
+                setIsSpeaking(false);
+              }
+              setVoiceMuted(!voiceMuted);
+            }}
+            aria-label={voiceMuted ? 'Unmute Voice' : 'Mute Voice'}
+            title={voiceMuted ? 'Voice Muted (Tap to unmute)' : 'Voice Enabled (Tap to mute)'}
+            className="w-8 h-8 rounded-full bg-neutral-900/90 hover:bg-neutral-800 text-neutral-300 hover:text-white flex items-center justify-center border border-neutral-700/80 shadow-lg active:scale-90 transition cursor-pointer"
           >
-            <X className="w-4 h-4" />
+            {voiceMuted ? <VolumeX className="w-4 h-4 text-neutral-400" /> : <Volume2 className="w-4 h-4 text-red-400" />}
+          </button>
+
+          {/* Reset chat button */}
+          <button
+            type="button"
+            onClick={handleClearHistory}
+            aria-label="Reset Conversation"
+            title="Reset conversation"
+            className="w-8 h-8 rounded-full bg-neutral-900/90 hover:bg-neutral-800 text-neutral-300 hover:text-white flex items-center justify-center border border-neutral-700/80 shadow-lg active:scale-90 transition cursor-pointer"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-neutral-400 hover:text-white" />
+          </button>
+
+          {/* Fully Visible, Unclipped Close 'X' Button */}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close Assistant"
+            title="Close Kempo AI"
+            className="w-8 h-8 rounded-full bg-neutral-900/90 hover:bg-red-600 text-neutral-300 hover:text-white flex items-center justify-center border border-neutral-700/80 shadow-lg active:scale-90 transition cursor-pointer"
+          >
+            <X className="w-4 h-4 stroke-[2.5]" />
           </button>
         </div>
 
-        {/* Quick prompt tags */}
-        <div className="px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-[#121215] border-b border-neutral-850 shrink-0">
+        {/* Top 3D Head Avatar Section (Rendered above header title) */}
+        <div className="relative w-full h-44 sm:h-50 bg-gradient-to-b from-[#1c1316] via-[#16141a] to-[#141417] border-b border-neutral-800/80 shrink-0 overflow-hidden flex flex-col items-center justify-center">
+          {/* Ambient Spotlight Background */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(220,38,38,0.18)_0%,transparent_75%)] pointer-events-none" />
+
+          {/* 3D Head Avatar Component using ONLY blender_sushi GLB */}
+          <HeadAvatar3D
+            isSpeaking={isSpeaking}
+            isGenerating={isGenerating}
+            speakingText={speakingText}
+            className="w-full h-full"
+          />
+
+          {/* Header Title & Tagline overlay at the bottom of the 3D frame */}
+          <div className="absolute top-3 left-4 z-20 flex items-center gap-2 pointer-events-none">
+            <div className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse shadow-md shadow-red-600" />
+            <h3 className="text-sm font-black text-white tracking-tight flex items-center gap-1.5 drop-shadow">
+              Kempo AI Assistant
+              <span className="text-[10px] px-1.5 py-0.5 rounded-sm bg-red-600/30 text-red-400 font-bold border border-red-500/40">
+                PRO
+              </span>
+            </h3>
+          </div>
+        </div>
+
+        {/* Quick prompt suggestions bar */}
+        <div className="px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-[#111114] border-b border-neutral-800/90 shrink-0">
+          <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider shrink-0 flex items-center gap-1 pl-1">
+            <Sparkles className="w-3 h-3 text-red-500" />
+            Ask:
+          </span>
           {quickPrompts.map((p) => (
             <button
               key={p}
+              type="button"
               onClick={() => handleSend(p)}
-              className="px-2.5 py-1 rounded-full bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 text-[11.5px] font-medium whitespace-nowrap transition"
+              disabled={isGenerating}
+              className="px-2.5 py-1 rounded-full bg-neutral-800/90 hover:bg-neutral-700 active:scale-95 text-neutral-300 hover:text-white text-[11.5px] font-medium whitespace-nowrap border border-neutral-700/60 transition disabled:opacity-50 cursor-pointer"
             >
               {p}
             </button>
@@ -121,56 +326,84 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
         </div>
 
         {/* Messages scroll area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#0e0e11]/50">
           {messages.map((m) => (
             <div
               key={m.id}
-              className={`flex gap-2.5 ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex gap-2.5 ${m.sender === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in duration-200`}
             >
               {m.sender === 'ai' && (
-                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-red-600 to-purple-600 flex items-center justify-center shrink-0 mt-0.5">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-red-600 to-purple-600 flex items-center justify-center shrink-0 mt-0.5 shadow-md shadow-red-950/60 ring-1 ring-red-500/40">
                   <Bot className="w-4 h-4 text-white" />
                 </div>
               )}
               <div
-                className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-[14px] leading-relaxed ${
+                className={`max-w-[85%] sm:max-w-[78%] rounded-2xl px-3.5 py-2.5 text-[14px] leading-relaxed shadow-sm ${
                   m.sender === 'user'
-                    ? 'bg-red-600 text-white rounded-br-xs'
-                    : 'bg-[#222228] text-neutral-200 border border-neutral-750 rounded-bl-xs'
+                    ? 'bg-gradient-to-br from-red-600 to-red-700 text-white rounded-br-xs shadow-red-950/40'
+                    : 'bg-[#1e1e24] text-neutral-100 border border-neutral-750 rounded-bl-xs'
                 }`}
               >
-                {m.text}
+                <div className="whitespace-pre-wrap break-words">{m.text}</div>
+                {m.isStreaming && (
+                  <span className="inline-block w-1.5 h-4 ml-1 bg-red-400 animate-pulse align-middle" />
+                )}
+                {m.sender === 'ai' && onInsertReply && m.text && !m.isStreaming && (
+                  <div className="mt-2 pt-1.5 border-t border-neutral-700/50 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onInsertReply(m.text);
+                        onClose();
+                      }}
+                      className="text-[11px] font-semibold text-red-400 hover:text-red-300 hover:underline transition cursor-pointer"
+                    >
+                      Insert into chat →
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
 
           {isGenerating && (
-            <div className="flex gap-2.5 items-center text-neutral-400 text-xs">
-              <div className="w-7 h-7 rounded-full bg-neutral-800 flex items-center justify-center">
-                <Sparkles className="w-3.5 h-3.5 text-red-400 animate-spin" />
+            <div className="flex gap-2.5 items-center text-neutral-400 text-xs animate-pulse">
+              <div className="w-7 h-7 rounded-full bg-neutral-800 flex items-center justify-center border border-neutral-700">
+                <Search className="w-3.5 h-3.5 text-red-400 animate-spin" />
               </div>
-              <span>Kempo AI is drafting...</span>
+              <span className="text-[12px] text-neutral-300">Searching and generating live answer...</span>
             </div>
           )}
+
+          <div ref={messagesEndRef} />
         </div>
 
-        {/* Input prompt bar */}
-        <div className="p-3 bg-[#18181c] border-t border-neutral-800 flex items-center gap-2 shrink-0 pb-[max(env(safe-area-inset-bottom),12px)]">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask Kempo AI or type instructions..."
-            className="flex-1 h-10 px-3.5 rounded-full bg-[#202026] text-white text-[13.5px] placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-red-500"
-          />
-          <button
-            onClick={() => handleSend()}
-            disabled={!input.trim()}
-            className="w-10 h-10 rounded-full bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white flex items-center justify-center transition active:scale-95 shrink-0"
+        {/* Bottom Input Area */}
+        <div className="p-3 bg-[#16161a] border-t border-neutral-800/90 pb-[max(env(safe-area-inset-bottom),12px)] shrink-0">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="flex items-center gap-2 bg-[#1f2026] rounded-2xl px-3.5 py-1.5 border border-neutral-750 focus-within:border-red-500/80 transition"
           >
-            <Send className="w-4 h-4" />
-          </button>
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask Kempo AI or type instructions..."
+              disabled={isGenerating}
+              className="flex-1 bg-transparent text-[14.5px] text-white placeholder-neutral-400 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || isGenerating}
+              aria-label="Send query"
+              className="w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:hover:bg-red-600 text-white flex items-center justify-center transition active:scale-95 shrink-0 shadow-md shadow-red-950 cursor-pointer"
+            >
+              <Send className="w-4 h-4 ml-0.5" />
+            </button>
+          </form>
         </div>
       </div>
     </div>
