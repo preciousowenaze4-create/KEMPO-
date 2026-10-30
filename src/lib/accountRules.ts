@@ -96,9 +96,6 @@ export function isRawIdString(val?: string | null): boolean {
 export function getCanonicalUserId(val?: string | null): string {
   if (!val) return '';
   const s = val.trim().toLowerCase();
-  if (isOwnerEmail(s) || isOwnerIdFormat(s) || s === 'owner' || s === 'admin') {
-    return 'OWNER';
-  }
   // Remove "kempo", "pro", and any non-alphanumeric chars
   const stripped = s
     .replace(/^kempo[\s\-_]*(pro)?[\s\-_]*/g, '')
@@ -114,7 +111,6 @@ export function getCanonicalUserId(val?: string | null): string {
 export function formatDisplayKempoId(rawId?: string | null): string {
   if (!rawId) return 'Kempo Pro';
   const clean = rawId.trim();
-  if (isOwnerIdFormat(clean)) return OWNER_FIXED_ID;
 
   // Extract core suffix/code
   let suffix = clean
@@ -140,34 +136,26 @@ export function formatDisplayKempoId(rawId?: string | null): string {
 
 /**
  * Check if the given email corresponds to the single official application owner (case-insensitive)
+ * Note: Owner mode is currently disabled per user instruction. No one is the owner.
  */
-export function isOwnerEmail(email?: string | null): boolean {
-  if (!email) return false;
-  const clean = email.trim().toLowerCase();
-  return clean === OFFICIAL_OWNER_EMAIL.toLowerCase();
+export function isOwnerEmail(_email?: string | null): boolean {
+  return false;
 }
 
 /**
  * Check if an ID string matches the dedicated Owner or Admin format strictly
+ * Note: Owner mode is disabled per user instruction.
  */
-export function isOwnerIdFormat(id?: string | null): boolean {
-  if (!id) return false;
-  const clean = id.trim().toLowerCase();
-  return (
-    clean === 'kempo pro owner' ||
-    clean === 'kempo pro admin' ||
-    clean === OWNER_FIXED_ID.toLowerCase() ||
-    clean === OWNER_ADMIN_ID.toLowerCase()
-  );
+export function isOwnerIdFormat(_id?: string | null): boolean {
+  return false;
 }
 
 /**
  * Check if a profile belongs to the application owner.
- * STRICT: Only accounts with the verified official owner email are granted owner privileges!
+ * Note: Owner mode is disabled per user instruction.
  */
-export function isOwnerAccount(profile?: { email?: string; kempoId?: string; isAdmin?: boolean } | null): boolean {
-  if (!profile || !profile.email) return false;
-  return isOwnerEmail(profile.email);
+export function isOwnerAccount(_profile?: { email?: string; kempoId?: string; isAdmin?: boolean } | null): boolean {
+  return false;
 }
 
 /**
@@ -210,22 +198,19 @@ export function generateStandardUserKempoId(countryDialCode?: string, email?: st
 
 /**
  * Assign appropriate User ID based on account credentials.
- * Dedicated "Kempo Pro OWNER" for owner email,
- * and guaranteed unique permanent Kempo Pro ID for standard users.
+ * Guaranteed unique permanent Kempo Pro ID for standard users.
  */
 export function assignUserKempoId(
   email: string,
   countryDialCode?: string,
   existingId?: string
 ): string {
-  if (isOwnerEmail(email)) {
-    return OWNER_FIXED_ID;
-  }
-  // If an existing valid permanent ID is already assigned (and not the buggy A5738 placeholder), preserve it!
+  // If an existing valid permanent ID is already assigned, preserve it!
   if (
     existingId &&
     existingId.trim() &&
     !isOwnerIdFormat(existingId) &&
+    !existingId.includes('OWNER') &&
     !existingId.endsWith('A5738')
   ) {
     return existingId.trim();
@@ -235,31 +220,12 @@ export function assignUserKempoId(
 
 /**
  * Validate when a user attempts to customize or set a User ID.
- * Returns validation status and ensures regular users cannot claim the Owner ID.
  */
 export function validateAndFormatUserId(
   desiredId: string,
-  userEmail?: string
+  _userEmail?: string
 ): { valid: boolean; formattedId: string; error?: string } {
   const trimmed = desiredId.trim();
-  const lower = trimmed.toLowerCase();
-
-  // If owner, allow official owner IDs
-  if (isOwnerEmail(userEmail)) {
-    if (isOwnerIdFormat(trimmed)) {
-      return { valid: true, formattedId: OWNER_FIXED_ID };
-    }
-    return { valid: true, formattedId: trimmed };
-  }
-
-  // Non-owner trying to set 'Kempo Pro OWNER', 'Kempo Pro ADMIN', 'kempo pro'
-  if (isOwnerIdFormat(lower)) {
-    return {
-      valid: false,
-      formattedId: '',
-      error: "'Kempo Pro OWNER' is reserved exclusively for the application owner.",
-    };
-  }
 
   // Clean format
   let formatted = trimmed;

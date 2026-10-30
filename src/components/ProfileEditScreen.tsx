@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { UserProfileData } from '../types';
 import { uploadAvatarToSupabase, uploadCoverToSupabase, saveFullUserProfile, isVideoMediaUrl } from '../lib/supabase';
-import { isOwnerEmail, OWNER_FIXED_ID, isOwnerIdFormat, generateStandardUserKempoId } from '../lib/accountRules';
+import { isOwnerEmail, OWNER_FIXED_ID, isOwnerIdFormat, generateStandardUserKempoId, formatNameFromEmail } from '../lib/accountRules';
 import { saveMediaToOfflineCache, getMediaFromOfflineCache, safeLocalStorageSet } from '../lib/mediaCache';
 import { realtimeService } from '../lib/realtimeService';
 
@@ -87,15 +87,16 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     (userProfile?.kempoId ? userProfile.kempoId.replace(/[^A-Z0-9]/gi, '') : '');
 
   // Dedicated permanent Kempo Pro ID
-  const shareableKempoId = isOwner
-    ? OWNER_FIXED_ID
-    : (userProfile?.kempoId && !userProfile.kempoId.endsWith('A5738') && !isOwnerIdFormat(userProfile.kempoId))
+  const shareableKempoId =
+    userProfile?.kempoId &&
+    !userProfile.kempoId.endsWith('A5738') &&
+    !userProfile.kempoId.includes('OWNER')
       ? userProfile.kempoId
       : generateStandardUserKempoId(cleanCode, rawEmail);
 
   // Form states
   const [displayName, setDisplayName] = useState<string>(
-    userProfile?.displayName || currentUserName || (isOwner ? 'Precious Ddkid' : 'Kempo User')
+    userProfile?.displayName || currentUserName || formatNameFromEmail(rawEmail)
   );
   const [statusThought, setStatusThought] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -246,8 +247,8 @@ export const ProfileEditScreen: React.FC<ProfileEditScreenProps> = ({
     const finalProfile: UserProfileData = {
       id: userProfile?.id || 'user',
       email: rawEmail,
-      accountType: userProfile?.accountType || (isOwner ? 'creator' : 'personal'),
-      displayName: displayName.trim() || (isOwner ? 'Precious Ddkid' : 'Kempo User'),
+      accountType: userProfile?.accountType || 'personal',
+      displayName: displayName.trim() || 'Kempo User',
       avatarUrl: avatarUrl,
       coverUrl: coverUrl,
       coverType: effectiveCoverType,

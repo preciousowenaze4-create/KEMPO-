@@ -163,9 +163,11 @@ export default function App() {
         try {
           const parsed = JSON.parse(cached);
           const email = parsed.email || localStorage.getItem('kempo_auth_user') || '';
-          if (isOwnerEmail(email)) {
-            parsed.accountType = 'creator';
-            parsed.kempoId = OWNER_FIXED_ID;
+          if (!parsed.kempoId || parsed.kempoId.includes('OWNER') || parsed.kempoId.endsWith('A5738')) {
+            parsed.kempoId = generateStandardUserKempoId(parsed.countryCode, email);
+          }
+          if (parsed.accountType === 'creator' && !parsed.category) {
+            parsed.accountType = 'personal';
           }
           return parsed;
         } catch (e) {
@@ -550,10 +552,7 @@ export default function App() {
           setShowOnboarding(false);
           const { profile } = await checkUserProfileCompletion(session.user.id, email);
           if (profile) {
-            if (isOwnerEmail(email)) {
-              profile.accountType = 'creator';
-              profile.kempoId = OWNER_FIXED_ID;
-            } else if (!profile.kempoId || profile.kempoId.endsWith('A5738') || isOwnerIdFormat(profile.kempoId)) {
+            if (!profile.kempoId || profile.kempoId.endsWith('A5738') || profile.kempoId.includes('OWNER') || isOwnerIdFormat(profile.kempoId)) {
               profile.kempoId = await getOrCreatePermanentKempoId(email, profile.countryCode);
             }
             if (profile.avatarUrl && typeof window !== 'undefined') {
@@ -574,10 +573,7 @@ export default function App() {
           if (isCompleted && profile?.phoneNumber) {
             setShowOnboarding(false);
             if (profile) {
-              if (isOwnerEmail(email)) {
-                profile.accountType = 'creator';
-                profile.kempoId = OWNER_FIXED_ID;
-              } else if (!profile.kempoId || profile.kempoId.endsWith('A5738') || isOwnerIdFormat(profile.kempoId)) {
+              if (!profile.kempoId || profile.kempoId.endsWith('A5738') || profile.kempoId.includes('OWNER') || isOwnerIdFormat(profile.kempoId)) {
                 profile.kempoId = await getOrCreatePermanentKempoId(email, profile.countryCode);
               }
               if (profile.avatarUrl && typeof window !== 'undefined') {
@@ -630,7 +626,7 @@ export default function App() {
           meta.full_name ||
           meta.name ||
           meta.display_name ||
-          (isOwner ? 'Precious Ddkid' : 'Kempo User');
+          'Kempo User';
         setCurrentUserName(name);
         localStorage.setItem('kempo_auth_user', email);
         if (name) localStorage.setItem('kempo_auth_name', name);
@@ -648,10 +644,7 @@ export default function App() {
           setShowOnboarding(false);
           checkUserProfileCompletion(session.user.id, email).then(({ profile }) => {
             if (profile) {
-              if (isOwner) {
-                profile.accountType = 'creator';
-                profile.kempoId = OWNER_FIXED_ID;
-              } else if (!profile.kempoId || profile.kempoId.endsWith('A5738') || isOwnerIdFormat(profile.kempoId)) {
+              if (!profile.kempoId || profile.kempoId.endsWith('A5738') || profile.kempoId.includes('OWNER') || isOwnerIdFormat(profile.kempoId)) {
                 getOrCreatePermanentKempoId(email, profile.countryCode).then((freshId) => {
                   profile.kempoId = freshId;
                   setUserProfile((prev) => (prev ? { ...prev, kempoId: freshId } : null));
@@ -675,10 +668,7 @@ export default function App() {
             if (isCompleted && profile?.phoneNumber) {
               setShowOnboarding(false);
               if (profile) {
-                if (isOwner) {
-                  profile.accountType = 'creator';
-                  profile.kempoId = OWNER_FIXED_ID;
-                } else if (!profile.kempoId || profile.kempoId.endsWith('A5738') || isOwnerIdFormat(profile.kempoId)) {
+                if (!profile.kempoId || profile.kempoId.endsWith('A5738') || profile.kempoId.includes('OWNER') || isOwnerIdFormat(profile.kempoId)) {
                   getOrCreatePermanentKempoId(email, profile.countryCode).then((freshId) => {
                     profile.kempoId = freshId;
                     setUserProfile((prev) => (prev ? { ...prev, kempoId: freshId } : null));
@@ -763,15 +753,8 @@ export default function App() {
   };
 
   const handleOnboardingComplete = async (profile: UserProfileData) => {
-    const isOwner = isOwnerEmail(profile.email || currentUserEmail);
-
-    if (isOwner) {
-      profile.accountType = 'creator';
-      profile.kempoId = OWNER_FIXED_ID;
-    } else {
-      if (!profile.kempoId || profile.kempoId.endsWith('A5738') || isOwnerIdFormat(profile.kempoId)) {
-        profile.kempoId = await getOrCreatePermanentKempoId(profile.email || currentUserEmail, profile.countryCode);
-      }
+    if (!profile.kempoId || profile.kempoId.endsWith('A5738') || profile.kempoId.includes('OWNER') || isOwnerIdFormat(profile.kempoId)) {
+      profile.kempoId = await getOrCreatePermanentKempoId(profile.email || currentUserEmail, profile.countryCode);
     }
     profile.isOnboarded = true;
     profile.isProfileCompleted = true;
@@ -866,18 +849,13 @@ export default function App() {
       return null;
     }
 
-    const isContactOwner = Boolean(
-      (foundProfile?.email && isOwnerEmail(foundProfile.email)) ||
-      isOwnerIdFormat(cleanId)
-    );
-    const contactKempoId = isContactOwner ? OWNER_FIXED_ID : (foundProfile?.kempoId || cleanId);
+    const isContactOwner = false;
+    const contactKempoId = foundProfile?.kempoId || cleanId;
     
     let contactName = (customName && customName.trim()) || foundProfile?.displayName || '';
     if (!contactName || isRawIdString(contactName) || contactName === cleanId) {
       contactName = foundProfile?.email
         ? formatNameFromEmail(foundProfile.email)
-        : isContactOwner
-        ? 'Precious Ddkid'
         : foundProfile?.displayName || 'Kempo Member';
     }
 
@@ -1112,25 +1090,35 @@ export default function App() {
       }
     });
 
-    // Update active selectedChat if it's the sender
-    if (selectedChat) {
-      const isThisChat =
-        (selectedChat.kempoId && selectedChat.kempoId.toUpperCase() === senderKempoId) ||
+    // Check if the chat is currently open on recipient's screen
+    const isThisChatOpen = Boolean(
+      selectedChat &&
+      ((selectedChat.kempoId && selectedChat.kempoId.toUpperCase() === senderKempoId) ||
         (selectedChat.about && selectedChat.about.toUpperCase().includes(senderKempoId)) ||
-        selectedChat.id === `user-${senderKempoId}`;
+        selectedChat.id === `user-${senderKempoId}`)
+    );
 
-      if (isThisChat) {
-        setSelectedChat((prev) => {
-          if (!prev) return null;
-          if (prev.messages.some((m) => m.id === msg.id)) return prev;
-          return {
-            ...prev,
-            lastMessage: msg.text || 'New message',
-            timestamp: msg.timestamp || 'Just now',
-            unreadCount: 0,
-            messages: [...prev.messages, { ...msg, status: 'delivered' }],
-          };
-        });
+    if (selectedChat && isThisChatOpen) {
+      setSelectedChat((prev) => {
+        if (!prev) return null;
+        if (prev.messages.some((m) => m.id === msg.id)) return prev;
+        return {
+          ...prev,
+          lastMessage: msg.text || 'New message',
+          timestamp: msg.timestamp || 'Just now',
+          unreadCount: 0,
+          messages: [...prev.messages, { ...msg, status: 'delivered' }],
+        };
+      });
+    }
+
+    // Immediately dispatch real WhatsApp-style delivery or read receipt back to the sender
+    if (msg.id) {
+      const myCurrentId = userProfile?.kempoId || currentUserId || 'me';
+      if (isThisChatOpen) {
+        realtimeService.sendReadReceipt(myCurrentId, dm.senderKempoId, msg.id);
+      } else {
+        realtimeService.sendDeliveryReceipt(myCurrentId, dm.senderKempoId, msg.id);
       }
     }
 
@@ -1254,62 +1242,10 @@ export default function App() {
       );
     }
 
-    // Double tick after 1.2s, blue tick after 2.8s for authentic WhatsApp experience ONLY when online & sent
-    if (!isIncoming && resolvedStatus === 'sent') {
-      setTimeout(() => {
-        setChats((prev) =>
-          prev.map((c) => {
-            if (c.id === chatId) {
-              return {
-                ...c,
-                lastMessageStatus: 'double_tick_grey',
-                messages: c.messages.map((m) =>
-                  m.id === newMsg.id && m.status === 'sent' ? { ...m, status: 'delivered' } : m
-                ),
-              };
-            }
-            return c;
-          })
-        );
-        setSelectedChat((prev) => {
-          if (!prev || prev.id !== chatId) return prev;
-          return {
-            ...prev,
-            lastMessageStatus: 'double_tick_grey',
-            messages: prev.messages.map((m) =>
-              m.id === newMsg.id && m.status === 'sent' ? { ...m, status: 'delivered' } : m
-            ),
-          };
-        });
-      }, 1200);
-
-      setTimeout(() => {
-        setChats((prev) =>
-          prev.map((c) => {
-            if (c.id === chatId) {
-              return {
-                ...c,
-                lastMessageStatus: 'double_tick_blue',
-                messages: c.messages.map((m) =>
-                  m.id === newMsg.id && m.status === 'delivered' ? { ...m, status: 'read' } : m
-                ),
-              };
-            }
-            return c;
-          })
-        );
-        setSelectedChat((prev) => {
-          if (!prev || prev.id !== chatId) return prev;
-          return {
-            ...prev,
-            lastMessageStatus: 'double_tick_blue',
-            messages: prev.messages.map((m) =>
-              m.id === newMsg.id && m.status === 'delivered' ? { ...m, status: 'read' } : m
-            ),
-          };
-        });
-      }, 2800);
-    }
+    // Message status is 100% real-time:
+    // 1. Initially 'pending' (clock) if offline, or 'sent' (1 tick) when sent to Supabase.
+    // 2. Turns into 'delivered' (2 grey ticks) when acknowledged by recipient or presence confirmation.
+    // 3. Turns into 'read' (2 blue ticks) when recipient opens the chat.
   };
 
   // Open a chat
@@ -1400,6 +1336,63 @@ export default function App() {
         if (matched) {
           handleSendMessage(matched.id, `📞 Missed ${missedEvent.isVideo ? 'video' : 'voice'} call`);
         }
+      },
+      (deliveredMsgId) => {
+        // Delivery receipt: message reached recipient device -> turns into double grey ticks ✓✓
+        setChats((prev) =>
+          prev.map((c) => ({
+            ...c,
+            lastMessageStatus:
+              c.messages[c.messages.length - 1]?.id === deliveredMsgId
+                ? 'double_tick_grey'
+                : c.lastMessageStatus,
+            messages: c.messages.map((m) =>
+              m.id === deliveredMsgId && m.status === 'sent' ? { ...m, status: 'delivered' } : m
+            ),
+          }))
+        );
+        setSelectedChat((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            lastMessageStatus:
+              prev.messages[prev.messages.length - 1]?.id === deliveredMsgId
+                ? 'double_tick_grey'
+                : prev.lastMessageStatus,
+            messages: prev.messages.map((m) =>
+              m.id === deliveredMsgId && m.status === 'sent' ? { ...m, status: 'delivered' } : m
+            ),
+          };
+        });
+      },
+      (readerId, readMsgId) => {
+        // Read receipt: recipient viewed the message -> turns into double blue ticks ✓✓
+        setChats((prev) =>
+          prev.map((c) => {
+            const isMatch =
+              (c.kempoId && c.kempoId.toUpperCase() === readerId.toUpperCase()) ||
+              c.id === `user-${readerId.toUpperCase()}` ||
+              (c.messages && c.messages.some((m) => m.id === readMsgId));
+            if (!isMatch && !readMsgId) return c;
+            return {
+              ...c,
+              lastMessageStatus: 'double_tick_blue',
+              messages: c.messages.map((m) =>
+                (!readMsgId || m.id === readMsgId) ? { ...m, status: 'read' } : m
+              ),
+            };
+          })
+        );
+        setSelectedChat((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            lastMessageStatus: 'double_tick_blue',
+            messages: prev.messages.map((m) =>
+              (!readMsgId || m.id === readMsgId) ? { ...m, status: 'read' } : m
+            ),
+          };
+        });
       }
     );
 
@@ -1898,7 +1891,6 @@ export default function App() {
   if (isCheckingProfile) {
     return (
       <div className="w-full h-full min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center select-none">
-        <OfflineIndicator />
         <div className="w-16 h-16 rounded-3xl bg-red-600/20 border border-red-500/50 flex items-center justify-center mb-4 shadow-xl shadow-red-950/50">
           <Loader2 className="w-8 h-8 text-red-500 animate-spin" />
         </div>
@@ -1914,18 +1906,16 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <div className="w-full h-full min-h-screen bg-black text-white flex flex-col relative overflow-hidden select-none">
-        <OfflineIndicator />
         <WelcomeScreen onAuthenticated={handleAuthenticated} />
       </div>
     );
   }
 
-  // Enforcement: If account is banned or suspended by the owner
+  // Enforcement: If account is banned or suspended
   const isUserBanned =
-    !isOwnerEmail(currentUserEmail) &&
-    (userProfile?.status === 'banned' ||
-      userProfile?.status === 'suspended' ||
-      isAccountBanned(currentUserEmail, currentUserId, userProfile?.status));
+    userProfile?.status === 'banned' ||
+    userProfile?.status === 'suspended' ||
+    isAccountBanned(currentUserEmail, currentUserId, userProfile?.status);
 
   if (isUserBanned) {
     return (
@@ -1942,7 +1932,6 @@ export default function App() {
   if (showOnboarding) {
     return (
       <div className="w-full h-full min-h-screen bg-black text-white flex flex-col relative overflow-hidden select-none">
-        <OfflineIndicator />
         <OnboardingFlow
           userId={currentUserId || 'user-' + Date.now()}
           userEmail={currentUserEmail}
@@ -1958,7 +1947,6 @@ export default function App() {
   // Authenticated: Render Main Dashboard
   return (
     <div className="w-full h-full min-h-screen bg-black text-white flex flex-col relative overflow-hidden select-none">
-      <OfflineIndicator />
 
       {/* Real In-App Notification Banner (Missed calls & Live Messages) */}
       {bannerNotification && (

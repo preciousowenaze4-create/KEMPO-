@@ -102,11 +102,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   // Partner ID for real-time signaling & profile lookups
   const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
 
-  // STRICT owner check: Only true verified owner email is owner
-  const isContactOwner = Boolean(
-    (contactProfile?.email && isOwnerEmail(contactProfile.email)) ||
-    (chat.email && isOwnerEmail(chat.email))
-  );
+  // Standard user account rules
+  const isContactOwner = false;
 
   const defaultCover =
     'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
@@ -135,11 +132,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       ? rawContactName.trim()
       : contactProfile?.displayName && !isRawIdString(contactProfile.displayName) && contactProfile.displayName !== 'Kempo Contact'
       ? contactProfile.displayName
-      : isContactOwner
-      ? 'Precious Ddkid'
       : (contactProfile?.email || chat.email)
       ? formatNameFromEmail(contactProfile?.email || chat.email)
-      : 'Precious Owenaze');
+      : 'Kempo Contact');
 
   // Fetch contact's actual profile from Supabase and listen for real-time presence
   useEffect(() => {
@@ -243,7 +238,14 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         );
       },
       () => {
-        // Partner has seen our messages -> turns ticks to double blue mark!
+        // Partner has opened and seen our messages -> turns ticks to double blue mark ✓✓!
+        if (chat.messages) {
+          chat.messages.forEach((m) => {
+            if (m.senderId === 'me' || m.senderId === myId) {
+              m.status = 'read';
+            }
+          });
+        }
         onMarkRead?.(chat.id);
       },
       (partnerIsTyping) => {
@@ -282,6 +284,15 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         coverUrl: myCover,
         coverType: myCoverType,
         email: myEmail,
+      },
+      (deliveredMsgId) => {
+        // Delivery receipt: message reached recipient device -> double grey ticks ✓✓
+        if (chat.messages) {
+          const target = chat.messages.find((m) => m.id === deliveredMsgId);
+          if (target && target.status === 'sent') {
+            target.status = 'delivered';
+          }
+        }
       }
     );
 

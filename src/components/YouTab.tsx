@@ -19,7 +19,6 @@ import {
   X,
   Edit3,
   AlertCircle,
-  Crown,
   Search,
   Star,
   List,
@@ -40,8 +39,8 @@ import {
   validateAndFormatUserId,
   getBackendPrivacyStatus,
   generateStandardUserKempoId,
+  formatNameFromEmail,
 } from '../lib/accountRules';
-import { AdminConsoleModal } from './AdminConsoleModal';
 import { ProfileEditScreen } from './ProfileEditScreen';
 import { NotificationSettingsScreen } from './settings/NotificationSettingsScreen';
 import { PrivacySettingsScreen } from './settings/PrivacySettingsScreen';
@@ -117,38 +116,34 @@ export const YouTab: React.FC<YouTabProps> = ({
   // Navigation state for dedicated sliding sub-screens
   const [activeSubScreen, setActiveSubScreen] = useState<SettingsSubScreenType>('none');
 
-  // Determine if this account is the recognized application owner
+  // Dedicated permanent Kempo Pro ID for standard user
   const rawEmail = userProfile?.email || currentUserEmail || '';
-  const isOwner =
-    isOwnerEmail(rawEmail) ||
-    isOwnerIdFormat(userProfile?.kempoId);
-
-  // Dedicated permanent Kempo Pro ID
-  const kempoId = isOwner
-    ? OWNER_FIXED_ID
-    : (userProfile?.kempoId && !userProfile.kempoId.endsWith('A5738') && !isOwnerIdFormat(userProfile.kempoId))
+  const kempoId =
+    userProfile?.kempoId &&
+    !userProfile.kempoId.endsWith('A5738') &&
+    !userProfile.kempoId.includes('OWNER')
       ? userProfile.kempoId
       : generateStandardUserKempoId(userProfile?.countryCode, rawEmail);
 
   const displayName =
     userProfile?.displayName ||
     currentUserName ||
-    (isOwner ? 'Precious Ddkid' : 'Kempo User');
-  const accountType = isOwner ? 'creator' : userProfile?.category || userProfile?.accountType || 'personal';
+    formatNameFromEmail(rawEmail);
+  const accountType = userProfile?.category || userProfile?.accountType || 'personal';
 
   const defaultCover =
     'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
 
-  // Ensure user's permanent ID is saved to profile if it was using placeholder
+  // Ensure user's permanent ID is saved to profile if it was using placeholder or old OWNER tag
   useEffect(() => {
     if (
       userProfile &&
-      ((userProfile.kempoId !== kempoId && kempoId) || (isOwner && userProfile.kempoId !== OWNER_FIXED_ID))
+      (userProfile.kempoId !== kempoId || userProfile.kempoId?.includes('OWNER'))
     ) {
       const updatedProfile = { ...userProfile, kempoId };
       saveFullUserProfile(updatedProfile);
     }
-  }, [isOwner, kempoId, userProfile?.kempoId]);
+  }, [kempoId, userProfile?.kempoId]);
 
   // Offline-resilient avatar state (loaded from cache instantly)
   const [avatarUrl, setAvatarUrl] = useState<string>(() => {
@@ -232,8 +227,6 @@ export const YouTab: React.FC<YouTabProps> = ({
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [statusInput, setStatusInput] = useState('');
 
-  // Owner & Admin Console state
-  const [showAdminConsole, setShowAdminConsole] = useState(false);
 
   // Dedicated Profile Editing Screen state (IMG_4734 & IMG_4733)
   const [showProfileEdit, setShowProfileEdit] = useState(false);
@@ -439,11 +432,7 @@ export const YouTab: React.FC<YouTabProps> = ({
             onClick={() => setShowProfileEdit(true)}
           >
             <div
-              className={`w-28 h-28 rounded-full overflow-hidden ring-4 ${
-                isOwner
-                  ? 'ring-amber-500 shadow-amber-950/70'
-                  : 'ring-red-600 shadow-red-950/70'
-              } bg-black/30 shadow-2xl flex items-center justify-center transition group-hover:scale-102`}
+              className="w-28 h-28 rounded-full overflow-hidden ring-4 ring-red-600 shadow-red-950/70 bg-black/30 shadow-2xl flex items-center justify-center transition group-hover:scale-102"
             >
               {avatarUrl ? (
                 <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
@@ -489,28 +478,17 @@ export const YouTab: React.FC<YouTabProps> = ({
           {/* Centered Display Name with Clean Drop Shadow */}
           <h2 className="text-2xl font-black text-white tracking-tight flex items-center justify-center gap-2 mt-1 drop-shadow-[0_2px_10px_rgba(0,0,0,1)]">
             <span>{displayName}</span>
-            {isOwner ? (
-              <Crown className="w-5 h-5 text-amber-400 fill-amber-400 drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]" />
-            ) : (
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black inline-block shadow-sm" title="Online"></span>
-            )}
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-black inline-block shadow-sm" title="Online"></span>
           </h2>
 
           {/* Account Badge */}
           <div className="mt-1 flex items-center justify-center">
-            {isOwner ? (
-              <span className="px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 text-white shadow-xl shadow-black/80 border border-amber-400/50 flex items-center gap-1.5 drop-shadow">
-                <span>👑</span>
-                <span>KEMPO PRO OWNER & ADMIN</span>
-              </span>
-            ) : (
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-black/50 text-red-300 border border-red-700/60 shadow-lg drop-shadow">
-                {accountType === 'personal' && 'Personal Account'}
-                {accountType === 'business' && 'Business Account'}
-                {accountType === 'creator' && 'Creator Profile'}
-                {accountType === 'developer_gamer' && 'Developer / Gamer'}
-              </span>
-            )}
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-black/50 text-red-300 border border-red-700/60 shadow-lg drop-shadow">
+              {accountType === 'personal' && 'Personal Account'}
+              {accountType === 'business' && 'Business Account'}
+              {accountType === 'creator' && 'Creator Profile'}
+              {accountType === 'developer_gamer' && 'Developer / Gamer'}
+            </span>
           </div>
 
           {/* User ID Sizing & Copy Button */}
@@ -518,11 +496,7 @@ export const YouTab: React.FC<YouTabProps> = ({
             <span className="text-[10px] uppercase font-bold text-neutral-300 tracking-wider drop-shadow-xs">
               ID:
             </span>
-            <span
-              className={`text-xs font-mono font-bold tracking-wide select-all drop-shadow-sm ${
-                isOwner ? 'text-amber-400' : 'text-red-400'
-              }`}
-            >
+            <span className="text-xs font-mono font-bold tracking-wide select-all drop-shadow-sm text-red-400">
               {kempoId}
             </span>
             {/* Small Copy icon/button right next to User ID */}
@@ -807,33 +781,6 @@ export const YouTab: React.FC<YouTabProps> = ({
           </div>
         </div>
 
-        {/* 8. Owner & Admin Console Button (Direct Overlay, Visible ONLY to the owner) */}
-        {isOwner && (
-          <div
-            onClick={() => setShowAdminConsole(true)}
-            className="p-4 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 border-2 border-amber-400 flex items-center justify-between cursor-pointer transition active:scale-[0.99] shadow-2xl shadow-amber-950/50"
-          >
-            <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-400 via-amber-500 to-red-600 text-black flex items-center justify-center font-black shadow-lg shadow-amber-950/60 shrink-0">
-                <Crown className="w-5 h-5 text-black fill-black" />
-              </div>
-              <div className="min-w-0 text-left">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-[15px] font-black text-white drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
-                    Owner & Admin Console
-                  </h4>
-                  <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-[10px] font-black uppercase tracking-wider shadow-xs">
-                    Admin Only
-                  </span>
-                </div>
-                <p className="text-[12px] text-amber-200 font-medium truncate drop-shadow-[0_1px_3px_rgba(0,0,0,1)]">
-                  View signed-in user emails, ban, suspend, verify & restrict accounts
-                </p>
-              </div>
-            </div>
-            <ChevronRight className="w-5 h-5 text-amber-300 shrink-0 drop-shadow-[0_1px_3px_rgba(0,0,0,1)]" />
-          </div>
-        )}
 
         {/* App Info Footer */}
         <div className="text-center pt-3 pb-6">
@@ -983,13 +930,6 @@ export const YouTab: React.FC<YouTabProps> = ({
         </div>
       )}
 
-      {/* Owner & Admin Console Modal (Visible ONLY to the owner) */}
-      {showAdminConsole && isOwner && (
-        <AdminConsoleModal
-          onClose={() => setShowAdminConsole(false)}
-          currentOwnerEmail={rawEmail || 'Preciousddkid@gmail.com'}
-        />
-      )}
 
       {/* Dedicated Profile Editing Screen (Matching IMG_4734 & IMG_4733) */}
       {showProfileEdit && (

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { COUNTRIES, Country, DEFAULT_COUNTRY } from '../data/countries';
 import { AccountType, AppPreferences, UserProfileData } from '../types';
-import { formatKempoUserPhoneId, isOwnerEmail, OWNER_FIXED_ID, generateUniqueIdSuffix, isOwnerIdFormat } from '../lib/accountRules';
+import { formatKempoUserPhoneId, isOwnerEmail, OWNER_FIXED_ID, generateUniqueIdSuffix, isOwnerIdFormat, formatNameFromEmail } from '../lib/accountRules';
 import { uploadAvatarToSupabase, saveFullUserProfile } from '../lib/supabase';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -74,7 +74,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   
   // User phone number input (editable!)
   const [phoneNumber, setPhoneNumber] = useState<string>(() => {
-    if (isOwner) return 'OWNER';
     if (typeof window !== 'undefined' && userEmail) {
       const cleanEmail = userEmail.toLowerCase().trim();
       const savedPhone = localStorage.getItem('kempo_user_phone_' + cleanEmail);
@@ -92,7 +91,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   // Step 2: Profile Picture & Display Name State
   const [displayName, setDisplayName] = useState(
-    initialName || (isOwner ? 'Precious Ddkid' : (userEmail?.split('@')[0] || 'Kempo User'))
+    initialName || (userEmail ? formatNameFromEmail(userEmail) : 'Kempo User')
   );
   const [avatarUrl, setAvatarUrl] = useState(initialAvatar || '');
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -101,7 +100,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   // Step 3: Account Type Selection State (Private/Personal, Business, Creator, Developer/Game)
   const [selectedAccountType, setSelectedAccountType] = useState<
     'personal' | 'business' | 'creator' | 'developer_gamer'
-  >(isOwner ? 'creator' : 'personal');
+  >('personal');
 
   // Saving state
   const [isSaving, setIsSaving] = useState(false);
@@ -134,9 +133,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   // Clean derived Kempo ID
   const cleanNumber = phoneNumber.trim().replace(/\s+/g, '');
-  const finalDerivedKempoId = isOwner
-    ? OWNER_FIXED_ID
-    : `Kempo Pro ${selectedCountry.dialCode}${cleanNumber || 'USER'}`;
+  const finalDerivedKempoId = `Kempo Pro ${selectedCountry.dialCode}${cleanNumber || 'USER'}`;
 
   // Handle avatar upload from device file
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -193,16 +190,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     setIsSaving(true);
 
     const cleanNum = phoneNumber.trim().replace(/\s+/g, '');
-    const finalKempoId = isOwner
-      ? OWNER_FIXED_ID
-      : `Kempo Pro ${selectedCountry.dialCode}${cleanNum || 'USER'}`;
+    const finalKempoId = `Kempo Pro ${selectedCountry.dialCode}${cleanNum || 'USER'}`;
 
     const finalProfile: UserProfileData = {
       id: userId || 'user-' + Date.now(),
       email: userEmail,
-      displayName: displayName.trim() || (isOwner ? 'Precious Ddkid' : 'Kempo User'),
+      displayName: displayName.trim() || 'Kempo User',
       avatarUrl,
-      accountType: isOwner ? 'creator' : selectedAccountType,
+      accountType: selectedAccountType,
       category:
         selectedAccountType === 'developer_gamer'
           ? 'developer'

@@ -36,11 +36,8 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
   // Dynamic state for auto-fetched profile info if chat had raw ID or missing photo
   const [dynamicProfile, setDynamicProfile] = useState<UserProfileData | null>(null);
 
-  // Check if contact is strictly the official owner email
-  const isOwner = Boolean(
-    (dynamicProfile?.email && isOwnerEmail(dynamicProfile.email)) ||
-    (chat.email && isOwnerEmail(chat.email))
-  );
+  // Check if contact is owner (disabled per user request)
+  const isOwner = false;
 
   const partnerId = chat.kempoId || chat.about?.replace('KEMPO ID: ', '').trim() || chat.phoneNumber || chat.id;
 
@@ -65,8 +62,6 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
       ? rawName.trim()
       : dynamicProfile?.displayName && !isRawIdString(dynamicProfile.displayName)
       ? dynamicProfile.displayName
-      : isOwner
-      ? 'Precious Ddkid'
       : (dynamicProfile?.email || chat.email)
       ? formatNameFromEmail(dynamicProfile?.email || chat.email)
       : 'Kempo Contact');

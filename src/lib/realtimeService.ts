@@ -82,9 +82,29 @@ export class KempoRealtimeService {
       const online = new Set<string>();
       Object.keys(state).forEach((key) => {
         online.add(this.normalizeId(key));
+        const canonical = getCanonicalUserId(key);
+        if (canonical) online.add(canonical);
+        const presences = state[key] as any[];
+        if (Array.isArray(presences)) {
+          presences.forEach((p) => {
+            if (p?.user_id) {
+              online.add(this.normalizeId(p.user_id));
+              const c = getCanonicalUserId(p.user_id);
+              if (c) online.add(c);
+            }
+            if (p?.canonical_id) {
+              online.add(this.normalizeId(p.canonical_id));
+            }
+            if (p?.display_name) {
+              online.add(this.normalizeId(p.display_name));
+            }
+          });
+        }
       });
       // Current user is always online
       online.add(cleanMyId);
+      const myCanonical = getCanonicalUserId(myKempoId);
+      if (myCanonical) online.add(myCanonical);
       this.onlineUsers = online;
       this.presenceListeners.forEach((listener) => {
         try {
@@ -100,6 +120,8 @@ export class KempoRealtimeService {
       .on('presence', { event: 'join' }, ({ key }) => {
         if (key) {
           this.onlineUsers.add(this.normalizeId(key));
+          const canonical = getCanonicalUserId(key);
+          if (canonical) this.onlineUsers.add(canonical);
           this.presenceListeners.forEach((listener) => {
             try {
               listener(new Set(this.onlineUsers));
@@ -110,8 +132,12 @@ export class KempoRealtimeService {
       .on('presence', { event: 'leave' }, ({ key }) => {
         if (key) {
           const norm = this.normalizeId(key);
+          const canonical = getCanonicalUserId(key);
           this.onlineUsers.delete(norm);
-          this.userLastSeenMap.set(norm, new Date().toISOString());
+          if (canonical) this.onlineUsers.delete(canonical);
+          const leftTime = new Date().toISOString();
+          this.userLastSeenMap.set(norm, leftTime);
+          if (canonical) this.userLastSeenMap.set(canonical, leftTime);
           this.presenceListeners.forEach((listener) => {
             try {
               listener(new Set(this.onlineUsers));
@@ -123,6 +149,7 @@ export class KempoRealtimeService {
         if (status === 'SUBSCRIBED') {
           await channel.track({
             user_id: cleanMyId,
+            canonical_id: getCanonicalUserId(myKempoId),
             display_name: myDisplayName || cleanMyId,
             online_at: new Date().toISOString(),
           });
@@ -131,18 +158,39 @@ export class KempoRealtimeService {
 
     this.presenceChannel = channel;
 
+    // Periodic heartbeat to record latest online time in Supabase
+    const heartbeatTimer = setInterval(() => {
+      try {
+        if (myKempoId) {
+          supabase
+            .from('profiles')
+            .update({ last_seen: new Date().toISOString() })
+            .or(`kempo_id.eq."${myKempoId}",id.eq."${myKempoId}"`);
+        }
+      } catch {}
+    }, 25000);
+
     const handleUnload = () => {
       if (this.presenceChannel) {
         try {
           this.presenceChannel.untrack();
         } catch {}
       }
+      try {
+        if (myKempoId) {
+          supabase
+            .from('profiles')
+            .update({ last_seen: new Date().toISOString() })
+            .or(`kempo_id.eq."${myKempoId}",id.eq."${myKempoId}"`);
+        }
+      } catch {}
     };
     if (typeof window !== 'undefined') {
       window.addEventListener('beforeunload', handleUnload);
     }
 
     return () => {
+      clearInterval(heartbeatTimer);
       if (typeof window !== 'undefined') {
         window.removeEventListener('beforeunload', handleUnload);
       }
@@ -157,7 +205,8 @@ export class KempoRealtimeService {
   isUserOnline(userIdOrKempoId: string): boolean {
     if (!userIdOrKempoId) return false;
     const clean = this.normalizeId(userIdOrKempoId);
-    return this.onlineUsers.has(clean);
+    const canonical = getCanonicalUserId(userIdOrKempoId);
+    return this.onlineUsers.has(clean) || (canonical ? this.onlineUsers.has(canonical) : false);
   }
 
   // Get contact's last seen ISO timestamp
@@ -276,7 +325,6 @@ export class KempoRealtimeService {
     };
   }
 
-  // 2. Personal signaling channel for instant incoming calls, responses, direct messages, and missed calls
   listenToPersonalSignals(
     myKempoId: string,
     onIncomingCall: (call: IncomingCallEvent) => void,
@@ -284,7 +332,9 @@ export class KempoRealtimeService {
     onIncomingDirectMessage?: (dm: DirectMessagePayload) => void,
     onCallAccepted?: () => void,
     onCallDeclined?: () => void,
-    onMissedCall?: (event: MissedCallEvent) => void
+    onMissedCall?: (event: MissedCallEvent) => void,
+    onDeliveryReceipt?: (messageId: string) => void,
+    onReadReceipt?: (readerId: string, messageId?: string) => void
   ) {
     if (!myKempoId) return;
 
@@ -372,6 +422,16 @@ export class KempoRealtimeService {
               }
               onIncomingDirectMessage(dm);
             }
+          }
+        })
+        .on('broadcast', { event: 'delivery_receipt' }, ({ payload }) => {
+          if (payload?.messageId && onDeliveryReceipt) {
+            onDeliveryReceipt(payload.messageId);
+          }
+        })
+        .on('broadcast', { event: 'read_receipt' }, ({ payload }) => {
+          if (payload?.readerId && onReadReceipt) {
+            onReadReceipt(payload.readerId, payload.messageId);
           }
         })
         .subscribe((status: string) => {
@@ -589,7 +649,8 @@ export class KempoRealtimeService {
       coverUrl?: string;
       coverType?: 'image' | 'video';
       email?: string;
-    }
+    },
+    onDeliveryReceipt?: (messageId: string) => void
   ) {
     const channelName = this.getRoomChannelName(myId, partnerId);
     const cleanMyId = this.normalizeId(myId);
@@ -613,7 +674,13 @@ export class KempoRealtimeService {
             this.seenMessageIds.add(payload.id);
           }
           onMessage(payload);
-          this.sendReadReceipt(myId, partnerId);
+          this.sendReadReceipt(myId, partnerId, payload.id);
+        }
+      })
+      .on('broadcast', { event: 'delivery_receipt' }, ({ payload }) => {
+        if (payload?.messageId && onDeliveryReceipt) {
+          this.markUserActive(partnerId);
+          onDeliveryReceipt(payload.messageId);
         }
       })
       .on('broadcast', { event: 'read_receipt' }, ({ payload }) => {
@@ -751,17 +818,64 @@ export class KempoRealtimeService {
       recipientKempoId: partnerId,
     });
 
-    // When DB write settles or acknowledges, invoke delivered callback
+    // When DB write settles, invoke callback without prematurely marking delivered
     insertPromise.then((inserted: boolean) => {
-      if (inserted) {
+      // If the partner is currently confirmed online in presence, immediately confirm delivery
+      if (inserted && this.isUserOnline(partnerId)) {
         updateSupabaseMessageStatus(message.id, 'delivered');
+        onDelivered?.();
       }
-      onDelivered?.();
-    }).catch(() => {
-      onDelivered?.();
-    });
+    }).catch(() => {});
 
     return true;
+  }
+
+  // Send delivery receipt to inform sender that their message reached the recipient device
+  sendDeliveryReceipt(myId: string, senderId: string, messageId: string) {
+    if (!messageId) return;
+    // 1. Update in Supabase database
+    updateSupabaseMessageStatus(messageId, 'delivered');
+
+    // 2. Broadcast on room channel if active
+    const channelName = this.getRoomChannelName(myId, senderId);
+    const roomChannel = this.activeChannels.get(channelName);
+    if (roomChannel) {
+      roomChannel.send({
+        type: 'broadcast',
+        event: 'delivery_receipt',
+        payload: { messageId, readerId: myId, timestamp: new Date().toISOString() },
+      });
+    }
+
+    // 3. Broadcast on sender's personal signal channel
+    if (senderId) {
+      const cleanChannelName = `user_${this.normalizeId(senderId)}`;
+      const canonicalChannelName = `user_${getCanonicalUserId(senderId)}`;
+      const targetChannels = Array.from(
+        new Set([cleanChannelName, canonicalChannelName, 'kempo_global_direct_signals'])
+      );
+
+      targetChannels.forEach((chName) => {
+        const channel = supabase.channel(chName, {
+          config: { broadcast: { self: false } },
+        });
+
+        channel.subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') {
+            channel.send({
+              type: 'broadcast',
+              event: 'delivery_receipt',
+              payload: { messageId, targetId: senderId, senderId: myId },
+            });
+            setTimeout(() => {
+              try {
+                supabase.removeChannel(channel);
+              } catch {}
+            }, 1200);
+          }
+        });
+      });
+    }
   }
 
   // Send read receipt over room channel and update DB
@@ -772,11 +886,38 @@ export class KempoRealtimeService {
       channel.send({
         type: 'broadcast',
         event: 'read_receipt',
-        payload: { readerId: myId, timestamp: new Date().toISOString() },
+        payload: { readerId: myId, messageId, timestamp: new Date().toISOString() },
       });
     }
     if (messageId) {
       updateSupabaseMessageStatus(messageId, 'read');
+    }
+    // Also broadcast read_receipt on partner's personal signal channel
+    if (partnerId) {
+      const cleanChannelName = `user_${this.normalizeId(partnerId)}`;
+      const canonicalChannelName = `user_${getCanonicalUserId(partnerId)}`;
+      const targetChannels = Array.from(
+        new Set([cleanChannelName, canonicalChannelName, 'kempo_global_direct_signals'])
+      );
+      targetChannels.forEach((chName) => {
+        const ch = supabase.channel(chName, {
+          config: { broadcast: { self: false } },
+        });
+        ch.subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') {
+            ch.send({
+              type: 'broadcast',
+              event: 'read_receipt',
+              payload: { readerId: myId, messageId, targetId: partnerId },
+            });
+            setTimeout(() => {
+              try {
+                supabase.removeChannel(ch);
+              } catch {}
+            }, 1200);
+          }
+        });
+      });
     }
   }
 

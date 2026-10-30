@@ -374,11 +374,8 @@ export async function uploadChatMediaToSupabase(fileOrBlob: Blob, messageId: str
 
 // Save complete user profile to Supabase auth metadata and profiles table
 export async function saveFullUserProfile(profile: UserProfileData): Promise<void> {
-  const isOwner = isOwnerEmail(profile.email);
   let normalizedKempoId = profile.kempoId;
-  if (isOwner) {
-    normalizedKempoId = OWNER_FIXED_ID;
-  } else if (!normalizedKempoId || normalizedKempoId.endsWith('A5738') || isOwnerIdFormat(normalizedKempoId)) {
+  if (!normalizedKempoId || normalizedKempoId.endsWith('A5738') || normalizedKempoId.includes('OWNER') || isOwnerIdFormat(normalizedKempoId)) {
     const code = profile.countryCode || '+234';
     normalizedKempoId = generateStandardUserKempoId(code, profile.email);
   }
@@ -399,9 +396,9 @@ export async function saveFullUserProfile(profile: UserProfileData): Promise<voi
     isOnboarded: true,
     isProfileCompleted: true,
     is_profile_completed: true,
-    status: profile.status || (isOwner ? 'verified' : 'active'),
-    isVerified: profile.isVerified ?? isOwner,
-    isAdmin: isOwner,
+    status: profile.status || 'active',
+    isVerified: Boolean(profile.isVerified),
+    isAdmin: false,
   };
 
   const effectiveCoverType: 'image' | 'video' =
@@ -621,11 +618,8 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
 
     if (!error && data) {
       const email = data.email || cleanEmail;
-      const isRecordOwner = isOwnerEmail(email);
       let assignedId = data.kempo_id;
-      if (isRecordOwner) {
-        assignedId = OWNER_FIXED_ID;
-      } else if (!assignedId || assignedId.endsWith('A5738') || isOwnerIdFormat(assignedId)) {
+      if (!assignedId || assignedId.endsWith('A5738') || assignedId.includes('OWNER') || isOwnerIdFormat(assignedId)) {
         const code = data.country_code || (typeof window !== 'undefined' ? localStorage.getItem('kempo_country_code') : '') || '+234';
         assignedId = generateStandardUserKempoId(code, email);
       }
@@ -646,11 +640,11 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
       const profile: UserProfileData = {
         id: data.id || userId || 'user',
         email,
-        displayName: data.display_name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
+        displayName: data.display_name || formatNameFromEmail(email),
         avatarUrl: data.avatar_url || '',
         coverUrl: fetchedCover,
         coverType: fetchedCoverType,
-        accountType: data.account_type || (isRecordOwner ? 'creator' : 'personal'),
+        accountType: data.account_type || 'personal',
         category: data.category || data.account_type,
         phoneNumber: data.phone_number,
         countryCode: data.country_code,
@@ -660,9 +654,9 @@ export async function fetchUserProfile(userId?: string, userEmail?: string): Pro
         isOnboarded: isCompleted,
         isProfileCompleted: isCompleted,
         is_profile_completed: isCompleted,
-        status: data.status || (isRecordOwner ? 'verified' : 'active'),
-        isVerified: Boolean(data.is_verified || isRecordOwner),
-        isAdmin: isRecordOwner,
+        status: data.status || 'active',
+        isVerified: Boolean(data.is_verified),
+        isAdmin: false,
       };
 
       if (typeof window !== 'undefined') {
@@ -735,33 +729,36 @@ export async function checkUserProfileCompletion(
       );
 
       if (isCompletedInDb) {
-        const isRecordOwner = isOwnerEmail(data.email || cleanEmail);
         const checkCover = data.cover_url || (typeof window !== 'undefined' ? localStorage.getItem('kempo_user_cover') || '' : '');
         const checkCoverType: 'image' | 'video' =
           data.cover_type ||
           (typeof window !== 'undefined' ? (localStorage.getItem('kempo_user_cover_type') as 'image' | 'video') : null) ||
           (isVideoMediaUrl(checkCover) ? 'video' : 'image');
 
+        const resolvedId = data.kempo_id && !data.kempo_id.includes('OWNER')
+          ? data.kempo_id
+          : generateStandardUserKempoId(data.country_code, data.email || cleanEmail);
+
         const profile: UserProfileData = {
           id: data.id || userId || 'user',
           email: data.email || cleanEmail,
-          displayName: data.display_name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
+          displayName: data.display_name || formatNameFromEmail(data.email || cleanEmail),
           avatarUrl: data.avatar_url || '',
           coverUrl: checkCover,
           coverType: checkCoverType,
-          accountType: data.account_type || (isRecordOwner ? 'creator' : 'personal'),
+          accountType: data.account_type || 'personal',
           category: data.category || data.account_type,
           phoneNumber: data.phone_number,
           countryCode: data.country_code,
           countryName: data.country_name,
-          kempoId: data.kempo_id || `Kempo Pro ${data.country_code || '+234'}A5738`,
+          kempoId: resolvedId,
           preferences: data.preferences || DEFAULT_PREFERENCES,
           isOnboarded: true,
           isProfileCompleted: true,
           is_profile_completed: true,
-          status: data.status || (isRecordOwner ? 'verified' : 'active'),
-          isVerified: Boolean(data.is_verified || isRecordOwner),
-          isAdmin: isRecordOwner,
+          status: data.status || 'active',
+          isVerified: Boolean(data.is_verified),
+          isAdmin: false,
         };
 
         if (typeof window !== 'undefined') {
@@ -793,13 +790,12 @@ export async function checkUserProfileCompletion(
         meta.is_onboarded === true
       );
       if (hasMetaOnboarded) {
-        const isRecordOwner = isOwnerEmail(authData.user.email || cleanEmail);
         const fallbackProfile: UserProfileData = {
           id: authData.user.id,
           email: authData.user.email || cleanEmail || '',
-          displayName: meta.display_name || meta.full_name || meta.name || (isRecordOwner ? 'Precious Ddkid' : 'Kempo User'),
+          displayName: meta.display_name || meta.full_name || meta.name || 'Kempo User',
           avatarUrl: meta.avatar_url || meta.picture || '',
-          accountType: meta.account_type || (isRecordOwner ? 'creator' : 'personal'),
+          accountType: meta.account_type || 'personal',
           kempoId: meta.kempo_id || `Kempo Pro +234A5738`,
           preferences: meta.preferences || DEFAULT_PREFERENCES,
           isOnboarded: true,
@@ -1033,20 +1029,28 @@ export async function updateUserAdminStatus(
   }
 }
 
-// Format last seen timestamp into human friendly display (e.g., "last seen today at 9:15 AM")
-export function formatLastSeen(timestampOrDate?: string | Date): string {
-  if (!timestampOrDate) return 'last seen recently';
+// Format last seen timestamp into WhatsApp-style display (e.g., "last seen today at 9:15 AM", or "offline")
+export function formatLastSeen(timestampOrDate?: string | Date | null): string {
+  if (!timestampOrDate) return 'offline';
   try {
     const date = typeof timestampOrDate === 'string' ? new Date(timestampOrDate) : timestampOrDate;
     if (isNaN(date.getTime())) {
       if (typeof timestampOrDate === 'string') {
-        if (timestampOrDate.toLowerCase().includes('last seen')) return timestampOrDate;
+        const lower = timestampOrDate.toLowerCase();
+        if (lower === 'online') return 'online';
+        if (lower === 'offline') return 'offline';
+        if (lower.includes('last seen')) return timestampOrDate;
         return `last seen ${timestampOrDate}`;
       }
-      return 'last seen recently';
+      return 'offline';
     }
 
     const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    if (diffMs >= 0 && diffMs < 60 * 1000) {
+      return 'last seen just now';
+    }
+
     const isToday =
       now.getFullYear() === date.getFullYear() &&
       now.getMonth() === date.getMonth() &&
@@ -1074,7 +1078,7 @@ export function formatLastSeen(timestampOrDate?: string | Date): string {
       return `last seen ${monthNames[date.getMonth()]} ${date.getDate()} at ${timeStr}`;
     }
   } catch {
-    return 'last seen recently';
+    return 'offline';
   }
 }
 
@@ -1175,8 +1179,6 @@ export async function fetchContactProfile(contact: {
           ? formatNameFromEmail(data.email)
           : cleanName && !isRawIdString(cleanName)
           ? cleanName
-          : isOwner
-          ? 'Precious Ddkid'
           : 'Kempo Contact';
       }
 
@@ -1187,7 +1189,7 @@ export async function fetchContactProfile(contact: {
         avatarUrl: resolvedAvatar,
         coverUrl: rawCoverUrl,
         coverType: resolvedCoverType,
-        accountType: data.account_type || (isOwner ? 'creator' : 'personal'),
+        accountType: data.account_type || 'personal',
         category: data.category || data.account_type,
         phoneNumber: data.phone_number || cleanPhone,
         countryCode: data.country_code,
@@ -1248,49 +1250,6 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
   const cached = getCachedContactProfile(cleanId);
   if (cached) return cached;
 
-  // 2. Dedicated Owner query
-  const isOwnerTarget =
-    isOwnerIdFormat(cleanId) ||
-    cleanId.toLowerCase() === 'owner' ||
-    cleanId.toLowerCase() === 'admin' ||
-    cleanId.toLowerCase() === OFFICIAL_OWNER_EMAIL.toLowerCase();
-
-  if (isOwnerTarget) {
-    let ownerData: any = null;
-    try {
-      const res = await supabase
-        .from('profiles')
-        .select('*')
-        .or(`email.ilike."${OFFICIAL_OWNER_EMAIL}",kempo_id.ilike."%OWNER%"`)
-        .limit(1)
-        .maybeSingle();
-      ownerData = res.data;
-    } catch {}
-
-    const ownerProf: UserProfileData = {
-      id: ownerData?.id || 'kempo-owner-account',
-      email: OFFICIAL_OWNER_EMAIL,
-      displayName: ownerData?.display_name || 'Precious Ddkid',
-      avatarUrl: ownerData?.avatar_url || '',
-      coverUrl: ownerData?.cover_url || 'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4',
-      coverType: ownerData?.cover_type || 'video',
-      accountType: 'creator',
-      category: 'creator',
-      phoneNumber: ownerData?.phone_number || '+234',
-      countryCode: ownerData?.country_code || '+234',
-      kempoId: OWNER_FIXED_ID,
-      preferences: ownerData?.preferences || DEFAULT_PREFERENCES,
-      isOnboarded: true,
-      status: 'verified',
-      isVerified: true,
-      isAdmin: true,
-      lastSeen: ownerData?.last_seen || ownerData?.updated_at || new Date().toISOString(),
-    };
-    setCachedContactProfile(cleanId, ownerProf);
-    setCachedContactProfile(OWNER_FIXED_ID, ownerProf);
-    setCachedContactProfile(OFFICIAL_OWNER_EMAIL, ownerProf);
-    return ownerProf;
-  }
 
   // 3. Query Supabase database profiles table for actual user
   try {
@@ -1355,13 +1314,11 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
     }
 
     if (data) {
-      const isOwner = isOwnerEmail(data.email);
+      const isOwner = false;
       let resolvedDisplayName = data.display_name;
       if (!resolvedDisplayName || isRawIdString(resolvedDisplayName)) {
         resolvedDisplayName = data.email
           ? formatNameFromEmail(data.email)
-          : isOwner
-          ? 'Precious Ddkid'
           : 'Kempo Contact';
       }
 
@@ -1372,7 +1329,7 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
         avatarUrl: data.avatar_url || '',
         coverUrl: data.cover_url || '',
         coverType: data.cover_type || (isVideoMediaUrl(data.cover_url) ? 'video' : 'image'),
-        accountType: data.account_type || (isOwner ? 'creator' : 'personal'),
+        accountType: data.account_type || 'personal',
         category: data.category || data.account_type,
         phoneNumber: data.phone_number,
         countryCode: data.country_code,
@@ -1631,8 +1588,6 @@ export async function fetchUserRealChatsFromSupabase(myKempoId: string): Promise
       if (!resolvedChatName || isRawIdString(resolvedChatName)) {
         resolvedChatName = profile?.email
           ? formatNameFromEmail(profile.email)
-          : isOwnerEmail(profile?.email)
-          ? 'Precious Ddkid'
           : 'Kempo Contact';
       }
 

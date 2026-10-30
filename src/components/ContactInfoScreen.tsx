@@ -84,11 +84,8 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
     chat.phoneNumber ||
     chat.id;
 
-  // Strict check: Only true owner accounts get the Owner badge
-  const isContactOwner = Boolean(
-    (initialProfile?.email && isOwnerEmail(initialProfile.email)) ||
-    (chat.email && isOwnerEmail(chat.email))
-  );
+  // Standard account rules for all users
+  const isContactOwner = false;
 
   // High performance dynamic default cover matching Settings view
   const defaultCover =
@@ -201,14 +198,13 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
     formatLastSeen(profile?.lastSeen || chat.lastSeen || chat.timestamp);
 
   // Derive permanent Kempo Pro Shareable ID
-  const rawShareableKempoId = isContactOwner
-    ? OWNER_FIXED_ID
-    : profile?.kempoId ||
-      chat.kempoId ||
-      (chat.about?.startsWith('KEMPO ID: ')
-        ? chat.about.replace('KEMPO ID: ', '').trim()
-        : '') ||
-      cleanPartnerId;
+  const rawShareableKempoId =
+    profile?.kempoId ||
+    chat.kempoId ||
+    (chat.about?.startsWith('KEMPO ID: ')
+      ? chat.about.replace('KEMPO ID: ', '').trim()
+      : '') ||
+    cleanPartnerId;
 
   const shareableKempoId = formatDisplayKempoId(rawShareableKempoId);
 
@@ -252,11 +248,9 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
       ? profile.displayName
       : registeredUser?.displayName && !isRawIdString(registeredUser.displayName)
       ? registeredUser.displayName
-      : isContactOwner
-      ? 'Precious Ddkid'
       : (profile?.email || chat.email || registeredUser?.email)
       ? formatNameFromEmail(profile?.email || chat.email || registeredUser?.email)
-      : 'Precious Owenaze';
+      : 'Kempo Contact';
 
   const initialLetter = (displayName || 'K').trim().charAt(0).toUpperCase();
 
@@ -411,9 +405,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
               ID:
             </span>
             <span
-              className={`text-xs font-mono font-bold tracking-wide select-all drop-shadow-sm ${
-                isContactOwner ? 'text-amber-400' : 'text-red-400'
-              }`}
+              className="text-xs font-mono font-bold tracking-wide select-all drop-shadow-sm text-red-400"
             >
               {shareableKempoId}
             </span>
