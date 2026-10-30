@@ -61,7 +61,8 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
     const height = container.clientHeight || 180;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(36, width / height, 0.05, 50);
+    // 35 degree FOV for crisp portrait perspective without wide-angle fish-eye distortion
+    const camera = new THREE.PerspectiveCamera(35, width / height, 0.05, 50);
 
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
@@ -72,43 +73,36 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.2;
 
     container.appendChild(renderer.domElement);
 
     // 2. Studio Lighting Rig tailored for the 3D Head model
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
     scene.add(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x1f1f2e, 1.6);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x222230, 1.6);
     scene.add(hemiLight);
 
-    // Key Light directly illuminating the face
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.6);
+    // Key Light directly illuminating face features
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
     keyLight.position.set(1.5, 2.5, 3.5);
     scene.add(keyLight);
 
-    // Fill Light from the side
-    const fillLight = new THREE.DirectionalLight(0xffdddd, 1.3);
+    // Fill Light for soft cheek & eye shadows
+    const fillLight = new THREE.DirectionalLight(0xffdddd, 1.4);
     fillLight.position.set(-2.5, 1, 2.5);
     scene.add(fillLight);
 
     // Kempo Pro Crimson Rim Light for stylish edge highlight
-    const rimLight = new THREE.DirectionalLight(0xef4444, 2.4);
+    const rimLight = new THREE.DirectionalLight(0xef4444, 2.6);
     rimLight.position.set(0, 2.5, -3);
     scene.add(rimLight);
 
-    // 3. Avatar Rig Group (with base pitch compensation so head looks directly at user)
+    // 3. Avatar Pivot Group
     const rootGroup = new THREE.Group();
     scene.add(rootGroup);
 
-    // Base pitch offset to compensate for Blender model/animation tilt (-90 degrees on X)
-    // Ensures head faces directly forward towards the camera and looks straight at the user
-    const BASE_PITCH_OFFSET = -1.55;
-    rootGroup.rotation.x = BASE_PITCH_OFFSET;
-
-    let mixer: THREE.AnimationMixer | null = null;
-    let baseAction: THREE.AnimationAction | null = null;
     let morphMesh: THREE.Mesh | null = null;
     let jawMorphIndices: number[] = [];
 
@@ -116,26 +110,28 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
     const setupModel = (gltf: any) => {
       if (isDisposed) return;
 
-      // Clone scene if needed to allow independent instances
       const model = gltf.scene;
 
-      // Auto-center and normalize bounds
+      // In rest pose without the journal animation track, rotation [0, 0, 0] gives:
+      // - Eyes and face pointing directly toward the camera (+Z)
+      // - Upright orientation with top of skull pointing up (+Y) and chin down (-Y)
+      // - Left and right eyes correctly aligned horizontally
+      model.rotation.set(0, 0, 0);
+      model.updateMatrixWorld(true);
+
+      // Auto-center the head based on bounding box
       const box = new THREE.Box3().setFromObject(model);
       const center = box.getCenter(new THREE.Vector3());
-      const size = box.getSize(new THREE.Vector3());
 
-      // Center model inside pivot group
+      // Center model exactly inside pivot group
       model.position.set(-center.x, -center.y, -center.z);
       rootGroup.add(model);
 
-      // Position camera to frame the head avatar looking right at the user
-      const maxDim = Math.max(size.x, size.y, size.z);
-      const fov = camera.fov * (Math.PI / 180);
-      let cameraDistance = (maxDim / 2 / Math.tan(fov / 2)) * 1.3;
-      camera.position.set(0, 0, Math.max(cameraDistance, 0.42));
-      camera.lookAt(0, 0, 0);
+      // Position camera centered on the face features (eyes and nose level) with close portrait framing
+      camera.position.set(0, 0.045, 0.35);
+      camera.lookAt(0, 0.045, 0);
 
-      // Find morph targets for lip-sync & speech animation
+      // Find morph targets for speech animation & lip-sync
       model.traverse((child: any) => {
         if (child.isMesh) {
           const mesh = child as THREE.Mesh;
@@ -174,18 +170,9 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
           }
         }
       });
-
-      // Initialize Animation Mixer
-      if (gltf.animations && gltf.animations.length > 0) {
-        mixer = new THREE.AnimationMixer(model);
-        baseAction = mixer.clipAction(gltf.animations[0]);
-        baseAction.setEffectiveTimeScale(0.75);
-        baseAction.setEffectiveWeight(0.6);
-        baseAction.play();
-      }
     };
 
-    // Instant check or subscribe
+    // Instant preloaded model check or subscribe for 0ms load
     const immediate = getPreloadedAvatar();
     if (immediate) {
       setupModel(immediate);
@@ -193,9 +180,7 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
       const unsub = onAvatarLoaded((gltf) => {
         setupModel(gltf);
       });
-      // Safety cleanup if unmounted before load
-      const origDispose = isDisposed;
-      if (origDispose) unsub();
+      if (isDisposed) unsub();
     }
 
     // Pointer move listener for interactive head tracking
@@ -204,13 +189,13 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
       const clientX = (e.clientX - rect.left) / rect.width;
       const clientY = (e.clientY - rect.top) / rect.height;
 
-      mousePosRef.current.targetX = (clientX - 0.5) * 0.4;
-      mousePosRef.current.targetY = -(clientY - 0.5) * 0.25;
+      mousePosRef.current.targetX = (clientX - 0.5) * 0.32;
+      mousePosRef.current.targetY = -(clientY - 0.5) * 0.2;
     };
 
     window.addEventListener('pointermove', handlePointerMove);
 
-    // 4. Render & Motion Loop with real-time lip sync
+    // 4. Render & Motion Loop with real-time lip sync & eye contact
     const clock = new THREE.Clock();
 
     const animate = () => {
@@ -219,11 +204,6 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
 
       const delta = clock.getDelta();
       const elapsed = clock.getElapsedTime();
-
-      // Update base animation mixer
-      if (mixer) {
-        mixer.update(delta);
-      }
 
       // Smooth pointer tracking interpolation
       mousePosRef.current.x = THREE.MathUtils.damp(
@@ -245,7 +225,7 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
 
       // Real-time Motion & Lip-Sync Behavior
       if (isSpeakingActive) {
-        // High-precision syllable & speech cadence modulation
+        // High-precision syllable cadence modulation
         const syllableWave =
           Math.abs(Math.sin(elapsed * 16)) * 0.55 +
           Math.abs(Math.sin(elapsed * 9.5)) * 0.35 +
@@ -253,7 +233,7 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
         const combinedEnergy = currentEnergy > 0 ? currentEnergy * 0.7 + syllableWave * 0.3 : syllableWave;
         const speechJaw = Math.min(1, Math.max(0, combinedEnergy * 0.85));
 
-        // Move mouth/jaw morph targets in exact sync with speech
+        // Move mouth/jaw morph targets in sync with speech
         if (morphMesh && morphMesh.morphTargetInfluences) {
           jawMorphIndices.forEach((idx, i) => {
             const mult = i === 0 ? 1 : 0.65;
@@ -266,43 +246,43 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
           });
         }
 
-        // Natural head nods and conversational tilt while maintaining eye contact
-        const speechPitch = Math.sin(elapsed * 6.5) * 0.06 + Math.sin(elapsed * 12) * 0.025;
-        const speechYaw = Math.sin(elapsed * 3.2) * 0.09;
-        const speechRoll = Math.sin(elapsed * 2.8) * 0.03;
+        // Natural conversational head nods while keeping eyes looking directly at the user
+        const speechPitch = Math.sin(elapsed * 6.5) * 0.03 + Math.sin(elapsed * 12) * 0.01;
+        const speechYaw = Math.sin(elapsed * 3.2) * 0.035;
+        const speechRoll = Math.sin(elapsed * 2.8) * 0.015;
 
         rootGroup.rotation.x = THREE.MathUtils.damp(
           rootGroup.rotation.x,
-          BASE_PITCH_OFFSET + speechPitch + mousePosRef.current.y,
+          speechPitch + mousePosRef.current.y * 0.4,
           8,
           delta
         );
         rootGroup.rotation.y = THREE.MathUtils.damp(
           rootGroup.rotation.y,
-          speechYaw + mousePosRef.current.x,
+          speechYaw + mousePosRef.current.x * 0.4,
           8,
           delta
         );
         rootGroup.rotation.z = THREE.MathUtils.damp(rootGroup.rotation.z, speechRoll, 8, delta);
-        rootGroup.position.z = THREE.MathUtils.damp(rootGroup.position.z, 0.02, 4, delta);
+        rootGroup.position.z = THREE.MathUtils.damp(rootGroup.position.z, 0.01, 4, delta);
       } else if (isGeneratingActive) {
-        // Contemplative thinking mode: gentle gaze upward and slight thinking tilt
-        const thinkingYaw = Math.sin(elapsed * 1.5) * 0.08;
-        const thinkingPitch = 0.06 + Math.sin(elapsed * 2) * 0.025;
+        // Subtle contemplative state while keeping eye contact
+        const thinkingYaw = Math.sin(elapsed * 1.5) * 0.03;
+        const thinkingPitch = Math.sin(elapsed * 2) * 0.015;
 
         rootGroup.rotation.x = THREE.MathUtils.damp(
           rootGroup.rotation.x,
-          BASE_PITCH_OFFSET + thinkingPitch + mousePosRef.current.y * 0.4,
+          thinkingPitch + mousePosRef.current.y * 0.25,
           4,
           delta
         );
         rootGroup.rotation.y = THREE.MathUtils.damp(
           rootGroup.rotation.y,
-          thinkingYaw + mousePosRef.current.x * 0.4,
+          thinkingYaw + mousePosRef.current.x * 0.25,
           4,
           delta
         );
-        rootGroup.rotation.z = THREE.MathUtils.damp(rootGroup.rotation.z, -0.03, 4, delta);
+        rootGroup.rotation.z = THREE.MathUtils.damp(rootGroup.rotation.z, 0, 4, delta);
 
         if (morphMesh && morphMesh.morphTargetInfluences) {
           jawMorphIndices.forEach((idx) => {
@@ -316,18 +296,18 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
         }
       } else {
         // Calm idle mode: looking straight ahead at user with subtle natural breathing
-        const idlePitch = Math.sin(elapsed * 1.2) * 0.025;
-        const idleYaw = Math.sin(elapsed * 0.7) * 0.035;
+        const idlePitch = Math.sin(elapsed * 1.2) * 0.012;
+        const idleYaw = Math.sin(elapsed * 0.7) * 0.015;
 
         rootGroup.rotation.x = THREE.MathUtils.damp(
           rootGroup.rotation.x,
-          BASE_PITCH_OFFSET + idlePitch + mousePosRef.current.y,
+          idlePitch + mousePosRef.current.y * 0.3,
           4,
           delta
         );
         rootGroup.rotation.y = THREE.MathUtils.damp(
           rootGroup.rotation.y,
-          idleYaw + mousePosRef.current.x,
+          idleYaw + mousePosRef.current.x * 0.3,
           4,
           delta
         );
@@ -370,10 +350,6 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('pointermove', handlePointerMove);
-
-      if (mixer) {
-        mixer.stopAllAction();
-      }
 
       try {
         renderer.dispose();

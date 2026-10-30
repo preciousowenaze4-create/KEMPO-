@@ -41,6 +41,21 @@ function generateIntelligentResponse(prompt: string, history: any[] = []): strin
   const p = prompt.trim();
   const lower = p.toLowerCase();
 
+  // 0. Direct Greetings
+  if (
+    lower === 'hello' ||
+    lower === 'hi' ||
+    lower === 'hey' ||
+    lower.startsWith('hello ') ||
+    lower.startsWith('hi ') ||
+    lower.startsWith('hey ') ||
+    lower === 'good morning' ||
+    lower === 'good evening' ||
+    lower === 'good afternoon'
+  ) {
+    return `Hello! Great to connect with you. I am your Kempo Pro AI Assistant. How can I assist you with your chats, drafts, or information lookups today?`;
+  }
+
   // 1. Identity & Name questions
   if (
     lower.includes('your name') ||
@@ -136,9 +151,10 @@ app.get('/api/ai/status', (_req, res) => {
   });
 });
 
-// Real Gemini API streaming chat endpoint with Google Search grounding
+// Real Gemini API streaming & direct chat endpoint with Google Search grounding
 app.post('/api/ai/chat', async (req, res) => {
   const { message, history = [] } = req.body;
+  const isDirectJson = req.query.stream === 'false' || req.body.stream === false;
 
   if (!message || typeof message !== 'string') {
     return res.status(400).json({ error: 'A valid message string is required.' });
@@ -147,10 +163,49 @@ app.post('/api/ai/chat', async (req, res) => {
   const prompt = message.trim();
   const ai = getAiClient();
 
-  // Setup Server-Sent Events (SSE) for real-time text streaming
-  res.setHeader('Content-Type', 'text/event-stream');
+  // Handle direct JSON requests
+  if (isDirectJson) {
+    if (ai) {
+      try {
+        const formattedContents = [];
+        if (Array.isArray(history) && history.length > 0) {
+          for (const h of history) {
+            if (h.sender === 'user' && h.text) {
+              formattedContents.push({ role: 'user', parts: [{ text: h.text }] });
+            } else if (h.sender === 'ai' && h.text) {
+              formattedContents.push({ role: 'model', parts: [{ text: h.text }] });
+            }
+          }
+        }
+        formattedContents.push({ role: 'user', parts: [{ text: prompt }] });
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: formattedContents,
+          config: {
+            systemInstruction: `You are Kempo Pro AI Assistant, the intelligent real-time conversational agent inside KEMPO PRo. When asked your name or identity, state that you are Kempo Pro AI Assistant. You provide helpful, concise, well-reasoned, and accurate answers. For current events, real-time facts, news, and queries, use Google Search to provide up-to-date answers. Format responses with clean structure and speak naturally so your 3D avatar head can speak clearly.`,
+            tools: [{ googleSearch: {} }],
+          },
+        });
+
+        const text = response.text || '';
+        if (text) {
+          return res.json({ text, done: true });
+        }
+      } catch (apiError: any) {
+        console.warn('Gemini API generateContent notice:', apiError?.message);
+      }
+    }
+
+    const answer = generateIntelligentResponse(prompt, history);
+    return res.json({ text: answer, done: true });
+  }
+
+  // Setup Server-Sent Events (SSE) for streaming text
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
   // 1. If real Gemini API key is configured, use official GoogleGenAI streaming with search grounding
@@ -179,7 +234,7 @@ app.post('/api/ai/chat', async (req, res) => {
       });
 
       const stream = await ai.models.generateContentStream({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-2.5-flash',
         contents: formattedContents,
         config: {
           systemInstruction: `You are Kempo Pro AI Assistant, the intelligent real-time conversational agent inside KEMPO PRo. When asked your name or identity, state that you are Kempo Pro AI Assistant. You provide helpful, concise, well-reasoned, and accurate answers. For current events, real-time facts, news, and queries, use Google Search to provide up-to-date answers. Format responses with clean structure and speak naturally so your 3D avatar head can speak clearly.`,
@@ -193,7 +248,6 @@ app.post('/api/ai/chat', async (req, res) => {
           res.write(`data: ${JSON.stringify({ text })}\n\n`);
         }
       }
-
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       return res.end();
     } catch (apiError: any) {
@@ -201,16 +255,13 @@ app.post('/api/ai/chat', async (req, res) => {
     }
   }
 
-  // 2. Intelligent conversational engine (streamed chunk-by-chunk in real time)
+  // 2. Intelligent conversational engine streamed chunk-by-chunk in real time
   const answer = generateIntelligentResponse(prompt, history);
   const words = answer.split(' ');
-
-  // Stream words in natural conversational cadence
   for (let i = 0; i < words.length; i++) {
     const wordWithSpace = i === 0 ? words[i] : ' ' + words[i];
     res.write(`data: ${JSON.stringify({ text: wordWithSpace })}\n\n`);
-    // Natural speaking token delay
-    await new Promise((resolve) => setTimeout(resolve, 28));
+    await new Promise((resolve) => setTimeout(resolve, 25));
   }
 
   res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

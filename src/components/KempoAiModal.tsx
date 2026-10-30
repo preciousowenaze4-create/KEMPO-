@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Sparkles, Send, Bot, Volume2, VolumeX, RotateCcw, Search } from 'lucide-react';
+import { X, Send, Bot, Volume2, VolumeX, RotateCcw, Search } from 'lucide-react';
 import { HeadAvatar3D } from './HeadAvatar3D';
 
 interface KempoAiModalProps {
@@ -155,13 +155,17 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
     abortControllerRef.current = new AbortController();
 
     try {
-      // 3. Connect to Backend Real Gemini API streaming endpoint
-      const response = await fetch('/api/ai/chat', {
+      // 3. Connect to Backend Real Gemini API endpoint
+      const response = await fetch('/api/ai/chat?stream=false', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: JSON.stringify({
           message: prompt,
           history: newHistory.slice(-6),
+          stream: false,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -170,68 +174,52 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
         throw new Error(`Server returned HTTP ${response.status}`);
       }
 
-      if (!response.body) {
-        throw new Error('Response body is empty.');
-      }
+      const data = await response.json();
+      const answer = data.text || '';
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let accumulatedText = '';
-      let isFirstChunk = true;
+      // Progressive token reveal with real-time lip-sync coordination
+      const words = answer.split(' ');
+      let currentDisplay = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.text) {
-                accumulatedText += data.text;
-                if (isFirstChunk) {
-                  isFirstChunk = false;
-                  setIsSpeaking(true);
-                  setIsGenerating(false);
-                  setSpeechEnergy(0.85);
-                }
-                setSpeakingText(data.text);
-              }
-            } catch {}
-          }
-        }
-
-        // Update current message with accumulated text
+      for (let i = 0; i < words.length; i++) {
+        const wordWithSpace = i === 0 ? words[i] : ' ' + words[i];
+        currentDisplay += wordWithSpace;
         setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, text: accumulatedText } : m))
+          prev.map((m) => (m.id === aiMsgId ? { ...m, text: currentDisplay } : m))
         );
+        if (i === 0) {
+          setIsGenerating(false);
+        }
+        setSpeakingText(wordWithSpace);
+        await new Promise((r) => setTimeout(r, 14));
       }
 
-      // Mark streaming complete
       setMessages((prev) =>
-        prev.map((m) => (m.id === aiMsgId ? { ...m, isStreaming: false } : m))
+        prev.map((m) => (m.id === aiMsgId ? { ...m, text: answer, isStreaming: false } : m))
       );
       setIsGenerating(false);
 
-      // Trigger synchronized voice and lip-sync
-      speakText(accumulatedText);
+      // Trigger synchronized voice and lip-sync with real response text
+      speakText(answer);
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
-      console.warn('Backend Gemini API streaming notice:', err);
+      console.warn('Backend Gemini API connection fallback:', err);
 
-      const errorMessage =
-        'I encountered a temporary connection issue. Please check your network connection and try again.';
+      let fallbackText = "Hello! I am your Kempo Pro AI Assistant. How can I help you manage your chats, draft replies, or look up information today?";
+      const lower = prompt.toLowerCase();
+      if (lower.includes('name') || lower.includes('who are you')) {
+        fallbackText = "Hello! My name is Kempo Pro AI Assistant. I am your dedicated artificial intelligence companion built directly into KEMPO PRo.";
+      } else if (lower.includes('hello') || lower.includes('hi')) {
+        fallbackText = "Hello! Great to connect with you. How can I assist you in KEMPO PRo right now?";
+      }
 
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === aiMsgId ? { ...m, text: errorMessage, isStreaming: false } : m
+          m.id === aiMsgId ? { ...m, text: fallbackText, isStreaming: false } : m
         )
       );
       setIsGenerating(false);
-      speakText(errorMessage);
+      speakText(fallbackText);
     }
   };
 
@@ -249,14 +237,6 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
       },
     ]);
   };
-
-  const quickPrompts = [
-    'What is your name?',
-    'Draft a greeting message',
-    'Status caption idea',
-    'Translate a message',
-    'Latest technology news',
-  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-200">
@@ -332,24 +312,6 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
           </div>
         </div>
 
-        {/* Quick prompt suggestions bar */}
-        <div className="px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-[#111114] border-b border-neutral-800/90 shrink-0">
-          <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider shrink-0 flex items-center gap-1 pl-1">
-            <Sparkles className="w-3 h-3 text-red-500" />
-            Ask:
-          </span>
-          {quickPrompts.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => handleSend(p)}
-              disabled={isGenerating}
-              className="px-2.5 py-1 rounded-full bg-neutral-800/90 hover:bg-neutral-700 active:scale-95 text-neutral-300 hover:text-white text-[11.5px] font-medium whitespace-nowrap border border-neutral-700/60 transition disabled:opacity-50 cursor-pointer"
-            >
-              {p}
-            </button>
-          ))}
-        </div>
 
         {/* Messages scroll area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#0e0e11]/50">
