@@ -42,6 +42,7 @@ import {
 import { dispatchDeviceNotification, playNotificationChime } from './lib/deviceNotifications';
 import { usePWAInstall } from './hooks/usePWAInstall';
 import { offlineQueue } from './lib/offlineQueue';
+import { preloadAvatarModel } from './lib/modelPreloader';
 import {
   supabase,
   supabaseSignOut,
@@ -529,6 +530,9 @@ export default function App() {
 
   // Supabase Auth listener & Session restore
   useEffect(() => {
+    // 0. Preload 3D Head Avatar instantly in memory
+    preloadAvatarModel().catch(() => {});
+
     // 1. Check existing session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {

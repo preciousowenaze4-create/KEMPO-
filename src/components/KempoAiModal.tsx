@@ -31,11 +31,13 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speakingText, setSpeakingText] = useState('');
+  const [speechEnergy, setSpeechEnergy] = useState(0);
   const [voiceMuted, setVoiceMuted] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const energyDecayRef = useRef<NodeJS.Timeout | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -54,44 +56,65 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
         window.speechSynthesis.cancel();
       }
       abortControllerRef.current?.abort();
+      if (energyDecayRef.current) clearTimeout(energyDecayRef.current);
     };
   }, []);
 
   if (!isOpen) return null;
 
-  // Speak response using Web Speech Synthesis and sync with 3D Avatar
+  // Real-time Text-to-Speech coordinated with 3D avatar mouth & viseme handler
   const speakText = (text: string) => {
     if (voiceMuted || typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      // When muted or unsupported, visually animate speaking for 2.5s
+      // If voice is muted, run a silent visual lip-sync wave for 2.5s
       setIsSpeaking(true);
-      const timer = setTimeout(() => setIsSpeaking(false), 2500);
+      setSpeechEnergy(0.8);
+      const timer = setTimeout(() => {
+        setIsSpeaking(false);
+        setSpeechEnergy(0);
+      }, 2500);
       return () => clearTimeout(timer);
     }
 
     try {
       window.speechSynthesis.cancel();
-      // Clean markdown stars/hashtags for smooth speech
+      // Remove markdown characters for smooth phonetic speech
       const cleanText = text.replace(/[*#_`>]/g, '').trim();
       if (!cleanText) return;
 
-      const utterance = new SpeechSynthesisUtterance(cleanText.slice(0, 350));
+      const utterance = new SpeechSynthesisUtterance(cleanText.slice(0, 400));
       utterance.rate = 1.05;
       utterance.pitch = 1.0;
 
       utterance.onstart = () => {
         setIsSpeaking(true);
+        setSpeechEnergy(0.85);
       };
+
+      // Syllable / word boundary tracking for exact lip movement coordination
+      utterance.onboundary = (event) => {
+        setIsSpeaking(true);
+        setSpeechEnergy(0.95);
+        if (energyDecayRef.current) clearTimeout(energyDecayRef.current);
+        energyDecayRef.current = setTimeout(() => {
+          setSpeechEnergy(0.3);
+        }, 130);
+      };
+
       utterance.onend = () => {
         setIsSpeaking(false);
+        setSpeechEnergy(0);
       };
+
       utterance.onerror = () => {
         setIsSpeaking(false);
+        setSpeechEnergy(0);
       };
 
       activeUtteranceRef.current = utterance;
       window.speechSynthesis.speak(utterance);
     } catch {
       setIsSpeaking(false);
+      setSpeechEnergy(0);
     }
   };
 
@@ -112,8 +135,9 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
     setInput('');
     setIsGenerating(true);
     setIsSpeaking(false);
+    setSpeechEnergy(0);
 
-    // Cancel previous speech if any
+    // Cancel previous speech if ongoing
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
@@ -131,7 +155,7 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
     abortControllerRef.current = new AbortController();
 
     try {
-      // 3. Connect to Backend Real Gemini API endpoint
+      // 3. Connect to Backend Real Gemini API streaming endpoint
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -166,14 +190,13 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              if (data.error) {
-                accumulatedText += `\n\n*(Notice: ${data.error})*`;
-              } else if (data.text) {
+              if (data.text) {
                 accumulatedText += data.text;
                 if (isFirstChunk) {
                   isFirstChunk = false;
                   setIsSpeaking(true);
                   setIsGenerating(false);
+                  setSpeechEnergy(0.85);
                 }
                 setSpeakingText(data.text);
               }
@@ -199,16 +222,16 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
       if (err?.name === 'AbortError') return;
       console.warn('Backend Gemini API streaming notice:', err);
 
-      const fallbackReply =
-        `I received your query: "${prompt}". I'm connected to the Kempo Pro backend engine. Here's a quick response ready for your chat!`;
+      const errorMessage =
+        'I encountered a temporary connection issue. Please check your network connection and try again.';
 
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === aiMsgId ? { ...m, text: fallbackReply, isStreaming: false } : m
+          m.id === aiMsgId ? { ...m, text: errorMessage, isStreaming: false } : m
         )
       );
       setIsGenerating(false);
-      speakText(fallbackReply);
+      speakText(errorMessage);
     }
   };
 
@@ -217,6 +240,7 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
       window.speechSynthesis.cancel();
     }
     setIsSpeaking(false);
+    setSpeechEnergy(0);
     setMessages([
       {
         id: 'ai-init',
@@ -227,11 +251,11 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
   };
 
   const quickPrompts = [
+    'What is your name?',
     'Draft a greeting message',
     'Status caption idea',
     'Translate a message',
-    'Search latest sports news',
-    'Write a business proposal',
+    'Latest technology news',
   ];
 
   return (
@@ -248,6 +272,7 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
               if (!voiceMuted) {
                 window.speechSynthesis?.cancel();
                 setIsSpeaking(false);
+                setSpeechEnergy(0);
               }
               setVoiceMuted(!voiceMuted);
             }}
@@ -281,7 +306,7 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
           </button>
         </div>
 
-        {/* Top 3D Head Avatar Section (Rendered above header title) */}
+        {/* Top 3D Head Avatar Section (Facing directly at the user with real-time lip-sync) */}
         <div className="relative w-full h-44 sm:h-50 bg-gradient-to-b from-[#1c1316] via-[#16141a] to-[#141417] border-b border-neutral-800/80 shrink-0 overflow-hidden flex flex-col items-center justify-center">
           {/* Ambient Spotlight Background */}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(220,38,38,0.18)_0%,transparent_75%)] pointer-events-none" />
@@ -291,10 +316,11 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
             isSpeaking={isSpeaking}
             isGenerating={isGenerating}
             speakingText={speakingText}
+            speechEnergy={speechEnergy}
             className="w-full h-full"
           />
 
-          {/* Header Title & Tagline overlay at the bottom of the 3D frame */}
+          {/* Header Title & Tagline overlay at the top-left of the 3D frame */}
           <div className="absolute top-3 left-4 z-20 flex items-center gap-2 pointer-events-none">
             <div className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse shadow-md shadow-red-600" />
             <h3 className="text-sm font-black text-white tracking-tight flex items-center gap-1.5 drop-shadow">

@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { getPreloadedAvatar, onAvatarLoaded } from '../lib/modelPreloader';
 
 interface HeadAvatar3DProps {
   isSpeaking: boolean;
   isGenerating?: boolean;
   speakingText?: string;
+  speechEnergy?: number;
   className?: string;
 }
 
@@ -14,11 +14,10 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
   isSpeaking,
   isGenerating = false,
   speakingText = '',
+  speechEnergy = 0,
   className = '',
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   // References to keep mutable state across frames without tearing down the WebGL canvas
   const speakingRef = useRef(isSpeaking);
@@ -26,6 +25,9 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
 
   const generatingRef = useRef(isGenerating);
   generatingRef.current = isGenerating;
+
+  const speechEnergyRef = useRef(speechEnergy);
+  speechEnergyRef.current = speechEnergy;
 
   const textRef = useRef(speakingText);
   textRef.current = speakingText;
@@ -59,7 +61,7 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
     const height = container.clientHeight || 180;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(38, width / height, 0.05, 50);
+    const camera = new THREE.PerspectiveCamera(36, width / height, 0.05, 50);
 
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
@@ -75,131 +77,135 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
     container.appendChild(renderer.domElement);
 
     // 2. Studio Lighting Rig tailored for the 3D Head model
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
     scene.add(ambientLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x1f1f2e, 1.5);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x1f1f2e, 1.6);
     scene.add(hemiLight);
 
-    // Key Light
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
-    keyLight.position.set(2, 3, 3);
+    // Key Light directly illuminating the face
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.6);
+    keyLight.position.set(1.5, 2.5, 3.5);
     scene.add(keyLight);
 
-    // Fill Light
-    const fillLight = new THREE.DirectionalLight(0xffcccc, 1.2);
-    fillLight.position.set(-2.5, 1, 2);
+    // Fill Light from the side
+    const fillLight = new THREE.DirectionalLight(0xffdddd, 1.3);
+    fillLight.position.set(-2.5, 1, 2.5);
     scene.add(fillLight);
 
     // Kempo Pro Crimson Rim Light for stylish edge highlight
-    const rimLight = new THREE.DirectionalLight(0xef4444, 2.2);
+    const rimLight = new THREE.DirectionalLight(0xef4444, 2.4);
     rimLight.position.set(0, 2.5, -3);
     scene.add(rimLight);
 
-    // 3. Load ONLY the designated 3D model
+    // 3. Avatar Rig Group (with base pitch compensation so head looks directly at user)
     const rootGroup = new THREE.Group();
     scene.add(rootGroup);
+
+    // Base pitch offset to compensate for Blender model/animation tilt (-90 degrees on X)
+    // Ensures head faces directly forward towards the camera and looks straight at the user
+    const BASE_PITCH_OFFSET = -1.55;
+    rootGroup.rotation.x = BASE_PITCH_OFFSET;
 
     let mixer: THREE.AnimationMixer | null = null;
     let baseAction: THREE.AnimationAction | null = null;
     let morphMesh: THREE.Mesh | null = null;
     let jawMorphIndices: number[] = [];
 
-    const loader = new GLTFLoader();
-    const modelUrl = '/blender_sushi_virtual_journal_16th_april_2020.glb';
+    // Helper to setup parsed GLTF model
+    const setupModel = (gltf: any) => {
+      if (isDisposed) return;
 
-    loader.load(
-      modelUrl,
-      (gltf) => {
-        if (isDisposed) return;
+      // Clone scene if needed to allow independent instances
+      const model = gltf.scene;
 
-        const model = gltf.scene;
+      // Auto-center and normalize bounds
+      const box = new THREE.Box3().setFromObject(model);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
 
-        // Auto-center and normalize bounds
-        const box = new THREE.Box3().setFromObject(model);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
+      // Center model inside pivot group
+      model.position.set(-center.x, -center.y, -center.z);
+      rootGroup.add(model);
 
-        // Center model inside our pivot group
-        model.position.set(-center.x, -center.y, -center.z);
-        rootGroup.add(model);
+      // Position camera to frame the head avatar looking right at the user
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const fov = camera.fov * (Math.PI / 180);
+      let cameraDistance = (maxDim / 2 / Math.tan(fov / 2)) * 1.3;
+      camera.position.set(0, 0, Math.max(cameraDistance, 0.42));
+      camera.lookAt(0, 0, 0);
 
-        // Position camera to frame the head avatar naturally
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const fov = camera.fov * (Math.PI / 180);
-        let cameraDistance = (maxDim / 2 / Math.tan(fov / 2)) * 1.35;
-        camera.position.set(0, 0, Math.max(cameraDistance, 0.45));
-        camera.lookAt(0, 0, 0);
-
-        // Find morph targets for lip-sync & speech animation
-        model.traverse((child) => {
-          if ((child as THREE.Mesh).isMesh) {
-            const mesh = child as THREE.Mesh;
-            if (mesh.material) {
-              if (Array.isArray(mesh.material)) {
-                mesh.material.forEach((m) => {
-                  m.depthWrite = true;
-                });
-              } else {
-                mesh.material.depthWrite = true;
-              }
-            }
-            if (mesh.morphTargetInfluences && mesh.morphTargetInfluences.length > 0) {
-              morphMesh = mesh;
-              // Detect blendshape indices
-              const dict = mesh.morphTargetDictionary || {};
-              const keys = Object.keys(dict);
-
-              if (keys.length > 0) {
-                keys.forEach((key) => {
-                  const lower = key.toLowerCase();
-                  if (
-                    lower.includes('jaw') ||
-                    lower.includes('mouth') ||
-                    lower.includes('open') ||
-                    lower.includes('funnel') ||
-                    lower.includes('pucker')
-                  ) {
-                    jawMorphIndices.push(dict[key]);
-                  }
-                });
-              }
-
-              // Fallback to primary morph target indices (typically 0, 1, 2 for facial rigs)
-              if (jawMorphIndices.length === 0) {
-                jawMorphIndices = [0, 1, 2].filter((i) => i < mesh.morphTargetInfluences!.length);
-              }
+      // Find morph targets for lip-sync & speech animation
+      model.traverse((child: any) => {
+        if (child.isMesh) {
+          const mesh = child as THREE.Mesh;
+          if (mesh.material) {
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach((m) => {
+                m.depthWrite = true;
+              });
+            } else {
+              mesh.material.depthWrite = true;
             }
           }
-        });
+          if (mesh.morphTargetInfluences && mesh.morphTargetInfluences.length > 0) {
+            morphMesh = mesh;
+            const dict = mesh.morphTargetDictionary || {};
+            const keys = Object.keys(dict);
 
-        // Initialize Animation Mixer if animations exist
-        if (gltf.animations && gltf.animations.length > 0) {
-          mixer = new THREE.AnimationMixer(model);
-          baseAction = mixer.clipAction(gltf.animations[0]);
-          baseAction.setEffectiveTimeScale(0.8);
-          baseAction.setEffectiveWeight(0.65);
-          baseAction.play();
+            if (keys.length > 0) {
+              keys.forEach((key) => {
+                const lower = key.toLowerCase();
+                if (
+                  lower.includes('jaw') ||
+                  lower.includes('mouth') ||
+                  lower.includes('open') ||
+                  lower.includes('funnel') ||
+                  lower.includes('pucker')
+                ) {
+                  jawMorphIndices.push(dict[key]);
+                }
+              });
+            }
+
+            if (jawMorphIndices.length === 0) {
+              jawMorphIndices = [0, 1, 2].filter((i) => i < mesh.morphTargetInfluences!.length);
+            }
+          }
         }
+      });
 
-        setIsLoading(false);
-      },
-      undefined,
-      (err) => {
-        console.error('Failed to load 3D head avatar GLB:', err);
-        setLoadError('3D avatar model loaded with notice');
-        setIsLoading(false);
+      // Initialize Animation Mixer
+      if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(model);
+        baseAction = mixer.clipAction(gltf.animations[0]);
+        baseAction.setEffectiveTimeScale(0.75);
+        baseAction.setEffectiveWeight(0.6);
+        baseAction.play();
       }
-    );
+    };
 
-    // Pointer move listener for interactive head turning
+    // Instant check or subscribe
+    const immediate = getPreloadedAvatar();
+    if (immediate) {
+      setupModel(immediate);
+    } else {
+      const unsub = onAvatarLoaded((gltf) => {
+        setupModel(gltf);
+      });
+      // Safety cleanup if unmounted before load
+      const origDispose = isDisposed;
+      if (origDispose) unsub();
+    }
+
+    // Pointer move listener for interactive head tracking
     const handlePointerMove = (e: PointerEvent) => {
       const rect = container.getBoundingClientRect();
       const clientX = (e.clientX - rect.left) / rect.width;
       const clientY = (e.clientY - rect.top) / rect.height;
 
-      mousePosRef.current.targetX = (clientX - 0.5) * 0.45;
-      mousePosRef.current.targetY = -(clientY - 0.5) * 0.35;
+      mousePosRef.current.targetX = (clientX - 0.5) * 0.4;
+      mousePosRef.current.targetY = -(clientY - 0.5) * 0.25;
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -214,7 +220,7 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
       const delta = clock.getDelta();
       const elapsed = clock.getElapsedTime();
 
-      // Update base skeletal/morph animation mixer
+      // Update base animation mixer
       if (mixer) {
         mixer.update(delta);
       }
@@ -235,34 +241,39 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
 
       const isSpeakingActive = speakingRef.current;
       const isGeneratingActive = generatingRef.current;
+      const currentEnergy = speechEnergyRef.current;
 
       // Real-time Motion & Lip-Sync Behavior
       if (isSpeakingActive) {
-        // High-energy conversational motion
-        const speechIntensity = Math.abs(Math.sin(elapsed * 14)) * 0.6 + Math.abs(Math.sin(elapsed * 8.5)) * 0.4;
-        const speechJaw = Math.min(1, Math.max(0, speechIntensity * 0.85));
+        // High-precision syllable & speech cadence modulation
+        const syllableWave =
+          Math.abs(Math.sin(elapsed * 16)) * 0.55 +
+          Math.abs(Math.sin(elapsed * 9.5)) * 0.35 +
+          0.1;
+        const combinedEnergy = currentEnergy > 0 ? currentEnergy * 0.7 + syllableWave * 0.3 : syllableWave;
+        const speechJaw = Math.min(1, Math.max(0, combinedEnergy * 0.85));
 
-        // Modulate morph targets for mouth speaking opening/closing
+        // Move mouth/jaw morph targets in exact sync with speech
         if (morphMesh && morphMesh.morphTargetInfluences) {
           jawMorphIndices.forEach((idx, i) => {
-            const mult = i === 0 ? 1 : 0.6;
+            const mult = i === 0 ? 1 : 0.65;
             morphMesh!.morphTargetInfluences![idx] = THREE.MathUtils.damp(
               morphMesh!.morphTargetInfluences![idx],
               speechJaw * mult,
-              22,
+              24,
               delta
             );
           });
         }
 
-        // Animated head nods and tilts corresponding to speech cadence
-        const speechPitch = Math.sin(elapsed * 6.5) * 0.08 + Math.sin(elapsed * 12) * 0.03;
-        const speechYaw = Math.sin(elapsed * 3.2) * 0.12;
-        const speechRoll = Math.sin(elapsed * 2.8) * 0.04;
+        // Natural head nods and conversational tilt while maintaining eye contact
+        const speechPitch = Math.sin(elapsed * 6.5) * 0.06 + Math.sin(elapsed * 12) * 0.025;
+        const speechYaw = Math.sin(elapsed * 3.2) * 0.09;
+        const speechRoll = Math.sin(elapsed * 2.8) * 0.03;
 
         rootGroup.rotation.x = THREE.MathUtils.damp(
           rootGroup.rotation.x,
-          speechPitch + mousePosRef.current.y,
+          BASE_PITCH_OFFSET + speechPitch + mousePosRef.current.y,
           8,
           delta
         );
@@ -273,17 +284,15 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
           delta
         );
         rootGroup.rotation.z = THREE.MathUtils.damp(rootGroup.rotation.z, speechRoll, 8, delta);
-
-        // Subtle forward-leaning engagement
-        rootGroup.position.z = THREE.MathUtils.damp(rootGroup.position.z, 0.03, 4, delta);
+        rootGroup.position.z = THREE.MathUtils.damp(rootGroup.position.z, 0.02, 4, delta);
       } else if (isGeneratingActive) {
-        // Thinking / retrieving answer mode: slight contemplative head tilt and upward gaze
-        const thinkingYaw = Math.sin(elapsed * 1.5) * 0.1;
-        const thinkingPitch = 0.08 + Math.sin(elapsed * 2) * 0.03;
+        // Contemplative thinking mode: gentle gaze upward and slight thinking tilt
+        const thinkingYaw = Math.sin(elapsed * 1.5) * 0.08;
+        const thinkingPitch = 0.06 + Math.sin(elapsed * 2) * 0.025;
 
         rootGroup.rotation.x = THREE.MathUtils.damp(
           rootGroup.rotation.x,
-          thinkingPitch + mousePosRef.current.y * 0.4,
+          BASE_PITCH_OFFSET + thinkingPitch + mousePosRef.current.y * 0.4,
           4,
           delta
         );
@@ -293,9 +302,8 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
           4,
           delta
         );
-        rootGroup.rotation.z = THREE.MathUtils.damp(rootGroup.rotation.z, -0.04, 4, delta);
+        rootGroup.rotation.z = THREE.MathUtils.damp(rootGroup.rotation.z, -0.03, 4, delta);
 
-        // Mouth closed during thinking
         if (morphMesh && morphMesh.morphTargetInfluences) {
           jawMorphIndices.forEach((idx) => {
             morphMesh!.morphTargetInfluences![idx] = THREE.MathUtils.damp(
@@ -307,13 +315,13 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
           });
         }
       } else {
-        // Idle mode: calm breathing sway and subtle eye/head tracking
-        const idlePitch = Math.sin(elapsed * 1.2) * 0.03;
-        const idleYaw = Math.sin(elapsed * 0.7) * 0.04;
+        // Calm idle mode: looking straight ahead at user with subtle natural breathing
+        const idlePitch = Math.sin(elapsed * 1.2) * 0.025;
+        const idleYaw = Math.sin(elapsed * 0.7) * 0.035;
 
         rootGroup.rotation.x = THREE.MathUtils.damp(
           rootGroup.rotation.x,
-          idlePitch + mousePosRef.current.y,
+          BASE_PITCH_OFFSET + idlePitch + mousePosRef.current.y,
           4,
           delta
         );
@@ -326,7 +334,6 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
         rootGroup.rotation.z = THREE.MathUtils.damp(rootGroup.rotation.z, 0, 4, delta);
         rootGroup.position.z = THREE.MathUtils.damp(rootGroup.position.z, 0, 4, delta);
 
-        // Smoothly close mouth when idle
         if (morphMesh && morphMesh.morphTargetInfluences) {
           jawMorphIndices.forEach((idx) => {
             morphMesh!.morphTargetInfluences![idx] = THREE.MathUtils.damp(
@@ -393,16 +400,8 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
         <div className="absolute w-28 h-28 rounded-full border border-red-500/25 ring-1 ring-red-500/10 pointer-events-none" />
       </div>
 
-      {/* 3D Canvas Mounting Node */}
+      {/* 3D Canvas Mounting Node - Instant 0ms render without spinner */}
       <div ref={mountRef} className="w-full h-full relative z-10 cursor-grab active:cursor-grabbing" />
-
-      {/* Loading Overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#161619]/80 backdrop-blur-xs text-xs text-neutral-400 gap-1.5">
-          <Loader2 className="w-5 h-5 text-red-500 animate-spin" />
-          <span className="text-[11px] font-medium text-neutral-300">Loading 3D Avatar...</span>
-        </div>
-      )}
 
       {/* Active State Pill */}
       <div className="absolute bottom-1 z-20 pointer-events-none">
