@@ -114,7 +114,7 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
         localStorage.getItem(`kempo_contact_avatar_${cleanPartnerId}`);
       if (cached) return cached;
     }
-    return isContactOwner ? '/pwa-512x512.png' : '';
+    return '';
   });
 
   // Instant local cache cover resolution
@@ -383,12 +383,6 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
                 onError={() => {
                   setAvatarUrl('');
                 }}
-              />
-            ) : isContactOwner ? (
-              <img
-                src="/pwa-512x512.png"
-                alt="Kempo Pro Owner"
-                className="w-full h-full object-cover"
               />
             ) : (
               <span className="text-4xl text-white font-black drop-shadow-md">
@@ -943,14 +937,8 @@ export const ContactInfoScreen: React.FC<ContactInfoScreenProps> = ({
                 alt={displayName}
                 className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl ring-1 ring-white/10"
               />
-            ) : isContactOwner ? (
-              <img
-                src="/pwa-512x512.png"
-                alt="Owner"
-                className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl ring-1 ring-white/10"
-              />
             ) : (
-              <div className="w-64 h-64 rounded-3xl bg-gradient-to-br from-red-600 via-red-800 to-red-950 flex items-center justify-center text-white font-black text-8xl shadow-2xl">
+              <div className="w-64 h-64 rounded-3xl bg-gradient-to-br from-neutral-700 via-neutral-800 to-neutral-900 flex items-center justify-center text-white font-black text-8xl shadow-2xl">
                 {initialLetter}
               </div>
             )}

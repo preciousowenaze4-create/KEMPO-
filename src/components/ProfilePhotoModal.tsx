@@ -23,7 +23,7 @@ export const ProfilePhotoModal: React.FC<ProfilePhotoModalProps> = ({
     (chat.email && chat.email.toLowerCase() === 'preciousowenaze4@gmail.com') ||
     chat.id === 'kempo-owner-account';
 
-  const avatar = chat.avatarUrl || (isOwner ? '/pwa-512x512.png' : '');
+  const avatar = chat.avatarUrl || '';
   const initial = (chat.name || 'K').trim().charAt(0).toUpperCase();
 
   return (
@@ -56,7 +56,7 @@ export const ProfilePhotoModal: React.FC<ProfilePhotoModalProps> = ({
               className="w-full h-full object-cover"
             />
           ) : (
-            <div className="w-full h-full bg-gradient-to-br from-red-600 via-red-800 to-red-950 flex items-center justify-center text-white font-extrabold text-7xl select-none">
+            <div className="w-full h-full bg-gradient-to-br from-neutral-700 via-neutral-800 to-neutral-900 flex items-center justify-center text-white font-extrabold text-7xl select-none">
               {initial}
             </div>
           )}

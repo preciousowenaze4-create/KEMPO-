@@ -71,7 +71,7 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
       ? formatNameFromEmail(dynamicProfile?.email || chat.email)
       : 'Kempo Contact');
 
-  const effectiveAvatar = dynamicProfile?.avatarUrl || chat.avatarUrl || (isOwner ? '/pwa-512x512.png' : '');
+  const effectiveAvatar = dynamicProfile?.avatarUrl || chat.avatarUrl || '';
 
   // Auto-fetch profile from Supabase if name is an ID or avatar/email is missing
   useEffect(() => {
@@ -207,13 +207,6 @@ export const ChatListItem: React.FC<ChatListItemProps> = ({
               <img
                 src={effectiveAvatar}
                 alt={displayTitle}
-                className="w-full h-full rounded-full object-cover"
-                loading="lazy"
-              />
-            ) : isOwner ? (
-              <img
-                src="/pwa-512x512.png"
-                alt="Owner"
                 className="w-full h-full rounded-full object-cover"
                 loading="lazy"
               />

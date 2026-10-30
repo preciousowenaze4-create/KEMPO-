@@ -393,60 +393,92 @@ export const NewContactModal: React.FC<NewContactModalProps> = ({
                   </div>
                 </div>
               ) : lookupResult?.found && lookupResult.profile ? (
-                /* Real Person's Live Profile Card */
-                <div className="p-3.5 rounded-xl bg-gradient-to-r from-red-950/80 via-[#2a0e14] to-red-950/60 border-2 border-red-500/80 shadow-lg animate-in zoom-in-95 duration-200 space-y-3">
-                  <div className="flex items-center gap-3">
-                    {/* Real Profile Picture */}
-                    <div className="w-13 h-13 rounded-full overflow-hidden bg-neutral-900 ring-2 ring-red-500 ring-offset-2 ring-offset-black shrink-0">
-                      {lookupResult.profile.avatarUrl ? (
-                        <img
-                          src={lookupResult.profile.avatarUrl}
-                          alt={lookupResult.profile.displayName}
+                /* Real Person's Live Profile Card with Real Profile Picture & Setting Full Picture (Cover) */
+                <div className="rounded-2xl overflow-hidden bg-[#18181c] border-2 border-red-500/80 shadow-2xl animate-in zoom-in-95 duration-200">
+                  {/* Contact Setting Full Picture / Wallpaper Banner */}
+                  <div className="relative w-full h-32 bg-black/60 overflow-hidden">
+                    {lookupResult.profile.coverUrl ? (
+                      lookupResult.profile.coverType === 'video' || lookupResult.profile.coverUrl.includes('.mp4') ? (
+                        <video
+                          src={lookupResult.profile.coverUrl}
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center font-bold text-lg text-white bg-red-900">
-                          {lookupResult.profile.displayName?.charAt(0).toUpperCase() || 'K'}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="text-[15.5px] font-bold text-white truncate">
-                          {lookupResult.profile.displayName}
-                        </h4>
-                        <span className="w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px]">
-                          ✓
-                        </span>
+                        <img
+                          src={lookupResult.profile.coverUrl}
+                          alt="Setting Wallpaper"
+                          className="w-full h-full object-cover"
+                        />
+                      )
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-r from-neutral-800 via-neutral-900 to-neutral-800 flex items-center justify-center text-xs text-neutral-400 font-medium">
+                        Kempo Pro Setting Wallpaper
                       </div>
-                      <p className="text-[12.5px] font-mono font-semibold text-red-300 truncate">
-                        {lookupResult.profile.kempoId}
-                      </p>
-                      <p className="text-[11px] text-neutral-400">
-                        {lookupResult.profile.accountType === 'creator'
-                          ? 'Owner / Creator Account'
-                          : 'Verified Kempo Pro Member'}
-                      </p>
+                    )}
+                    {/* Ambient overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
+
+                    {/* Real Profile Picture & Header Info Overlaid on Setting Full Picture */}
+                    <div className="absolute bottom-2.5 left-3 right-3 flex items-end gap-3">
+                      <div className="w-14 h-14 rounded-full overflow-hidden bg-neutral-900 ring-2 ring-white/90 shadow-2xl shrink-0">
+                        {lookupResult.profile.avatarUrl ? (
+                          <img
+                            src={lookupResult.profile.avatarUrl}
+                            alt={lookupResult.profile.displayName}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center font-bold text-xl text-white bg-gradient-to-br from-neutral-700 to-neutral-900">
+                            {lookupResult.profile.displayName?.charAt(0).toUpperCase() || 'K'}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0 pb-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <h4 className="text-[16px] font-bold text-white truncate drop-shadow-md">
+                            {lookupResult.profile.displayName}
+                          </h4>
+                          <span className="w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px] shrink-0">
+                            ✓
+                          </span>
+                        </div>
+                        <p className="text-[12px] font-mono font-semibold text-red-300 truncate drop-shadow">
+                          {lookupResult.profile.kempoId}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
-                  {/* PROMINENT ADD TO CONTACT BUTTON: ONLY APPEARS WHEN ID IS REAL & FOUND */}
-                  <button
-                    type="button"
-                    disabled={isSubmitting}
-                    onClick={handleDone}
-                    className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:scale-[0.99] text-white font-bold text-[14.5px] shadow-lg shadow-red-950/70 flex items-center justify-center gap-2 transition cursor-pointer"
-                  >
-                    {isSubmitting ? (
-                      <Loader2 className="w-4 h-4 animate-spin text-white" />
-                    ) : (
-                      <>
-                        <UserPlus className="w-4 h-4" />
-                        <span>Add to Contacts &amp; Chat</span>
-                      </>
-                    )}
-                  </button>
+                  {/* Profile Details & Prominent Add to Contacts Button */}
+                  <div className="p-3.5 space-y-3 bg-[#161619]">
+                    <div className="flex items-center justify-between text-xs text-neutral-400">
+                      <span>Account Category:</span>
+                      <span className="font-semibold text-white capitalize bg-neutral-800/80 px-2 py-0.5 rounded-md border border-neutral-700/60">
+                        {lookupResult.profile.category || lookupResult.profile.accountType || 'Personal'}
+                      </span>
+                    </div>
+
+                    {/* PROMINENT ADD TO CONTACT BUTTON: ONLY APPEARS WHEN ID IS REAL & FOUND */}
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={handleDone}
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 active:scale-[0.99] text-white font-bold text-[14.5px] shadow-lg shadow-red-950/70 flex items-center justify-center gap-2 transition cursor-pointer"
+                    >
+                      {isSubmitting ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      ) : (
+                        <>
+                          <UserPlus className="w-4 h-4" />
+                          <span>Add to Contacts &amp; Chat</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="text-[12px] text-red-300/70 py-1">

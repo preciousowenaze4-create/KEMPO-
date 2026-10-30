@@ -27,6 +27,8 @@ import { ChatActionSheetModal } from './components/ChatActionSheetModal';
 import { InAppNotificationBanner } from './components/InAppNotificationBanner';
 import { ProfilePhotoModal } from './components/ProfilePhotoModal';
 import { PhoneMissed, MessageCircle, ShieldAlert, Loader2 } from 'lucide-react';
+import { onSnapshot, collection } from 'firebase/firestore';
+import { db } from './lib/firebase';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { BannedAccountScreen } from './components/BannedAccountScreen';
@@ -883,7 +885,7 @@ export default function App() {
       localStorage.setItem(`kempo_contact_name_${contactKempoId}`, customName.trim());
     }
 
-    const contactAvatar = foundProfile?.avatarUrl || (isContactOwner ? '/pwa-512x512.png' : '');
+    const contactAvatar = foundProfile?.avatarUrl || '';
 
     // Fetch any real message history between the current user and this contact
     const myKempoId = userProfile?.kempoId || 'me';
@@ -1571,11 +1573,90 @@ export default function App() {
       });
     });
 
+    // Firestore Live Real-Time Snapshot Listener for User Profile updates
+    let unsubFirestore: (() => void) | undefined;
+    try {
+      const usersCol = collection(db, 'users');
+      unsubFirestore = onSnapshot(usersCol, (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'modified' || change.type === 'added') {
+            const data = change.doc.data();
+            const docId = change.doc.id;
+            const targetId = (data.kempoId || data.uid || docId || '').trim().toUpperCase();
+            const targetEmail = (data.email || '').trim().toLowerCase();
+            const avatar = data.avatarUrl || data.photoURL || '';
+            const cover = data.coverUrl || '';
+            const coverType = data.coverType || 'image';
+            const name = data.displayName || '';
+
+            setChats((prevChats) => {
+              let changed = false;
+              const newChats = prevChats.map((c) => {
+                const cKempo = (c.kempoId || '').toUpperCase();
+                const cId = (c.id || '').toUpperCase();
+                const cEmail = (c.email || '').toLowerCase();
+
+                const isMatch =
+                  cId === docId.toUpperCase() ||
+                  (targetId && (cKempo === targetId || cKempo.includes(targetId) || targetId.includes(cKempo))) ||
+                  (targetEmail && cEmail === targetEmail);
+
+                if (isMatch) {
+                  changed = true;
+                  return {
+                    ...c,
+                    name: name && !isRawIdString(name) ? name : c.name,
+                    avatarUrl: avatar || c.avatarUrl,
+                    coverUrl: cover || c.coverUrl,
+                    coverType: coverType || c.coverType,
+                  };
+                }
+                return c;
+              });
+
+              if (changed) {
+                localStorage.setItem('kempo_user_chats', JSON.stringify(newChats));
+              }
+              return changed ? newChats : prevChats;
+            });
+
+            setSelectedChat((prev) => {
+              if (!prev) return null;
+              const cKempo = (prev.kempoId || '').toUpperCase();
+              const cId = (prev.id || '').toUpperCase();
+              const cEmail = (prev.email || '').toLowerCase();
+
+              const isMatch =
+                cId === docId.toUpperCase() ||
+                (targetId && (cKempo === targetId || cKempo.includes(targetId) || targetId.includes(cKempo))) ||
+                (targetEmail && cEmail === targetEmail);
+
+              if (isMatch) {
+                return {
+                  ...prev,
+                  name: name && !isRawIdString(name) ? name : prev.name,
+                  avatarUrl: avatar || prev.avatarUrl,
+                  coverUrl: cover || prev.coverUrl,
+                  coverType: coverType || prev.coverType,
+                };
+              }
+              return prev;
+            });
+          }
+        });
+      }, (err) => {
+        console.info('Firestore realtime snapshot notice:', err);
+      });
+    } catch (e) {
+      console.warn('Firestore snapshot setup warning:', e);
+    }
+
     return () => {
       unsubPresence();
       unsubPostgres();
       unsubProfiles();
       unsubPresenceChange();
+      if (unsubFirestore) unsubFirestore();
     };
   }, [userProfile?.kempoId, currentUserName, selectedChat, activeCallingChat, isVideoCall, chats]);
 

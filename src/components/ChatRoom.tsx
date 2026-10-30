@@ -112,7 +112,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4';
 
   // Effective Contact Media
-  const effectiveAvatarUrl = contactProfile?.avatarUrl || chat.avatarUrl || (isContactOwner ? '/pwa-512x512.png' : '');
+  const effectiveAvatarUrl = contactProfile?.avatarUrl || chat.avatarUrl || '';
   const effectiveCoverUrl = contactProfile?.coverUrl || chat.coverUrl || defaultCover;
   const effectiveCoverType = contactProfile?.coverType || chat.coverType || (isVideoMediaUrl(effectiveCoverUrl) ? 'video' : 'image');
 
@@ -553,14 +553,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                     className="w-full h-full object-cover"
                     onError={() => setContactProfile((prev) => (prev ? { ...prev, avatarUrl: '' } : null))}
                   />
-                ) : isContactOwner ? (
-                  <img
-                    src="/pwa-512x512.png"
-                    alt="Owner"
-                    className="w-full h-full object-cover"
-                  />
                 ) : (
-                  <div className="w-full h-full rounded-full bg-gradient-to-br from-red-600 to-red-950 flex items-center justify-center text-white font-bold text-xs select-none">
+                  <div className="w-full h-full rounded-full bg-gradient-to-br from-neutral-700 to-neutral-800 flex items-center justify-center text-white font-bold text-xs select-none">
                     {headerDisplayName.charAt(0).toUpperCase()}
                   </div>
                 )}

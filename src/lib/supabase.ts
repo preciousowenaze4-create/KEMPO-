@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_CONFIG } from '../config/supabaseConfig';
 import { AppPreferences, UserProfileData, Message, Chat } from '../types';
+import { doc, getDoc, collection, query, where, getDocs, setDoc } from 'firebase/firestore';
+import { db } from './firebase';
 
 // Get Supabase URL and Anon Key
 const supabaseUrl = SUPABASE_CONFIG.url;
@@ -1269,7 +1271,7 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
       id: ownerData?.id || 'kempo-owner-account',
       email: OFFICIAL_OWNER_EMAIL,
       displayName: ownerData?.display_name || 'Precious Ddkid',
-      avatarUrl: ownerData?.avatar_url || '/pwa-512x512.png',
+      avatarUrl: ownerData?.avatar_url || '',
       coverUrl: ownerData?.cover_url || 'https://assets.mixkit.co/videos/preview/mixkit-red-smoke-rising-in-the-dark-41586-large.mp4',
       coverType: ownerData?.cover_type || 'video',
       accountType: 'creator',
@@ -1388,7 +1390,93 @@ export async function findUserByKempoId(identifier: string): Promise<UserProfile
       return userProf;
     }
   } catch (err) {
-    console.info('findUserByKempoId query notice:', err);
+    console.info('findUserByKempoId Supabase query notice:', err);
+  }
+
+  // 3b. Query Firestore 'users' collection (Real-time live multi-database synchronization)
+  try {
+    const cleanLower = cleanId.toLowerCase();
+    const compactClean = cleanId.replace(/\s+/g, '');
+
+    // 1) Direct doc lookup by ID or sanitized email
+    const docCandidates = [cleanId, cleanLower.replace(/[^a-zA-Z0-9]/g, '_')];
+    for (const docId of docCandidates) {
+      if (docId.length >= 3) {
+        const uDoc = await getDoc(doc(db, 'users', docId));
+        if (uDoc.exists()) {
+          const d = uDoc.data();
+          const isOwner = isOwnerEmail(d.email);
+          const userProf: UserProfileData = {
+            id: uDoc.id,
+            email: d.email || '',
+            displayName: d.displayName || (d.email ? formatNameFromEmail(d.email) : 'Kempo Member'),
+            avatarUrl: d.avatarUrl || d.photoURL || '',
+            coverUrl: d.coverUrl || '',
+            coverType: d.coverType || (isVideoMediaUrl(d.coverUrl) ? 'video' : 'image'),
+            accountType: d.accountType || (isOwner ? 'creator' : 'personal'),
+            category: d.category || d.accountType || 'personal',
+            phoneNumber: d.phoneNumber,
+            countryCode: d.countryCode,
+            kempoId: d.kempoId || cleanId,
+            preferences: d.preferences || DEFAULT_PREFERENCES,
+            isOnboarded: true,
+            status: d.status || (isOwner ? 'verified' : 'active'),
+            isVerified: Boolean(d.isVerified || isOwner),
+            isAdmin: isOwner,
+            lastSeen: d.updatedAt || new Date().toISOString(),
+          };
+          setCachedContactProfile(cleanId, userProf);
+          if (userProf.kempoId) setCachedContactProfile(userProf.kempoId, userProf);
+          if (userProf.email) setCachedContactProfile(userProf.email, userProf);
+          return userProf;
+        }
+      }
+    }
+
+    // 2) Query Firestore collection by kempoId, phoneNumber, or email
+    const usersCol = collection(db, 'users');
+    const queries = [
+      query(usersCol, where('kempoId', '==', cleanId)),
+      query(usersCol, where('phoneNumber', '==', cleanId)),
+      query(usersCol, where('phoneNumber', '==', compactClean)),
+    ];
+    if (cleanId.includes('@')) {
+      queries.push(query(usersCol, where('email', '==', cleanLower)));
+    }
+
+    for (const q of queries) {
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docFound = snap.docs[0];
+        const d = docFound.data();
+        const isOwner = isOwnerEmail(d.email);
+        const userProf: UserProfileData = {
+          id: docFound.id,
+          email: d.email || '',
+          displayName: d.displayName || (d.email ? formatNameFromEmail(d.email) : 'Kempo Member'),
+          avatarUrl: d.avatarUrl || d.photoURL || '',
+          coverUrl: d.coverUrl || '',
+          coverType: d.coverType || (isVideoMediaUrl(d.coverUrl) ? 'video' : 'image'),
+          accountType: d.accountType || (isOwner ? 'creator' : 'personal'),
+          category: d.category || d.accountType || 'personal',
+          phoneNumber: d.phoneNumber,
+          countryCode: d.countryCode,
+          kempoId: d.kempoId || cleanId,
+          preferences: d.preferences || DEFAULT_PREFERENCES,
+          isOnboarded: true,
+          status: d.status || (isOwner ? 'verified' : 'active'),
+          isVerified: Boolean(d.isVerified || isOwner),
+          isAdmin: isOwner,
+          lastSeen: d.updatedAt || new Date().toISOString(),
+        };
+        setCachedContactProfile(cleanId, userProf);
+        if (userProf.kempoId) setCachedContactProfile(userProf.kempoId, userProf);
+        if (userProf.email) setCachedContactProfile(userProf.email, userProf);
+        return userProf;
+      }
+    }
+  } catch (fbErr) {
+    console.info('findUserByKempoId Firestore lookup notice:', fbErr);
   }
 
   // 4. Check persistent localStorage registry
