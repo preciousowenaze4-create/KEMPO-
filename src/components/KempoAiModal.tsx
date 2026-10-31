@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, Bot, Volume2, VolumeX, RotateCcw, Search } from 'lucide-react';
+import { X, Send, Bot, Volume2, VolumeX, RotateCcw, Search, Mic, MicOff } from 'lucide-react';
 import { HeadAvatar3D } from './HeadAvatar3D';
 
 interface KempoAiModalProps {
@@ -33,11 +33,13 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
   const [speakingText, setSpeakingText] = useState('');
   const [speechEnergy, setSpeechEnergy] = useState(0);
   const [voiceMuted, setVoiceMuted] = useState(false);
+  const [isListening, setIsListening] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const energyDecayRef = useRef<NodeJS.Timeout | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -49,16 +51,87 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
     }
   }, [messages, isOpen]);
 
-  // Cancel any ongoing speech or generation on unmount or modal close
+  // Cancel any ongoing speech, generation, or voice recognition on unmount or modal close
   useEffect(() => {
     return () => {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
       }
       abortControllerRef.current?.abort();
+      recognitionRef.current?.abort();
       if (energyDecayRef.current) clearTimeout(energyDecayRef.current);
     };
   }, []);
+
+  // Real-time voice conversation: listen to user voice and auto-submit
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported in this browser. You can type your message directly.');
+      return;
+    }
+
+    try {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        setIsSpeaking(false);
+        setSpeechEnergy(0);
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = navigator.language || 'en-US';
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.continuous = false;
+
+      let capturedText = '';
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let currentInterim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const item = event.results[i];
+          if (item.isFinal) {
+            capturedText += item[0].transcript;
+          } else {
+            currentInterim += item[0].transcript;
+          }
+        }
+        const text = capturedText || currentInterim;
+        if (text) setInput(text);
+      };
+
+      recognition.onerror = (e: any) => {
+        console.warn('Speech recognition notice:', e.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+        const finalPrompt = capturedText.trim() || input.trim();
+        if (finalPrompt) {
+          handleSend(finalPrompt);
+        }
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.warn('Speech recognition start notice:', err);
+      setIsListening(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -377,23 +450,51 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Bottom Input Area */}
+        {/* Bottom Input Area with Real-Time Voice Chat & Text Input */}
         <div className="p-3 bg-[#16161a] border-t border-neutral-800/90 pb-[max(env(safe-area-inset-bottom),12px)] shrink-0">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               handleSend();
             }}
-            className="flex items-center gap-2 bg-[#1f2026] rounded-2xl px-3.5 py-1.5 border border-neutral-750 focus-within:border-red-500/80 transition"
+            className={`flex items-center gap-2 bg-[#1f2026] rounded-2xl px-3 py-1.5 border transition ${
+              isListening ? 'border-red-500 ring-2 ring-red-500/30' : 'border-neutral-750 focus-within:border-red-500/80'
+            }`}
           >
+            {/* Real-time Voice Chat Microphone Button */}
+            <button
+              type="button"
+              onClick={toggleListening}
+              disabled={isGenerating}
+              aria-label={isListening ? 'Stop listening' : 'Talk with Kempo AI'}
+              title={isListening ? 'Listening to your voice (tap to stop)' : 'Tap to talk with Kempo AI in real-time'}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition active:scale-95 shrink-0 cursor-pointer ${
+                isListening
+                  ? 'bg-red-600 text-white animate-pulse ring-4 ring-red-600/40 shadow-lg shadow-red-950'
+                  : 'bg-neutral-800/90 hover:bg-neutral-750 text-neutral-300 hover:text-white border border-neutral-700/80'
+              }`}
+            >
+              {isListening ? <MicOff className="w-4 h-4 text-white" /> : <Mic className="w-4 h-4 text-red-400" />}
+            </button>
+
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask Kempo AI or type instructions..."
+              placeholder={isListening ? 'Listening to your voice... Speak now' : 'Ask Kempo AI or tap mic to talk...'}
               disabled={isGenerating}
               className="flex-1 bg-transparent text-[14.5px] text-white placeholder-neutral-400 focus:outline-none"
             />
+
+            {/* Listening animated waves */}
+            {isListening && (
+              <div className="flex items-center gap-0.5 px-1">
+                <span className="w-1 h-3 bg-red-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                <span className="w-1 h-4 bg-red-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                <span className="w-1 h-3 bg-red-500 rounded-full animate-bounce" />
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={!input.trim() || isGenerating}
