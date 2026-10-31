@@ -12,12 +12,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = parseInt(process.env.PORT || '3000', 10);
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Enable CORS for all API routes so mobile previews and iframes connect seamlessly
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -25,7 +25,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Initialize GoogleGenAI server-side with process.env.GEMINI_API_KEY or variants
+// Initialize GoogleGenAI server-side with process.env.GEMINI_API_KEY
 const getAiClient = () => {
   const apiKey =
     process.env.GEMINI_API_KEY ||
@@ -35,7 +35,7 @@ const getAiClient = () => {
     process.env.VITE_GEMINI_API_KEY ||
     process.env.GEMINI_KEY;
 
-  if (!apiKey) {
+  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
     return null;
   }
 
@@ -49,227 +49,82 @@ const getAiClient = () => {
   });
 };
 
-const SYSTEM_INSTRUCTION = `You are Kempo Pro AI Assistant, the intelligent, highly capable companion built directly into KEMPO PRo.
-You possess human-like intellect, deep reasoning, coding capabilities, live web search grounding, and a warm, conversational demeanor.
+export const SYSTEM_INSTRUCTION = `You are Kempo Pro AI Assistant, the intelligent, warm, human-like AI companion built directly into the KEMPO PRo app.
 
-Key behaviors:
-1. Natural & Conversational: Speak naturally, engagingly, and directly to the user. Never loop or give canned robotic replies.
-2. Adaptable Language: You seamlessly understand standard English, technical discussions, code, casual banter, and local Nigerian / Edo phrasing or Nigerian Pidgin (e.g., 'how far', 'koyo', 'ob'okhian', 'wetin dey', 'make we run am', 'kedu', 'bawo') whenever spoken to in that manner.
-3. Identity: When asked who you are or what your name is, state that you are Kempo Pro AI Assistant, the intelligent assistant for KEMPO PRo.
-4. Comprehensive Intelligence: Answer general questions, solve programming problems (like Git, TypeScript, Python, algorithms), analyze ideas, write status captions, translate across languages, summarize facts, and provide live up-to-date information.
-5. Structure: Keep responses clean, concise, formatted with clear paragraphs or bullet points where appropriate, and phrased so your 3D avatar head can speak them cleanly.`;
+Core Principles:
+1. Genuine Human-Like Conversation: Reply naturally, warmly, and directly like a smart, friendly human companion. Never repeat the user's question back with robotic templates like "Regarding..." and never use canned or repetitive phrases.
+2. App Identity & Memory: Your name is Kempo Pro AI Assistant (inside the KEMPO PRo app). Remember everything the user tells you in the conversation (such as their name, preferences, or previous questions) and refer back to it naturally.
+3. Full Reasoning, Math, English & Coding: Solve math problems accurately step-by-step, explain English concepts, write and debug code, define technical terms (like HTTP, Git, APIs, etc.) clearly, and answer any question thoughtfully.
+4. Live Google Search & Web Links: Use Google Search whenever helpful to provide accurate, up-to-date facts, news, and real web links.
+5. Cultural & Linguistic Fluency: Understand and converse effortlessly in standard English as well as Nigerian Pidgin, Edo (e.g., "Koyo", "Ob'okhian"), Yoruba, Igbo, Hausa, French, Spanish, and other languages whenever the user speaks them.
+6. Natural Spoken Cadence: Write clearly so your voice sounds natural, mature, and engaging when spoken aloud by your 3D avatar.`;
 
-// Build valid strictly-alternating multiturn contents for GoogleGenAI SDK
+// Build valid strictly-alternating multi-turn contents for GoogleGenAI SDK
 function buildValidContents(history: any[], prompt: string) {
   const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
 
   if (Array.isArray(history)) {
     for (const h of history) {
-      if (!h || !h.text) continue;
+      if (!h || !h.text || h.id === 'ai-init') continue;
       const role: 'user' | 'model' = h.sender === 'user' ? 'user' : 'model';
 
       if (contents.length === 0) {
-        // First turn in Gemini multiturn MUST be from user!
         if (role === 'user') {
-          contents.push({ role: 'user', parts: [{ text: h.text }] });
+          contents.push({ role: 'user', parts: [{ text: String(h.text) }] });
         }
       } else {
         const lastRole = contents[contents.length - 1].role;
         if (lastRole === role) {
           contents[contents.length - 1].parts[0].text += `\n${h.text}`;
         } else {
-          contents.push({ role, parts: [{ text: h.text }] });
+          contents.push({ role, parts: [{ text: String(h.text) }] });
         }
       }
     }
   }
 
-  // Final turn must be the current user prompt
   if (contents.length === 0 || contents[contents.length - 1].role === 'model') {
     contents.push({ role: 'user', parts: [{ text: prompt }] });
   } else {
-    contents[contents.length - 1].parts[0].text += `\n${prompt}`;
+    const lastText = contents[contents.length - 1].parts[0].text;
+    if (lastText !== prompt) {
+      contents[contents.length - 1].parts[0].text += `\n${prompt}`;
+    }
   }
 
   return contents;
 }
 
-// Intelligent conversational responder with full dynamic reasoning (never loops or repeats static canned greetings)
-function generateIntelligentResponse(prompt: string, history: any[] = []): string {
-  const p = prompt.trim();
-  const lower = p.toLowerCase();
-
-  // 1. Identity & Name questions
-  if (
-    lower.includes('your name') ||
-    lower.includes('who are you') ||
-    lower.includes('what are you') ||
-    lower.includes('introduce yourself') ||
-    lower.includes('who created you')
-  ) {
-    return `Hello! My name is Kempo Pro AI Assistant. I am your dedicated artificial intelligence companion built directly into KEMPO PRo. I'm equipped to assist you with everything from messaging and drafting replies to live search, programming, code review, calculations, and general knowledge.`;
-  }
-
-  // 2. Nigerian / Edo local cultural phrasing & pidgin
-  if (lower.includes('how far') || lower.includes('wetin dey') || lower.includes('make we run am')) {
-    return `I dey fine well-well! Everything dey soft and steady. How body? Wetin you wan make we run for KEMPO PRo today? Whether na to draft message, check info, or write code, I dey here with you 100%!`;
-  }
-  if (lower.includes('koyo') || lower.includes("ob'okhian") || lower.includes('obokhian')) {
-    return `Koyo! Ob'okhian! It's a pleasure to connect with you. How is your day going? I am your Kempo Pro AI Assistant, ready to help you with anything you need inside KEMPO PRo.`;
-  }
-  if (lower.includes('kedu') || lower.includes('bawo')) {
-    return `I am doing fantastic! Thank you for checking in. How can I assist you with your chats, questions, or ideas right now?`;
-  }
-
-  // 3. Direct Greetings (only when explicitly greeting)
-  if (
-    lower === 'hello' ||
-    lower === 'hi' ||
-    lower === 'hey' ||
-    lower.startsWith('hello ') ||
-    lower.startsWith('hi ') ||
-    lower.startsWith('hey ') ||
-    lower === 'good morning' ||
-    lower === 'good evening' ||
-    lower === 'good afternoon'
-  ) {
-    return `Hello! Great to connect with you today. What's on your mind? I'm ready to answer questions, write code, research facts, or help with your chats.`;
-  }
-
-  // 4. "What can we do" / Capabilities
-  if (lower.includes('what can we do') || lower.includes('what can you do') || lower.includes('capabilities') || lower.includes('what do you do')) {
-    return `Here are some of the great things we can do together in KEMPO PRo:
-
-1. **Coding & Tech:** Explain concepts (like Git, TypeScript, APIs), write code snippets, debug errors, and architectural guidance.
-2. **Chat & Drafting:** Draft replies for friends or business partners, refine tone, write status captions, and create announcements.
-3. **Knowledge & Search:** Explain science, technology, history, and current facts.
-4. **Language & Translation:** Translate messages across English, Spanish, French, Nigerian Pidgin, Yoruba, Edo, Igbo, Hausa, and more.
-5. **Interactive 3D Voice:** Real-time speech and lip-synced avatar conversation right on your screen.
-
-What would you like to dive into first?`;
-  }
-
-  // 5. Git / Version control queries
-  if (lower.includes('git') || lower.includes('meaning of git') || lower.includes('what is git')) {
-    return `**Git** is a distributed version control system created by Linus Torvalds in 2005.
-
-### Core Concepts:
-• **Tracking Changes:** It records every modification to your project files over time like a timeline, so you can revert, inspect, or branch at any point.
-• **Distributed:** Every developer has a full local copy of the repository and its entire history—you don't even need internet access to commit or inspect branches.
-• **Branching & Merging:** You can create independent branches (e.g. \`git checkout -b feature-chat\`) to test new ideas safely and merge them back into \`main\` when ready.
-
-### Essential Commands:
-• \`git init\`: Initialize a new local repository.
-• \`git add .\`: Stage your modified files.
-• \`git commit -m "feat: your message"\`: Save your staged snapshot.
-• \`git push\`: Upload your local commits to a remote host (like GitHub).
-
-Would you like help with a specific Git workflow or command?`;
-  }
-
-  // 6. Programming / Code writing
-  if (lower.includes('code') || lower.includes('function') || lower.includes('react') || lower.includes('python') || lower.includes('javascript') || lower.includes('typescript')) {
-    return `I can write, debug, and review code for you across TypeScript, JavaScript, Python, SQL, C++, and web development.
-
-Tell me what you are building or paste the snippet/error you are troubleshooting, and I'll break it down with clear, working code!`;
-  }
-
-  // 7. Draft greeting / reply messages
-  if (lower.includes('greeting') || lower.includes('draft a message') || lower.includes('say hello')) {
-    return `Here are three message drafts ready for your chats:
-
-1. **Warm & Friendly:**
-"Hey! Hope you're having an amazing day. Just checking in to see how everything is going with you!"
-
-2. **Professional & Direct:**
-"Hi there, hope your week is off to a productive start. Let me know when you have a quick moment to connect regarding our update."
-
-3. **Casual & Fun:**
-"Yo! What's good? Hope life is treating you awesome. Let's catch up whenever you're free!"`;
-  }
-
-  // 8. Status captions
-  if (lower.includes('status') || lower.includes('caption') || lower.includes('quote')) {
-    return `Here are a few status caption ideas for your KEMPO PRo stories:
-
-• *"Quiet moves, loud results. Focus on the vision 🏎️🔥"*
-• *"Energy speaks louder than words. Grateful for today ⚡✨"*
-• *"Building the future, one step at a time. Red heat all week long 🔴🚀"*
-• *"Peace of mind is the greatest luxury. Keep your circle tight 🛡️"*`;
-  }
-
-  // 9. Translation requests
-  if (lower.startsWith('translate') || lower.includes('in spanish') || lower.includes('in french') || lower.includes('in japanese')) {
-    if (lower.includes('spanish')) {
-      return `En español: "${p.replace(/translate/i, '').replace(/in spanish/i, '').trim() || 'Hola, ¿cómo estás?'}" se traduce de forma natural. ¡Avísame si deseas más variantes!`;
+// Extract grounding web links from Gemini response
+function extractGroundingSources(response: any): Array<{ title: string; uri: string }> {
+  const chunks = response?.candidates?.[0]?.groundingMetadata?.groundingChunks;
+  if (!Array.isArray(chunks)) return [];
+  const sources: Array<{ title: string; uri: string }> = [];
+  const seen = new Set<string>();
+  for (const chunk of chunks) {
+    const uri = chunk?.web?.uri;
+    const title = chunk?.web?.title || uri;
+    if (uri && !seen.has(uri)) {
+      seen.add(uri);
+      sources.push({ title, uri });
     }
-    if (lower.includes('french')) {
-      return `En français: "${p.replace(/translate/i, '').replace(/in french/i, '').trim() || 'Bonjour, comment allez-vous?'}" traduit avec élégance.`;
-    }
-    return `I can translate that into Spanish, French, German, Japanese, Nigerian Pidgin, Yoruba, Igbo, or any language you choose. What specific language do you want?`;
   }
-
-  // 10. Math / Calculation queries
-  const mathMatch = p.match(/(\d+)\s*([\+\-\*\/])\s*(\d+)/);
-  if (mathMatch) {
-    const num1 = parseFloat(mathMatch[1]);
-    const op = mathMatch[2];
-    const num2 = parseFloat(mathMatch[3]);
-    let result = 0;
-    if (op === '+') result = num1 + num2;
-    if (op === '-') result = num1 - num2;
-    if (op === '*') result = num1 * num2;
-    if (op === '/') result = num2 !== 0 ? num1 / num2 : NaN;
-    return `The solution to ${num1} ${op} ${num2} is **${result}**. Let me know if you have any more math or science questions!`;
-  }
-
-  // 11. "Do you know me" / Personal relationship & recognition
-  if (lower.includes('you know me') || lower.includes('do you know who i am') || lower.includes('who am i')) {
-    return `I know you're chatting with me on KEMPO PRo right now, and I'm really glad to connect with you! I don't know your personal name yet though—what should I call you? Tell me a bit about yourself!`;
-  }
-
-  // 12. User introducing their name ("My name is ...", "I'm ...", "Call me ...")
-  const nameMatch = p.match(/(?:my name is|i am|i'm|call me)\s+([a-zA-Z]+)/i);
-  if (nameMatch && !lower.includes('what') && !lower.includes('who')) {
-    const userName = nameMatch[1];
-    return `Nice to meet you, ${userName}! It's an absolute pleasure to chat with you. How is your day going? What can I help you with or explore together in KEMPO PRo right now?`;
-  }
-
-  // 13. Friendly conversational feedback (e.g. "thanks", "cool", "nice", "ok", "awesome")
-  if (lower === 'thanks' || lower === 'thank you' || lower.startsWith('thank you') || lower.startsWith('thanks')) {
-    return `You're very welcome! Always here whenever you need me. What else is on your mind?`;
-  }
-  if (lower === 'cool' || lower === 'nice' || lower === 'ok' || lower === 'okay' || lower === 'great' || lower === 'awesome') {
-    return `Glad you think so! Feel free to ask me anything—whether it's looking up facts, drafting a chat message, solving code, or just catching up.`;
-  }
-
-  // 14. Natural human-like reply directly addressing the user's inquiry without robotic templates
-  return `I hear you! When it comes to ${p.replace(/[?!.]/g, '')}, there are a few really interesting ways to look at it. 
-
-If you want the straightforward answer: it really comes down to having clear clarity on what you want to achieve and taking it step by step. 
-
-Tell me more about what you have in mind or what angle you're thinking about—I'm listening and ready to dive in with you!`;
+  return sources;
 }
 
 // Health and AI status check endpoint
 app.get('/api/ai/status', (_req, res) => {
-  const hasKey = Boolean(
-    process.env.GEMINI_API_KEY ||
-    process.env.API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    process.env.VITE_GEMINI_API_KEY
-  );
+  const ai = getAiClient();
   res.json({
     status: 'ok',
-    geminiConfigured: hasKey,
-    model: 'gemini-2.5-flash',
+    geminiConfigured: Boolean(ai),
+    model: 'gemini-3.8-flash',
   });
 });
 
-// Real Gemini API streaming & direct chat endpoint with Google Search grounding
+// Real Gemini API chat endpoint with Google Search grounding (NO hardcoded fallbacks)
 app.post('/api/ai/chat', async (req, res) => {
   const { message, history = [] } = req.body;
-  const isDirectJson = req.query.stream === 'false' || req.body.stream === false;
 
   if (!message || typeof message !== 'string') {
     return res.status(400).json({ error: 'A valid message string is required.' });
@@ -278,48 +133,21 @@ app.post('/api/ai/chat', async (req, res) => {
   const prompt = message.trim();
   const ai = getAiClient();
 
-  // Handle direct JSON requests
-  if (isDirectJson) {
-    if (ai) {
-      try {
-        const formattedContents = buildValidContents(history, prompt);
-
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: formattedContents,
-          config: {
-            systemInstruction: SYSTEM_INSTRUCTION,
-            tools: [{ googleSearch: {} }],
-          },
-        });
-
-        const text = response.text || '';
-        if (text) {
-          return res.json({ text, done: true });
-        }
-      } catch (apiError: any) {
-        console.warn('Gemini API generateContent notice:', apiError?.message);
-      }
-    }
-
-    const answer = generateIntelligentResponse(prompt, history);
-    return res.json({ text: answer, done: true });
+  if (!ai) {
+    return res.status(503).json({
+      error: 'NO_SERVER_API_KEY',
+      useClientBridge: true,
+    });
   }
 
-  // Setup Server-Sent Events (SSE) for streaming text
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.flushHeaders?.();
+  const formattedContents = buildValidContents(history, prompt);
+  const modelsToTry = ['gemini-3.8-flash', 'gemini-2.5-flash'];
+  let lastError: any = null;
 
-  // 1. If real Gemini API key is configured, use official GoogleGenAI streaming with search grounding
-  if (ai) {
+  for (const modelName of modelsToTry) {
     try {
-      const formattedContents = buildValidContents(history, prompt);
-
-      const stream = await ai.models.generateContentStream({
-        model: 'gemini-2.5-flash',
+      const response = await ai.models.generateContent({
+        model: modelName,
         contents: formattedContents,
         config: {
           systemInstruction: SYSTEM_INSTRUCTION,
@@ -327,30 +155,141 @@ app.post('/api/ai/chat', async (req, res) => {
         },
       });
 
-      for await (const chunk of stream) {
-        const text = chunk.text;
-        if (text) {
-          res.write(`data: ${JSON.stringify({ text })}\n\n`);
-        }
+      const text = response.text || '';
+      const sources = extractGroundingSources(response);
+
+      if (text) {
+        return res.json({
+          text,
+          sources,
+          model: modelName,
+          done: true,
+        });
       }
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      return res.end();
-    } catch (apiError: any) {
-      console.warn('Gemini API streaming error, falling back to intelligent conversational engine:', apiError?.message);
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`Gemini API (${modelName}) error:`, err?.message || err);
     }
   }
 
-  // 2. Intelligent conversational engine streamed chunk-by-chunk in real time
-  const answer = generateIntelligentResponse(prompt, history);
-  const words = answer.split(' ');
-  for (let i = 0; i < words.length; i++) {
-    const wordWithSpace = i === 0 ? words[i] : ' ' + words[i];
-    res.write(`data: ${JSON.stringify({ text: wordWithSpace })}\n\n`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+  return res.status(502).json({
+    error: lastError?.message || 'Gemini API request failed',
+    useClientBridge: true,
+  });
+});
+
+// Wrap raw 24kHz 16-bit mono PCM in a 44-byte RIFF WAV header if not already WAV
+function ensureWavBase64(base64Data: string, mimeType = ''): string {
+  const pcmBuffer = Buffer.from(base64Data, 'base64');
+  if (
+    pcmBuffer.length >= 4 &&
+    pcmBuffer[0] === 0x52 && // 'R'
+    pcmBuffer[1] === 0x49 && // 'I'
+    pcmBuffer[2] === 0x46 && // 'F'
+    pcmBuffer[3] === 0x46    // 'F'
+  ) {
+    return base64Data;
   }
 
-  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-  res.end();
+  const rateMatch = mimeType.match(/rate=(\d+)/i);
+  const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const dataSize = pcmBuffer.length;
+
+  const wavHeader = Buffer.alloc(44);
+  wavHeader.write('RIFF', 0);
+  wavHeader.writeUInt32LE(36 + dataSize, 4);
+  wavHeader.write('WAVE', 8);
+  wavHeader.write('fmt ', 12);
+  wavHeader.writeUInt32LE(16, 16); // Subchunk1Size (16 for PCM)
+  wavHeader.writeUInt16LE(1, 20);  // AudioFormat (1 = PCM)
+  wavHeader.writeUInt16LE(numChannels, 22);
+  wavHeader.writeUInt32LE(sampleRate, 24);
+  wavHeader.writeUInt32LE(byteRate, 28);
+  wavHeader.writeUInt16LE(blockAlign, 32);
+  wavHeader.writeUInt16LE(bitsPerSample, 34);
+  wavHeader.write('data', 36);
+  wavHeader.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([wavHeader, pcmBuffer]).toString('base64');
+}
+
+// Real Gemini Text-to-Speech (TTS) endpoint using mature human voice ('Charon')
+app.post('/api/ai/tts', async (req, res) => {
+  const { text } = req.body;
+
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'Text is required for speech generation.' });
+  }
+
+  const ai = getAiClient();
+  if (!ai) {
+    return res.status(503).json({
+      error: 'NO_SERVER_API_KEY',
+      useClientBridge: true,
+    });
+  }
+
+  const cleanText = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/[*#_`>~]/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .trim()
+    .slice(0, 600);
+
+  if (!cleanText) {
+    return res.status(400).json({ error: 'No speakable text provided.' });
+  }
+
+  const ttsModels = ['gemini-3.8-flash-lite-tts', 'gemini-2.5-flash-preview-tts'];
+  let lastError: any = null;
+
+  for (const modelName of ttsModels) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: cleanText,
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              // 'Charon' is a deep, warm, mature male voice
+              prebuiltVoiceConfig: { voiceName: 'Charon' },
+            },
+          },
+        },
+      });
+
+      const inlineData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+      if (inlineData?.data) {
+        const wavBase64 = ensureWavBase64(inlineData.data, inlineData.mimeType || '');
+        return res.json({
+          audioBase64: wavBase64,
+          mimeType: 'audio/wav',
+        });
+      }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`Gemini TTS (${modelName}) notice:`, err?.message || err);
+    }
+  }
+
+  return res.status(502).json({
+    error: lastError?.message || 'Gemini TTS failed',
+    useClientBridge: true,
+  });
 });
 
 // Setup Vite middleware in development or serve static build in production
