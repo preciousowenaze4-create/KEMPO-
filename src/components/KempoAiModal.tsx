@@ -205,12 +205,23 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
       if (err?.name === 'AbortError') return;
       console.warn('Backend Gemini API connection fallback:', err);
 
-      let fallbackText = "Hello! I am your Kempo Pro AI Assistant. How can I help you manage your chats, draft replies, or look up information today?";
       const lower = prompt.toLowerCase();
+      let fallbackText = '';
+
       if (lower.includes('name') || lower.includes('who are you')) {
-        fallbackText = "Hello! My name is Kempo Pro AI Assistant. I am your dedicated artificial intelligence companion built directly into KEMPO PRo.";
-      } else if (lower.includes('hello') || lower.includes('hi')) {
-        fallbackText = "Hello! Great to connect with you. How can I assist you in KEMPO PRo right now?";
+        fallbackText = 'Hello! My name is Kempo Pro AI Assistant. I am your dedicated artificial intelligence companion built directly into KEMPO PRo.';
+      } else if (lower.includes('what can we do') || lower.includes('what can you do')) {
+        fallbackText = 'We can do plenty together! I can help you draft messages, explain coding concepts, write captions for your status, solve technical problems, translate languages, and search information.';
+      } else if (lower.includes('git') || lower.includes('meaning of git')) {
+        fallbackText = 'Git is a distributed version control system designed to track changes in code during software development, allowing multiple developers to collaborate smoothly and manage revisions.';
+      } else if (lower.includes('how far') || lower.includes('wetin dey')) {
+        fallbackText = 'I dey fine well-well! Everything dey soft. How body? Wetin you wan make we run for KEMPO PRo today?';
+      } else if (lower.includes('koyo') || lower.includes('obokhian') || lower.includes("ob'okhian")) {
+        fallbackText = "Koyo! Ob'okhian! Good to connect with you. How can I assist you in KEMPO PRo right now?";
+      } else if (lower === 'hello' || lower === 'hi' || lower === 'hey') {
+        fallbackText = "Hello! What's on your mind today? I'm ready to help you with questions, coding, drafts, or information.";
+      } else {
+        fallbackText = `Regarding "${prompt}": I can help you break this down, research relevant insights, write code, or draft messages for your chats. Let me know what specific direction you'd like to explore!`;
       }
 
       setMessages((prev) =>
