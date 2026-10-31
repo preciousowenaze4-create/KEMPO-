@@ -112,79 +112,99 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
 
       const model = gltf.scene;
 
-      // 1. Pitch forward 8° (+X) so the head faces straight ahead at eye level (neither facing down nor tilting up),
-      // and yaw 11.5° (+Y) to align gaze dead-center horizontally
-      model.rotation.set(8 * (Math.PI / 180), 11.5 * (Math.PI / 180), 0);
+      // 1. Apply the base assembled quaternions to align the head & teeth (grp_transform_6)
+      // with the left & right eyes (grp_eyeLeft_1, grp_eyeRight_3) inside the eye sockets
+      const eyeLNode = model.getObjectByName('grp_eyeLeft_1');
+      const eyeRNode = model.getObjectByName('grp_eyeRight_3');
+      const headNode = model.getObjectByName('grp_transform_6');
+
+      if (eyeLNode) {
+        eyeLNode.quaternion.set(
+          0.7429425716400146,
+          -0.08066074550151825,
+          -0.06158045306801796,
+          0.6616178154945374
+        );
+      }
+      if (eyeRNode) {
+        eyeRNode.quaternion.set(
+          0.7449893355369568,
+          -0.05861004814505577,
+          -0.08502871543169022,
+          0.6590340733528137
+        );
+      }
+      if (headNode) {
+        headNode.quaternion.set(
+          0.7138006091117859,
+          -0.06333791464567184,
+          -0.07922536134719849,
+          0.6929649710655212
+        );
+      }
+
+      // 2. Press face down (+12° X), center yaw (-2° Y), and level eyes horizontally (+11.5° Z)
+      // so the nose balances right in the middle and the face looks directly at the user
+      model.rotation.set(
+        12 * (Math.PI / 180),
+        -2 * (Math.PI / 180),
+        11.5 * (Math.PI / 180)
+      );
       model.updateMatrixWorld(true);
 
-      // 2. Center specifically on the facial features (eyes, nose, mouth) rather than the elongated neck base
-      const eyeL = model.getObjectByName('Object_5');
-      const eyeR = model.getObjectByName('Object_8');
-      const teeth = model.getObjectByName('Object_13');
-      const mesh = model.getObjectByName('mesh_2');
+      // 3. Compute exact world bounding box of the head mesh vertices
+      const mesh = model.getObjectByName('mesh_2') as THREE.Mesh | undefined;
+      const worldBox = new THREE.Box3();
+      if (mesh && mesh.geometry?.attributes?.position) {
+        const pos = mesh.geometry.attributes.position;
+        const v = new THREE.Vector3();
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+          worldBox.expandByPoint(v);
+        }
+      } else {
+        worldBox.setFromObject(model);
+      }
 
-      const elPos = new THREE.Vector3();
-      const erPos = new THREE.Vector3();
-      const teethPos = new THREE.Vector3();
-      if (eyeL) eyeL.getWorldPosition(elPos);
-      if (eyeR) eyeR.getWorldPosition(erPos);
-      if (teeth) teeth.getWorldPosition(teethPos);
+      const worldCenter = worldBox.getCenter(new THREE.Vector3());
 
-      const noseLocal = new THREE.Vector3(0, 3.92, 9.52);
-      const noseWorld = mesh
-        ? noseLocal.clone().applyMatrix4((mesh as THREE.Mesh).matrixWorld)
-        : new THREE.Vector3(0, 0.02, 0.04);
-
-      const faceCenter = new THREE.Vector3()
-        .add(elPos)
-        .add(erPos)
-        .add(teethPos)
-        .add(noseWorld)
-        .multiplyScalar(0.25);
-
-      // Center model exactly on facial center point
-      model.position.set(-faceCenter.x, -faceCenter.y, -faceCenter.z);
+      // Center model so the eyes, nose, and lips are balanced in the middle of the frame
+      model.position.set(-worldCenter.x, -(worldCenter.y - 0.005), -worldCenter.z);
       rootGroup.add(model);
 
-      // 3. Position camera focused on center of face for an upright, clear portrait
-      camera.position.set(0, 0, 0.28);
+      // 4. Position camera for a clear, balanced front-facing portrait
+      camera.position.set(0, 0, 0.44);
       camera.lookAt(0, 0, 0);
 
-      // Find morph targets for speech animation & lip-sync
+      // 5. Find morph targets for speech animation & lip-sync (ARKit blendshapes: 24=jawOpen, 28=mouthFunnel, 29=mouthPucker)
       model.traverse((child: any) => {
         if (child.isMesh) {
-          const mesh = child as THREE.Mesh;
-          if (mesh.material) {
-            if (Array.isArray(mesh.material)) {
-              mesh.material.forEach((m) => {
-                m.depthWrite = true;
+          const m = child as THREE.Mesh;
+          if (m.material) {
+            if (Array.isArray(m.material)) {
+              m.material.forEach((mat) => {
+                mat.depthWrite = true;
               });
             } else {
-              mesh.material.depthWrite = true;
+              m.material.depthWrite = true;
             }
           }
-          if (mesh.morphTargetInfluences && mesh.morphTargetInfluences.length > 0) {
-            morphMesh = mesh;
-            const dict = mesh.morphTargetDictionary || {};
-            const keys = Object.keys(dict);
-
-            if (keys.length > 0) {
-              keys.forEach((key) => {
-                const lower = key.toLowerCase();
-                if (
-                  lower.includes('jaw') ||
-                  lower.includes('mouth') ||
-                  lower.includes('open') ||
-                  lower.includes('funnel') ||
-                  lower.includes('pucker')
-                ) {
-                  jawMorphIndices.push(dict[key]);
-                }
-              });
+          if (m.morphTargetInfluences && m.morphTargetInfluences.length > 0) {
+            morphMesh = m;
+            // Reset all morph influences to neutral 0
+            for (let i = 0; i < m.morphTargetInfluences.length; i++) {
+              m.morphTargetInfluences[i] = 0;
             }
-
-            if (jawMorphIndices.length === 0) {
-              jawMorphIndices = [0, 1, 2].filter((i) => i < mesh.morphTargetInfluences!.length);
+            // Add subtle warm smile on 37 & 38 (mouthSmileLeft, mouthSmileRight)
+            if (m.morphTargetInfluences.length > 38) {
+              m.morphTargetInfluences[37] = 0.18;
+              m.morphTargetInfluences[38] = 0.18;
+            }
+            // Primary ARKit jaw & mouth indices: 24 (jawOpen), 28 (mouthFunnel), 29 (mouthPucker)
+            if (m.morphTargetInfluences.length > 29) {
+              jawMorphIndices = [24, 28, 29];
+            } else {
+              jawMorphIndices = [0, 1, 2].filter((i) => i < m.morphTargetInfluences!.length);
             }
           }
         }
