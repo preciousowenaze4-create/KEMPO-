@@ -155,8 +155,27 @@ export const KempoAiModal: React.FC<KempoAiModalProps> = ({
       if (!cleanText) return;
 
       const utterance = new SpeechSynthesisUtterance(cleanText.slice(0, 400));
-      utterance.rate = 1.05;
-      utterance.pitch = 1.0;
+      
+      // Select mature, warm, confident vocal profile
+      const voices = window.speechSynthesis.getVoices();
+      const matureVoice =
+        voices.find(
+          (v) =>
+            (v.name.includes('Daniel') ||
+              v.name.includes('Oliver') ||
+              v.name.includes('Male') ||
+              v.name.includes('Guy') ||
+              v.name.includes('Google UK English Male') ||
+              v.name.includes('Google US English') ||
+              v.name.includes('Natural')) &&
+            v.lang.startsWith('en')
+        ) || voices.find((v) => v.lang.startsWith('en'));
+
+      if (matureVoice) {
+        utterance.voice = matureVoice;
+      }
+      utterance.rate = 1.0;
+      utterance.pitch = 0.88; // Deeper, mature, confident vocal pitch
 
       utterance.onstart = () => {
         setIsSpeaking(true);

@@ -31,7 +31,9 @@ const getAiClient = () => {
     process.env.GEMINI_API_KEY ||
     process.env.API_KEY ||
     process.env.GOOGLE_API_KEY ||
-    process.env.VITE_GEMINI_API_KEY;
+    process.env.GOOGLE_GENAI_API_KEY ||
+    process.env.VITE_GEMINI_API_KEY ||
+    process.env.GEMINI_KEY;
 
   if (!apiKey) {
     return null;
@@ -221,15 +223,32 @@ Tell me what you are building or paste the snippet/error you are troubleshooting
     return `The solution to ${num1} ${op} ${num2} is **${result}**. Let me know if you have any more math or science questions!`;
   }
 
-  // 11. General dynamic reply addressing the query directly
-  return `Regarding **"${p}"**:
+  // 11. "Do you know me" / Personal relationship & recognition
+  if (lower.includes('you know me') || lower.includes('do you know who i am') || lower.includes('who am i')) {
+    return `I know you're chatting with me on KEMPO PRo right now, and I'm really glad to connect with you! I don't know your personal name yet though—what should I call you? Tell me a bit about yourself!`;
+  }
 
-That touches on key practical and conceptual principles. Depending on what you are aiming to achieve, here are the core perspectives to consider:
+  // 12. User introducing their name ("My name is ...", "I'm ...", "Call me ...")
+  const nameMatch = p.match(/(?:my name is|i am|i'm|call me)\s+([a-zA-Z]+)/i);
+  if (nameMatch && !lower.includes('what') && !lower.includes('who')) {
+    const userName = nameMatch[1];
+    return `Nice to meet you, ${userName}! It's an absolute pleasure to chat with you. How is your day going? What can I help you with or explore together in KEMPO PRo right now?`;
+  }
 
-• **Key insight:** The most effective approach starts by defining the exact outcome you want, breaking it down into distinct steps, and verifying each stage along the way.
-• **Application:** In daily practice, having a structured workflow gives you predictable, reliable results without guesswork.
+  // 13. Friendly conversational feedback (e.g. "thanks", "cool", "nice", "ok", "awesome")
+  if (lower === 'thanks' || lower === 'thank you' || lower.startsWith('thank you') || lower.startsWith('thanks')) {
+    return `You're very welcome! Always here whenever you need me. What else is on your mind?`;
+  }
+  if (lower === 'cool' || lower === 'nice' || lower === 'ok' || lower === 'okay' || lower === 'great' || lower === 'awesome') {
+    return `Glad you think so! Feel free to ask me anything—whether it's looking up facts, drafting a chat message, solving code, or just catching up.`;
+  }
 
-Would you like me to dive deeper into specific details, provide practical examples, or draft an actionable plan for you?`;
+  // 14. Natural human-like reply directly addressing the user's inquiry without robotic templates
+  return `I hear you! When it comes to ${p.replace(/[?!.]/g, '')}, there are a few really interesting ways to look at it. 
+
+If you want the straightforward answer: it really comes down to having clear clarity on what you want to achieve and taking it step by step. 
+
+Tell me more about what you have in mind or what angle you're thinking about—I'm listening and ready to dive in with you!`;
 }
 
 // Health and AI status check endpoint

@@ -112,9 +112,9 @@ export const HeadAvatar3D: React.FC<HeadAvatar3DProps> = ({
 
       const model = gltf.scene;
 
-      // 1. Pitch forward 22° (+X) so the head takes its head down facing the user directly,
+      // 1. Pitch forward 8° (+X) so the head faces straight ahead at eye level (neither facing down nor tilting up),
       // and yaw 11.5° (+Y) to align gaze dead-center horizontally
-      model.rotation.set(22 * (Math.PI / 180), 11.5 * (Math.PI / 180), 0);
+      model.rotation.set(8 * (Math.PI / 180), 11.5 * (Math.PI / 180), 0);
       model.updateMatrixWorld(true);
 
       // 2. Center specifically on the facial features (eyes, nose, mouth) rather than the elongated neck base
